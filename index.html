@@ -748,6 +748,43 @@ function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph
   );
 }
 
+function BottomNav({ onInicio, onConfig, active }) {
+  return (
+    <div style={{ background: C.surface, borderColor: C.border }} className="fixed bottom-0 left-0 right-0 border-t flex justify-around items-center py-2 z-40">
+      <button onClick={onInicio} className="flex flex-col items-center gap-0.5 px-6 py-1">
+        <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-xl">🏠</span>
+        <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Início</span>
+      </button>
+      <button onClick={onConfig} className="flex flex-col items-center gap-0.5 px-6 py-1">
+        <span style={{ color: C.inkMuted }} className="text-xl">☰</span>
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase">Config</span>
+      </button>
+    </div>
+  );
+}
+
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div style={{ background: C.surface, borderColor: C.border }} className="relative w-64 max-w-[80vw] h-full p-5 shadow-2xl border-l flex flex-col">
+        <button onClick={onClose} style={{ color: C.inkMuted }} className="self-end text-2xl mb-4 leading-none">×</button>
+        <div className="flex items-center gap-2.5 mb-6">
+          <img src="logo.png" alt="G&C" className="w-10 h-10 rounded-full shrink-0" />
+          <div className="min-w-0">
+            <p style={{ color: C.ink }} className="font-bold text-sm truncate">{usuario.nome}</p>
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuario.email}</p>
+          </div>
+        </div>
+        <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
+        <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
+        <button onClick={onSair} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 text-sm font-mono">🔒 Sair</button>
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-auto pt-4">© 2026 Gestão & Controle</p>
+      </div>
+    </div>
+  );
+}
+
 function TicketCard({ obra, pendCount, lastDate, onOpen }) {
   return (
     <div onClick={onOpen} style={{ background: C.surface, borderColor: C.border, backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 6px, ${C.bg} 6px, ${C.bg} 10px)`, backgroundSize: "100% 3px", backgroundRepeat: "no-repeat", backgroundPosition: "bottom" }} className="relative cursor-pointer border rounded-md p-4 pb-5 shadow-sm active:shadow-md transition">
@@ -767,12 +804,22 @@ function TicketCard({ obra, pendCount, lastDate, onOpen }) {
   );
 }
 
+const MODULOS_OBRA = [
+  { key: "etapas", label: "Etapas", glyph: "☑" },
+  { key: "equipe", label: "Equipe", glyph: "👥" },
+  { key: "documentos", label: "Documentos", glyph: "📎" },
+  { key: "ferramentas", label: "Ferramentas", glyph: "🔧" },
+  { key: "materiais", label: "Materiais", glyph: "📦" },
+  { key: "observacoes", label: "Observações", glyph: "📝" },
+];
+
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
   onAddEquipo, onRemoveEquipo, onToggleHoje, usuarioRank,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage }) {
   const [erroObra, setErroObra] = useState("");
+  const [modulo, setModulo] = useState(null);
   const { etapas, equipe, ferramentas, materiais, observacoes, documentos } = obraDetalhe;
   const etapasObraCount = etapas.length;
   const etapasObraDone = etapas.filter((e) => e.concluida).length;
@@ -790,6 +837,31 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
     catch (err) { setErroObra(err.message); }
   };
 
+  const contagens = {
+    etapas: etapasObraCount > 0 ? `${etapasObraDone}/${etapasObraCount}` : null,
+    equipe: equipe.length || null,
+    documentos: documentos.length || null,
+    ferramentas: ferramentas.length || null,
+    materiais: materiais.length || null,
+    observacoes: observacoes.length || null,
+  };
+
+  if (modulo) {
+    const mod = MODULOS_OBRA.find((m) => m.key === modulo);
+    return (
+      <div>
+        <button onClick={() => setModulo(null)} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ {obra.cliente}</button>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.glyph} {mod.label}</h2>
+        {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />}
+        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} usuarioRank={usuarioRank} />}
+        {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />}
+        {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" />}
+        {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" />}
+        {modulo === "observacoes" && <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" />}
+      </div>
+    );
+  }
+
   return (
     <div>
       <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
@@ -805,24 +877,15 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
         <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
         {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
       </div>
-      <CollapsibleSection title="📎 Documentos">
-        <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />
-      </CollapsibleSection>
-      <CollapsibleSection title="👥 Equipe">
-        <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} usuarioRank={usuarioRank} />
-      </CollapsibleSection>
-      <CollapsibleSection title={`☑ Etapas${etapasObraCount > 0 ? ` (${etapasObraDone}/${etapasObraCount})` : ""}`}>
-        <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />
-      </CollapsibleSection>
-      <CollapsibleSection title="🔧 Ferramentas">
-        <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" />
-      </CollapsibleSection>
-      <CollapsibleSection title="📦 Materiais">
-        <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" />
-      </CollapsibleSection>
-      <CollapsibleSection title="📝 Observações">
-        <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" />
-      </CollapsibleSection>
+      <div className="grid grid-cols-2 gap-3">
+        {MODULOS_OBRA.map((m) => (
+          <button key={m.key} onClick={() => setModulo(m.key)} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 text-center active:opacity-70 transition">
+            <div className="text-2xl">{m.glyph}</div>
+            <div style={{ color: C.ink }} className="text-sm font-bold uppercase tracking-wide mt-2">{m.label}</div>
+            {contagens[m.key] != null && <div style={{ color: C.inkMuted }} className="text-xs font-mono mt-1">{contagens[m.key]}</div>}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1282,6 +1345,7 @@ function GestorObras() {
   const [obraDetalhe, setObraDetalhe] = useState(null);
   const [obraDetalheLoading, setObraDetalheLoading] = useState(false);
   const [erroGlobal, setErroGlobal] = useState("");
+  const [showConfig, setShowConfig] = useState(false);
 
   const carregarUsuarioAPI = async () => {
     const token = await getValidAccessToken();
@@ -1554,7 +1618,7 @@ function GestorObras() {
     content = <SplashScreen />;
   } else {
     content = (
-    <div className="p-4">
+    <div className="p-4 pb-24">
       {view === "dashboard" && (
         <>
           <div className="flex items-start gap-3 mb-5 pt-2">
@@ -1565,10 +1629,6 @@ function GestorObras() {
                 <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuarioAPI.nome}</span>
               </div>
               <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
-              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                <button onClick={sair} title="Sair" style={{ color: C.inkMuted }} className="flex items-center gap-0.5 text-[11px] font-mono">🔒 sair</button>
-                <button onClick={alternarTema} title="Alternar modo claro/escuro" style={{ color: C.inkMuted }} className="text-lg px-0.5">{temaEscuro ? "☀️" : "🌙"}</button>
-              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
@@ -1610,6 +1670,13 @@ function GestorObras() {
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
     </div>
+    );
+    content = (
+      <>
+        {content}
+        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} />}
+      </>
     );
   }
 
