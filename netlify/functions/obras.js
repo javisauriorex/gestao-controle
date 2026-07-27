@@ -30,6 +30,17 @@ export default async (req) => {
     return jsonResponse({ ok: true, obra: rows[0] });
   }
 
+  if (req.method === "PATCH") {
+    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    const id = new URL(req.url).searchParams.get("id");
+    const { estado } = await req.json();
+    const rows = await sql`
+      UPDATE obras SET estado = ${estado} WHERE id = ${id} AND empresa_id = ${usuario.empresa_id} RETURNING *
+    `;
+    if (rows.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    return jsonResponse({ ok: true, obra: rows[0] });
+  }
+
   if (req.method === "DELETE") {
     if (!podeCrear(4, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = new URL(req.url).searchParams.get("id");
