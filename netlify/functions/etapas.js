@@ -26,10 +26,10 @@ export default async (req) => {
   }
 
   if (req.method === "PATCH") {
-    // Marcar/desmarcar concluída, con foto de evidencia opcional.
+    // Puede venir { texto } para renombrar, o { concluida, fotoConclusaoId } para marcar concluída.
     if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = url.searchParams.get("id");
-    const { concluida, fotoConclusaoId } = await req.json();
+    const body = await req.json();
     const atuais = await sql`
       SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
@@ -37,12 +37,18 @@ export default async (req) => {
     if (!podeModificar(usuario.rank, atuais[0].rank_criador)) {
       return jsonResponse({ ok: false, error: "não pode modificar o que um escalão superior criou" }, 403);
     }
+
+    if (body.texto !== undefined) {
+      const rows = await sql`UPDATE etapas SET texto = ${body.texto} WHERE id = ${id} RETURNING *`;
+      return jsonResponse({ ok: true, etapa: rows[0] });
+    }
+
     const rows = await sql`
       UPDATE etapas SET
-        concluida = ${!!concluida},
-        foto_conclusao_id = ${fotoConclusaoId || null},
-        concluida_por = ${concluida ? usuario.id : null},
-        concluida_em = ${concluida ? new Date().toISOString() : null}
+        concluida = ${!!body.concluida},
+        foto_conclusao_id = ${body.fotoConclusaoId || null},
+        concluida_por = ${body.concluida ? usuario.id : null},
+        concluida_em = ${body.concluida ? new Date().toISOString() : null}
       WHERE id = ${id}
       RETURNING *
     `;
