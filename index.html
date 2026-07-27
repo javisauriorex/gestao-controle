@@ -84,6 +84,7 @@ const REG_CATS = {
 };
 
 const FUNCOES = ["Encarregado", "Oficial", "Ajudante", "Almoxarife", "Frete", "Outro"];
+const RANK_LABELS = { 1: "Profissional", 2: "Encarregado", 3: "Mestre de obra", 4: "Engenheiro", 5: "Dono" };
 const ESTADOS = {
   ativa: { label: "ATIVA", color: C.blue },
   pausada: { label: "PAUSADA", color: C.amber },
@@ -93,6 +94,7 @@ const ESTADOS = {
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+const fmtTs = (ts) => (ts ? new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
 const daysAgo = (iso) => Math.floor((Date.now() - new Date(iso + "T00:00:00").getTime()) / 86400000);
 
 const EMPTY = { obras: [], registros: [], etapas: [], avancos: [], equipe: [], documentos: [] };
@@ -125,6 +127,126 @@ function base64urlToBuf(b64url) {
   return bytes.buffer;
 }
 const biometriaSuportada = () => typeof window !== "undefined" && !!window.PublicKeyCredential;
+
+// --- Netlify Identity: autenticación real, sin librerías externas (puro fetch contra sus endpoints) ---
+const siteUrl = () => window.location.origin;
+
+async function identitySignup(email, password, nome) {
+  const res = await fetch(`${siteUrl()}/.netlify/identity/signup`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password, user_metadata: { full_name: nome } }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.msg || data.error_description || "Não foi possível criar a conta.");
+  return data;
+}
+
+async function identityLogin(email, password) {
+  const res = await fetch(`${siteUrl()}/.netlify/identity/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: `grant_type=password&username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || "Email ou senha incorretos.");
+  return data;
+}
+
+async function identityRecoverRequest(email) {
+  const res = await fetch(`${siteUrl()}/.netlify/identity/recover`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.msg || "Não foi possível iniciar a recuperação.");
+  }
+}
+
+async function identitySetNewPassword(recoveryToken, newPassword) {
+  const res = await fetch(`${siteUrl()}/.netlify/identity/user`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", authorization: `Bearer ${recoveryToken}` },
+    body: JSON.stringify({ password: newPassword }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.msg || "Não foi possível definir a nova senha.");
+  return data;
+}
+
+function identityGoogleRedirect() {
+  window.location.href = `${siteUrl()}/.netlify/identity/authorize?provider=google`;
+}
+
+function parseHashParams() {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash) return {};
+  const out = {};
+  new URLSearchParams(hash).forEach((v, k) => (out[k] = v));
+  return out;
+}
+
+function saveSession(tokenData) {
+  const session = {
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token,
+    expires_at: Date.now() + (tokenData.expires_in || 3600) * 1000,
+  };
+  localStorage.setItem("identity-session", JSON.stringify(session));
+  return session;
+}
+
+function getSession() {
+  try {
+    return JSON.parse(localStorage.getItem("identity-session"));
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearSession() {
+  localStorage.removeItem("identity-session");
+}
+
+// Helper central: toda llamada a nuestras Functions pasa por acá.
+// Agrega el token automáticamente y tira un error legible si el server rechaza.
+async function apiFetch(path, opts = {}) {
+  const token = await getValidAccessToken();
+  if (!token) throw new Error("Sessão expirada. Entre novamente.");
+  const headers = { authorization: `Bearer ${token}`, ...(opts.headers || {}) };
+  if (opts.body) headers["content-type"] = "application/json";
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  return data;
+}
+
+async function refreshSession(session) {
+  const res = await fetch(`${siteUrl()}/.netlify/identity/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(session.refresh_token)}`,
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return saveSession(data);
+}
+
+// Devuelve un access_token válido (refrescando si hizo falta) o null si no hay sesión.
+async function getValidAccessToken() {
+  let session = getSession();
+  if (!session) return null;
+  if (Date.now() > session.expires_at - 60000) {
+    session = await refreshSession(session);
+    if (!session) {
+      clearSession();
+      return null;
+    }
+  }
+  return session.access_token;
+}
 
 // Token compartido para autorizar las llamadas a las Functions (arquivo-set/get/delete).
 // Debe coincidir con la variable de entorno APP_TOKEN configurada en Netlify.
@@ -244,9 +366,21 @@ function NuevaObraModal({ onClose, onSave, obras = [] }) {
   const [endereco, setEndereco] = useState("");
   const [tipo, setTipo] = useState("");
   const [dataInicio, setDataInicio] = useState(todayISO());
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
   const clientesHistoricos = [...new Set(obras.map((o) => o.cliente).filter(Boolean))];
   const tiposHistoricos = [...new Set(obras.map((o) => o.tipo).filter(Boolean))];
-  const submit = () => { if (!cliente.trim()) return; onSave({ id: uid(), cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), dataInicio, estado: "ativa" }); };
+  const submit = async () => {
+    if (!cliente.trim()) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      await onSave({ cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), dataInicio });
+    } catch (err) {
+      setErro(err.message);
+      setSalvando(false);
+    }
+  };
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-md shadow-xl">
@@ -263,10 +397,11 @@ function NuevaObraModal({ onClose, onSave, obras = [] }) {
             <input value={tipo} onChange={(e) => setTipo(e.target.value)} list="tipos-historicos" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Ex: reforma elétrica, pintura" /></div>
           <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Data de início</label>
             <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
         </div>
         <datalist id="clientes-historicos">{clientesHistoricos.map((c) => <option key={c} value={c} />)}</datalist>
         <datalist id="tipos-historicos">{tiposHistoricos.map((t) => <option key={t} value={t} />)}</datalist>
-        <button onClick={submit} disabled={!cliente.trim()} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-40">Criar obra</button>
+        <button onClick={submit} disabled={!cliente.trim() || salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-40">{salvando ? "Criando..." : "Criar obra"}</button>
       </div>
     </div>
   );
@@ -288,7 +423,8 @@ function CollapsibleSection({ title, defaultOpen = true, children }) {
 function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loadFile, saveArquivo, onViewImage }) {
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
-  const list = documentos.filter((d) => d.obraId === obraId);
+  const [erro, setErro] = useState("");
+  const list = documentos;
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
@@ -298,28 +434,28 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
       e.target.value = "";
       return;
     }
+    setErro("");
     setUploading(true);
     try {
       const dataUrl = await fileToDataURL(file);
       const arquivoId = uid();
       const ok = await saveArquivo(arquivoId, { nome: file.name, tipo: file.type, dataUrl });
       if (ok) {
-        onAdd({ id: uid(), obraId, nome: file.name, tipo: file.type, data: todayISO(), arquivoId });
+        await onAdd({ obraId, nome: file.name, tipo: file.type, arquivoId });
       } else {
-        alert("Não foi possível salvar o arquivo — provavelmente falta espaço no aparelho. Verifique o indicador de espaço no topo e apague dados antigos ou faça backup e limpe.");
+        alert("Não foi possível salvar o arquivo — provavelmente falta espaço. Verifique o indicador de espaço no topo.");
       }
     } catch (err) {
-      console.error(err);
-      alert("Não foi possível processar o arquivo.");
+      setErro(err.message || "Não foi possível processar o arquivo.");
     }
     setUploading(false);
     e.target.value = "";
   };
 
-  useEffect(() => { list.forEach((d) => { if (!fileCache[d.arquivoId]) loadFile(d.arquivoId); }); }, [obraId, list.map((d) => d.arquivoId).join(",")]);
+  useEffect(() => { list.forEach((d) => { if (!fileCache[d.arquivo_id]) loadFile(d.arquivo_id); }); }, [obraId, list.map((d) => d.arquivo_id).join(",")]);
 
   const download = (doc) => {
-    const f = fileCache[doc.arquivoId];
+    const f = fileCache[doc.arquivo_id];
     if (!f || f === "MISSING") return;
     const a = document.createElement("a");
     a.href = f.dataUrl;
@@ -327,12 +463,21 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
     a.click();
   };
 
+  const remover = async (doc) => {
+    setErro("");
+    try {
+      await onDelete(doc.id, doc.arquivo_id);
+    } catch (err) {
+      setErro(err.message);
+    }
+  };
+
   return (
     <div>
       <div className="space-y-1.5 mb-3">
         {list.map((d) => {
           const isImg = isImagemDoc(d);
-          const f = fileCache[d.arquivoId];
+          const f = fileCache[d.arquivo_id];
           const faltando = f === "MISSING";
           return (
             <div key={d.id} style={{ background: C.bg, borderColor: faltando ? C.rust : C.border }} className="border rounded px-3 py-2 flex items-center gap-2">
@@ -342,15 +487,16 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
                 <span>{faltando ? "⚠" : isImg ? "🖼" : "📄"}</span>
               )}
               <span style={{ color: faltando ? C.rust : C.ink }} className="text-sm flex-1 min-w-0 truncate">{d.nome}{faltando ? " (indisponível)" : ""}</span>
-              <span style={{ color: C.inkMuted }} className="text-[11px] font-mono shrink-0">{fmt(d.data)}</span>
+              <span style={{ color: C.inkMuted }} className="text-[11px] font-mono shrink-0">{fmtTs(d.criado_em)}</span>
               {isImg && !faltando && <button onClick={() => f && onViewImage(f.dataUrl)} style={{ color: C.teal }} className="text-xs font-bold uppercase shrink-0">Ver</button>}
               {!faltando && <button onClick={() => download(d)} style={{ color: C.blue }} className="text-xs font-bold uppercase shrink-0">Baixar</button>}
-              <button onClick={() => onDelete(d.id, d.arquivoId)} style={{ color: C.rust }}>🗑</button>
+              <button onClick={() => remover(d)} style={{ color: C.rust }}>🗑</button>
             </div>
           );
         })}
         {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nenhum documento anexado.</p>}
       </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
       <input ref={inputRef} type="file" onChange={handleFile} className="hidden" />
       <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ background: C.ink }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2 disabled:opacity-50">
         + {uploading ? "Enviando..." : "Adicionar projeto"}
@@ -359,14 +505,41 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
   );
 }
 
-function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje }) {
-  const [nome, setNome] = useState("");
+function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioRank }) {
+  const [email, setEmail] = useState("");
   const [funcao, setFuncao] = useState("");
-  const list = equipe.filter((m) => m.obraId === obraId);
+  const [rank, setRank] = useState(1);
+  const [erro, setErro] = useState("");
+  const [msg, setMsg] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const list = equipe;
   const hoje = todayISO();
-  const nomesHistoricos = [...new Set(equipe.map((m) => m.nome).filter(Boolean))];
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
-  const submit = () => { if (!nome.trim()) return; onAdd({ id: uid(), obraId, nome: nome.trim(), funcao: (funcao || FUNCOES[0]).trim(), asistencias: [] }); setNome(""); setFuncao(""); };
+  const ranksDisponiveis = [1, 2, 3, 4, 5].filter((r) => r <= usuarioRank);
+
+  const submit = async () => {
+    if (!email.trim()) return;
+    setErro(""); setMsg(""); setSalvando(true);
+    try {
+      const r = await onAdd({ obraId, email: email.trim(), rank, funcao: (funcao || FUNCOES[0]).trim() });
+      setMsg(r.convite ? `Convite enviado para ${email.trim()} — vai entrar assim que criar a conta.` : "Adicionado.");
+      setEmail(""); setFuncao("");
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  const remover = async (m) => {
+    setErro("");
+    try { await onRemove(m.id); } catch (err) { setErro(err.message); }
+  };
+
+  const marcarPresenca = async (m) => {
+    setErro("");
+    try { await onToggleHoje(m.id, hoje); } catch (err) { setErro(err.message); }
+  };
+
   return (
     <div>
       <div className="space-y-2 mb-3">
@@ -374,24 +547,32 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje }) {
           const presenteHoje = m.asistencias?.includes(hoje);
           return (
             <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2 flex items-center gap-2">
-              <button onClick={() => onToggleHoje(m.id)} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs">
+              <button onClick={() => marcarPresenca(m)} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs">
                 {presenteHoje ? "✓" : ""}
               </button>
-              <div className="flex-1 min-w-0 truncate"><span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.funcao}</span></div>
+              <div className="flex-1 min-w-0 truncate">
+                <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.funcao || RANK_LABELS[m.rank]}</span>
+                <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email} · {RANK_LABELS[m.rank]}</div>
+              </div>
               <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
-              <button onClick={() => onRemove(m.id)} style={{ color: C.inkMuted }} className="shrink-0">×</button>
+              <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>
             </div>
           );
         })}
         {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem equipe atribuída.</p>}
       </div>
-      <div className="flex gap-2">
-        <input value={nome} onChange={(e) => setNome(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Nome" list="nomes-equipe" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
-        <input value={funcao} onChange={(e) => setFuncao(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder={FUNCOES[0]} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-24 shrink-0" />
-        <datalist id="nomes-equipe">{nomesHistoricos.map((n) => <option key={n} value={n} />)}</datalist>
+      <div className="flex flex-wrap gap-2">
+        <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+        <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={FUNCOES[0]} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-24 shrink-0" />
+        <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
+          {ranksDisponiveis.map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+        </select>
         <datalist id="funcoes-equipe">{funcoesHistoricas.map((f) => <option key={f} value={f} />)}</datalist>
-        <button onClick={submit} disabled={!nome.trim()} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+        <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
       </div>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Se o email ainda não tem conta, fica um convite pendente com o rank escolhido.</p>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
+      {msg && <p style={{ color: C.green }} className="text-xs font-mono mt-1">{msg}</p>}
     </div>
   );
 }
@@ -405,113 +586,86 @@ function Lightbox({ src, onClose }) {
   );
 }
 
-function EtapaNode({ etapa, allEtapas, avancos, depth, onToggle, onRemove, onAddSub, onEditEtapa, onAddAvanco, onEditAvanco, onDeleteAvanco, fileCache, loadFile, saveArquivo, onViewImage, nomesHistoricos = [] }) {
-  const [openAvancos, setOpenAvancos] = useState(false);
+function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, nomesHistoricos = [] }) {
   const [openSub, setOpenSub] = useState(false);
   const [editando, setEditando] = useState(false);
   const [nomeEdit, setNomeEdit] = useState(etapa.texto);
-  const [texto, setTexto] = useState("");
   const [novoSub, setNovoSub] = useState("");
-  const [photoPreview, setPhotoPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [erro, setErro] = useState("");
   const inputRef = useRef(null);
-  const filhos = allEtapas.filter((e) => e.parentId === etapa.id);
-  const list = avancos.filter((a) => a.etapaId === etapa.id).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  const filhos = allEtapas.filter((e) => e.parent_id === etapa.id);
   const temFilhos = filhos.length > 0;
 
-  const salvarNome = () => {
-    if (nomeEdit.trim()) onEditEtapa(etapa.id, nomeEdit.trim());
-    else setNomeEdit(etapa.texto);
+  const salvarNome = async () => {
+    if (nomeEdit.trim() && nomeEdit.trim() !== etapa.texto) {
+      try { await onEditEtapa(etapa.id, nomeEdit.trim()); } catch (err) { setErro(err.message); setNomeEdit(etapa.texto); }
+    } else setNomeEdit(etapa.texto);
     setEditando(false);
+  };
+
+  const toggleSimples = async () => {
+    setErro("");
+    try { await onToggle(etapa.id, !etapa.concluida, etapa.foto_conclusao_id); } catch (err) { setErro(err.message); }
   };
 
   const handlePhoto = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    try { setPhotoPreview(await compressImage(file)); } catch (err) { console.error(err); }
+    setUploading(true);
+    setErro("");
+    try {
+      const dataUrl = await compressImage(file);
+      const fotoId = uid();
+      const ok = await saveArquivo(fotoId, { nome: "conclusao.jpg", tipo: "image/jpeg", dataUrl });
+      if (!ok) { setErro("Não foi possível salvar a foto (sem espaço?)."); setUploading(false); e.target.value = ""; return; }
+      await onToggle(etapa.id, true, fotoId);
+    } catch (err) { setErro(err.message); }
+    setUploading(false);
     e.target.value = "";
   };
 
-  const submit = async () => {
-    if (!texto.trim() && !photoPreview) return;
-    setUploading(true);
-    let fotoIds = [];
-    if (photoPreview) {
-      const fotoId = uid();
-      const ok = await saveArquivo(fotoId, { nome: "foto.jpg", tipo: "image/jpeg", dataUrl: photoPreview });
-      if (!ok) {
-        alert("Não foi possível salvar a foto — provavelmente falta espaço no aparelho. Verifique o indicador de espaço no topo.");
-        setUploading(false);
-        return;
-      }
-      fotoIds = [fotoId];
-    }
-    onAddAvanco({ id: uid(), etapaId: etapa.id, obraId: etapa.obraId, fecha: todayISO(), texto: texto.trim() || "(foto)", fotoIds });
-    setTexto(""); setPhotoPreview(null); setUploading(false);
+  const addSub = async () => {
+    if (!novoSub.trim()) return;
+    setErro("");
+    try { await onAddSub(etapa.id, novoSub.trim()); setNovoSub(""); } catch (err) { setErro(err.message); }
   };
 
-  const addSub = () => {
-    if (!novoSub.trim()) return;
-    onAddSub(etapa.id, novoSub.trim());
-    setNovoSub("");
+  const removerEtapa = async () => {
+    setErro("");
+    try { await onRemove(etapa.id); } catch (err) { setErro(err.message); }
   };
 
   return (
     <div style={{ marginLeft: depth * 14 }}>
-      <div style={{ borderColor: C.border }} className="border rounded-md overflow-hidden mb-2">
-        <div className="flex items-center gap-1.5 p-2.5" style={{ background: C.bg }}>
-          <button onClick={() => onToggle(etapa.id)} style={{ borderColor: etapa.completada ? C.green : C.border, background: etapa.completada ? C.green : "transparent" }} className="w-4 h-4 border-2 rounded flex items-center justify-center shrink-0 text-white text-[10px]">{etapa.completada ? "✓" : ""}</button>
+      <div style={{ borderColor: C.border, background: C.bg }} className="border rounded-md p-2.5 mb-2">
+        <div className="flex items-center gap-1.5">
+          <button onClick={toggleSimples} style={{ borderColor: etapa.concluida ? C.green : C.border, background: etapa.concluida ? C.green : "transparent" }} className="w-4 h-4 border-2 rounded flex items-center justify-center shrink-0 text-white text-[10px]">{etapa.concluida ? "✓" : ""}</button>
           <button onClick={() => setOpenSub(!openSub)} title="Subetapas" className="shrink-0">{temFilhos ? (openSub ? "📂" : "📁") : "📄"}</button>
           {editando ? (
             <input value={nomeEdit} onChange={(e) => setNomeEdit(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvarNome()} onBlur={salvarNome} autoFocus style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="flex-1 min-w-0 border rounded px-2 py-0.5 text-sm outline-none" />
           ) : (
-            <span onClick={() => setOpenAvancos(!openAvancos)} style={{ color: etapa.completada ? C.inkMuted : C.ink, textDecoration: etapa.completada ? "line-through" : "none" }} className="text-sm flex-1 min-w-0 truncate cursor-pointer">{etapa.texto}</span>
+            <span style={{ color: etapa.concluida ? C.inkMuted : C.ink, textDecoration: etapa.concluida ? "line-through" : "none" }} className="text-sm flex-1 min-w-0 truncate">{etapa.texto}</span>
           )}
-          {temFilhos && <span style={{ color: C.inkMuted }} className="text-[10px] font-mono shrink-0">{filhos.filter((f) => f.completada).length}/{filhos.length}</span>}
-          {list.length > 0 && <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">📷{list.length}</span>}
+          {temFilhos && <span style={{ color: C.inkMuted }} className="text-[10px] font-mono shrink-0">{filhos.filter((f) => f.concluida).length}/{filhos.length}</span>}
           {!editando && <button onClick={() => { setNomeEdit(etapa.texto); setEditando(true); }} style={{ color: C.inkMuted }} className="shrink-0">✎</button>}
-          <button onClick={() => setOpenAvancos(!openAvancos)} style={{ color: C.inkMuted }} className="shrink-0">{openAvancos ? "▲" : "▼"}</button>
-          <button onClick={() => onRemove(etapa.id)} style={{ color: C.rust }} className="shrink-0">🗑</button>
+          <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
+          <button onClick={() => inputRef.current?.click()} disabled={uploading} title="Concluir com foto" style={{ color: C.inkMuted }} className="shrink-0">📷</button>
+          <button onClick={removerEtapa} style={{ color: C.rust }} className="shrink-0">🗑</button>
         </div>
-
-        {openAvancos && (
-          <div style={{ background: C.surface }} className="p-3 border-t">
-            <div className="space-y-2 mb-3">
-              {list.map((a) => (
-                <div key={a.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded p-2.5 flex gap-2">
-                  {a.fotoIds?.map((fid) => <Thumbnail key={fid} fotoId={fid} fileCache={fileCache} loadFile={loadFile} onView={onViewImage} />)}
-                  <div className="flex-1">
-                    <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">{fmt(a.fecha)}</span>
-                    <p style={{ color: C.ink }} className="text-sm">{a.texto}</p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button onClick={() => { const nv = prompt("Editar avanço:", a.texto); if (nv != null && nv.trim()) onEditAvanco(a.id, nv.trim()); }} style={{ color: C.inkMuted }}>✎</button>
-                    <button onClick={() => onDeleteAvanco(a.id)} style={{ color: C.rust }}>🗑</button>
-                  </div>
-                </div>
-              ))}
-              {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-xs font-mono">Sem avanços registrados ainda.</p>}
-            </div>
-            {photoPreview && (
-              <div className="mb-2 flex items-center gap-2">
-                <img src={photoPreview} className="w-14 h-14 object-cover rounded border" style={{ borderColor: C.border }} />
-                <button onClick={() => setPhotoPreview(null)} style={{ color: C.rust }} className="text-xs font-mono">remover foto</button>
-              </div>
-            )}
-            <div className="flex gap-2">
-              <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Avanço de hoje..." style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
-              <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
-              <button onClick={() => inputRef.current?.click()} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2.5 shrink-0">📷</button>
-              <button onClick={submit} disabled={(!texto.trim() && !photoPreview) || uploading} style={{ background: C.ink }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
-            </div>
+        {etapa.foto_conclusao_id && (
+          <div className="mt-2 flex items-center gap-2">
+            <Thumbnail fotoId={etapa.foto_conclusao_id} fileCache={fileCache} loadFile={loadFile} onView={onViewImage} />
+            <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">Concluída em {fmtTs(etapa.concluida_em)}</span>
           </div>
         )}
+        {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{erro}</p>}
       </div>
 
       {openSub && (
         <div style={{ borderLeft: `2px dashed ${C.border}`, marginLeft: 8 }} className="pl-2 mb-2">
           {filhos.map((f) => (
-            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} avancos={avancos} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} onAddAvanco={onAddAvanco} onEditAvanco={onEditAvanco} onDeleteAvanco={onDeleteAvanco} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} />
+            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} />
           ))}
           <div className="flex gap-2 mb-2">
             <input value={novoSub} onChange={(e) => setNovoSub(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSub()} placeholder="Nova subetapa" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
@@ -523,20 +677,24 @@ function EtapaNode({ etapa, allEtapas, avancos, depth, onToggle, onRemove, onAdd
   );
 }
 
-function EtapasSection({ obraId, etapas, avancos, onAdd, onToggle, onRemove, onEditEtapa, onAddAvanco, onEditAvanco, onDeleteAvanco, fileCache, loadFile, saveArquivo, onViewImage }) {
+function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage }) {
   const [texto, setTexto] = useState("");
-  const todasObra = etapas.filter((e) => e.obraId === obraId).map((e) => ({ ...e, obraId }));
-  const raiz = todasObra.filter((e) => !e.parentId);
-  const done = todasObra.filter((e) => e.completada).length;
+  const [erro, setErro] = useState("");
+  const raiz = etapas.filter((e) => !e.parent_id);
   const nomesHistoricos = [...new Set(etapas.map((e) => e.texto).filter(Boolean))];
-  const submit = () => { if (!texto.trim()) return; onAdd({ id: uid(), obraId, parentId: null, texto: texto.trim(), completada: false }); setTexto(""); };
-  const addSub = (parentId, txt) => onAdd({ id: uid(), obraId, parentId, texto: txt, completada: false });
+
+  const submit = async () => {
+    if (!texto.trim()) return;
+    setErro("");
+    try { await onAdd(null, texto.trim()); setTexto(""); } catch (err) { setErro(err.message); }
+  };
+
   return (
     <div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · toque no texto para registrar avanços com foto.</p>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · 📷 conclui com foto.</p>
       <div className="mb-3">
         {raiz.map((e) => (
-          <EtapaNode key={e.id} etapa={e} allEtapas={todasObra} avancos={avancos} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={addSub} onEditEtapa={onEditEtapa} onAddAvanco={onAddAvanco} onEditAvanco={onEditAvanco} onDeleteAvanco={onDeleteAvanco} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} />
+          <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} />
         ))}
         {raiz.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem etapas cadastradas.</p>}
       </div>
@@ -545,6 +703,47 @@ function EtapasSection({ obraId, etapas, avancos, onAdd, onToggle, onRemove, onE
         <datalist id="nomes-etapas">{nomesHistoricos.map((n) => <option key={n} value={n} />)}</datalist>
         <button onClick={submit} disabled={!texto.trim()} style={{ background: C.ink }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
       </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
+    </div>
+  );
+}
+
+function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId }) {
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const historico = [...new Set(items.map((i) => i.texto).filter(Boolean))];
+
+  const submit = async () => {
+    if (!texto.trim()) return;
+    setErro("");
+    try { await onAdd(texto.trim()); setTexto(""); } catch (err) { setErro(err.message); }
+  };
+  const remover = async (item) => {
+    setErro("");
+    try { await onDelete(item.id); } catch (err) { setErro(err.message); }
+  };
+
+  return (
+    <div>
+      <div className="space-y-2 mb-3">
+        {items.map((item) => (
+          <div key={item.id} style={{ background: C.surface, borderLeftColor: color }} className="border-l-4 rounded-r-md p-3 shadow-sm flex gap-3 group">
+            <span className="mt-0.5 shrink-0">{glyph}</span>
+            <div className="flex-1">
+              <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">{fmtTs(item.criado_em)}</span>
+              <p style={{ color: C.ink }} className="text-sm">{item.texto}</p>
+            </div>
+            <button onClick={() => remover(item)} style={{ color: C.rust }} className="opacity-0 group-hover:opacity-100 hover:opacity-60 transition shrink-0">🗑</button>
+          </div>
+        ))}
+        {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nada registrado ainda.</p>}
+      </div>
+      <div className="flex gap-2">
+        <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder={placeholder} list={datalistId} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+        <datalist id={datalistId}>{historico.map((h) => <option key={h} value={h} />)}</datalist>
+        <button onClick={submit} disabled={!texto.trim()} style={{ background: color }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
     </div>
   );
 }
@@ -568,86 +767,98 @@ function TicketCard({ obra, pendCount, lastDate, onOpen }) {
   );
 }
 
-function ObraDetail({ obra, registros, etapas, avancos, equipe, documentos, onBack, onAddReg, onEditReg, onDeleteReg, onChangeEstado, onDeleteObra, onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa, onAddAvanco, onEditAvanco, onDeleteAvanco, onAddEquipo, onRemoveEquipo, onToggleHoje, onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage }) {
-  const [cat, setCat] = useState("ferramenta");
-  const [texto, setTexto] = useState("");
-  const regs = registros.filter((r) => r.obraId === obra.id).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
-  const etapasObraCount = etapas.filter((e) => e.obraId === obra.id).length;
-  const etapasObraDone = etapas.filter((e) => e.obraId === obra.id && e.completada).length;
-  const submit = () => { if (!texto.trim()) return; onAddReg({ id: uid(), obraId: obra.id, fecha: todayISO(), categoria: cat, texto: texto.trim(), resolvido: false }); setTexto(""); };
-  const cycleEstado = () => { const order = ["ativa", "pausada", "concluida"]; onChangeEstado(obra.id, order[(order.indexOf(obra.estado) + 1) % order.length]); };
+function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
+  onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa,
+  onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
+  onAddEquipo, onRemoveEquipo, onToggleHoje, usuarioRank,
+  onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage }) {
+  const [erroObra, setErroObra] = useState("");
+  const { etapas, equipe, ferramentas, materiais, observacoes, documentos } = obraDetalhe;
+  const etapasObraCount = etapas.length;
+  const etapasObraDone = etapas.filter((e) => e.concluida).length;
+
+  const cycleEstado = async () => {
+    setErroObra("");
+    const order = ["ativa", "pausada", "concluida"];
+    try { await onChangeEstado(obra.id, order[(order.indexOf(obra.estado) + 1) % order.length]); }
+    catch (err) { setErroObra(err.message); }
+  };
+
+  const excluir = async () => {
+    setErroObra("");
+    try { await onDeleteObra(obra.id); }
+    catch (err) { setErroObra(err.message); }
+  };
+
   return (
     <div>
       <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-5 mb-5">
         <div className="flex justify-between items-start gap-3">
           <div>
-            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"} · desde {fmt(obra.dataInicio)}</p>
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"} · desde {fmt(obra.data_inicio)}</p>
             <h2 style={{ color: C.ink }} className="text-2xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
             <p style={{ color: C.inkMuted }} className="text-sm mt-1">{obra.endereco}</p>
           </div>
           <StampBadge estado={obra.estado} onClick={cycleEstado} />
         </div>
-        <button onClick={() => onDeleteObra(obra.id)} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
+        <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
+        {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
       </div>
       <CollapsibleSection title="📎 Documentos">
         <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />
       </CollapsibleSection>
       <CollapsibleSection title="👥 Equipe">
-        <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} />
+        <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} usuarioRank={usuarioRank} />
       </CollapsibleSection>
       <CollapsibleSection title={`☑ Etapas${etapasObraCount > 0 ? ` (${etapasObraDone}/${etapasObraCount})` : ""}`}>
-        <EtapasSection obraId={obra.id} etapas={etapas} avancos={avancos} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} onAddAvanco={onAddAvanco} onEditAvanco={onEditAvanco} onDeleteAvanco={onDeleteAvanco} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />
+        <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />
       </CollapsibleSection>
-      <CollapsibleSection title="Registro">
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {Object.entries(REG_CATS).map(([key, v]) => (
-            <button key={key} onClick={() => setCat(key)} style={{ borderColor: v.color, background: cat === key ? v.color : "transparent", color: cat === key ? "#fff" : v.color }} className="text-xs font-bold uppercase tracking-wide border rounded px-2.5 py-1 transition">{v.glyph} {v.label}</button>
-          ))}
-        </div>
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={cat === "pendencia" ? "O que ficou pendente / sem resolver?" : "Detalhe..."} rows={2} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 outline-none resize-none" />
-        <button onClick={submit} disabled={!texto.trim()} style={{ background: C.ink }} className="mt-2 mb-4 text-white font-bold uppercase tracking-wide rounded px-4 py-2 text-sm disabled:opacity-40">+ Adicionar</button>
-        <div className="space-y-2">
-          {regs.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-8">Sem registros ainda.</p>}
-          {regs.map((r) => {
-            const meta = REG_CATS[r.categoria];
-            const isPend = r.categoria === "pendencia";
-            return (
-              <EditableRow key={r.id} glyph={meta.glyph} color={meta.color} label={meta.label} dateStr={fmt(r.fecha)} text={r.texto}
-                onSave={(val) => onEditReg(r.id, val)} onDelete={() => onDeleteReg(r.id)}
-                extra={isPend && (
-                  <button onClick={() => onEditReg(r.id, r.texto, !r.resolvido)} style={{ color: r.resolvido ? C.green : C.rust }} className="text-[11px] font-mono uppercase mt-1">
-                    {r.resolvido ? "✓ resolvido" : "○ marcar como resolvido"}
-                  </button>
-                )} />
-            );
-          })}
-        </div>
+      <CollapsibleSection title="🔧 Ferramentas">
+        <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" />
+      </CollapsibleSection>
+      <CollapsibleSection title="📦 Materiais">
+        <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" />
+      </CollapsibleSection>
+      <CollapsibleSection title="📝 Observações">
+        <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" />
       </CollapsibleSection>
     </div>
   );
 }
 
-function PendientesView({ obras, registros, etapas, onBack, onOpenObra }) {
-  const items = obras.map((obra) => {
-    const pend = registros.filter((r) => r.obraId === obra.id && r.categoria === "pendencia" && !r.resolvido);
-    const etapasPend = etapas.filter((e) => e.obraId === obra.id && !e.completada);
-    return { obra, pend, etapasPend };
-  }).filter((x) => x.pend.length > 0 || x.etapasPend.length > 0);
+function PendientesView({ obras, onBack, onOpenObra }) {
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const resultados = await Promise.all(obras.map(async (obra) => {
+        try {
+          const r = await apiFetch(`/api/etapas?obra_id=${obra.id}`);
+          return { obra, pendentes: r.etapas.filter((e) => !e.concluida) };
+        } catch (e) { return { obra, pendentes: [] }; }
+      }));
+      setItems(resultados.filter((x) => x.pendentes.length > 0));
+      setLoading(false);
+    })();
+  }, [obras]);
+
   return (
     <div>
       <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <h2 style={{ color: C.ink }} className="text-xl font-extrabold uppercase tracking-wide mb-1">● Pendências</h2>
-      <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">Tudo o que segue em aberto, em todas as obras</p>
-      {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Nada pendente. Tudo em ordem.</p>}
+      <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">Etapas ainda não concluídas, em todas as obras</p>
+      {loading && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Carregando...</p>}
+      {!loading && items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Nada pendente. Tudo em ordem.</p>}
       <div className="space-y-4">
-        {items.map(({ obra, pend, etapasPend }) => (
+        {items.map(({ obra, pendentes }) => (
           <div key={obra.id} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4">
             <button onClick={() => onOpenObra(obra.id)} style={{ color: C.ink }} className="font-extrabold text-sm uppercase tracking-wide">
               {obra.cliente} <span style={{ color: C.inkMuted }} className="font-normal normal-case">— {obra.endereco}</span>
             </button>
-            {pend.map((c) => <div key={c.id} className="flex items-start gap-2 text-sm mt-2"><span>⚠</span><span style={{ color: C.ink }}>{c.texto}</span></div>)}
-            {etapasPend.map((e) => <div key={e.id} className="flex items-start gap-2 text-sm mt-2"><span>☑</span><span style={{ color: C.inkMuted }}>{e.texto} <span className="text-xs font-mono">(etapa)</span></span></div>)}
+            {pendentes.map((e) => <div key={e.id} className="flex items-start gap-2 text-sm mt-2"><span>☑</span><span style={{ color: C.inkMuted }}>{e.texto}</span></div>)}
           </div>
         ))}
       </div>
@@ -655,78 +866,74 @@ function PendientesView({ obras, registros, etapas, onBack, onOpenObra }) {
   );
 }
 
-function ReportView({ obras, registros, etapas, avancos, onBack }) {
+function ReportView({ obras, onBack }) {
+  const [loading, setLoading] = useState(true);
+  const [reportText, setReportText] = useState("");
   const [copied, setCopied] = useState(false);
   const cutoff = todayISO();
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-  const reportText = useMemo(() => {
-    const lines = [`*RELATÓRIO SEMANAL — GESTÃO & CONTROLE*`, `${fmt(weekAgo)} a ${fmt(cutoff)}`, ""];
-    const openPend = registros.filter((r) => r.categoria === "pendencia" && !r.resolvido);
-    if (openPend.length > 0) {
-      lines.push(`*⚠ PENDÊNCIAS ABERTAS (${openPend.length})*`);
-      openPend.forEach((c) => { const o = obras.find((x) => x.id === c.obraId); lines.push(`  • [${o?.cliente || "?"}] ${c.texto}`); });
-      lines.push("");
-    }
-    let any = false;
-    obras.forEach((obra) => {
-      const regRecent = registros.filter((r) => r.obraId === obra.id && r.fecha >= weekAgo).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
-      const avRecent = avancos.filter((a) => a.obraId === obra.id && a.fecha >= weekAgo).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
-      const etapasObra = etapas.filter((e) => e.obraId === obra.id);
-      const doneCount = etapasObra.filter((e) => e.completada).length;
-      if (regRecent.length === 0 && avRecent.length === 0 && etapasObra.length === 0) return;
-      any = true;
-      lines.push(`*${obra.cliente}* (${ESTADOS[obra.estado].label}) — ${obra.endereco}`);
-      if (etapasObra.length > 0) lines.push(`  Etapas: ${doneCount}/${etapasObra.length} concluídas`);
-      avRecent.forEach((a) => lines.push(`  • [Avanço] ${a.texto}`));
-      regRecent.forEach((r) => lines.push(`  • [${REG_CATS[r.categoria].label}] ${r.texto}`));
-      lines.push("");
-    });
-    if (!any && openPend.length === 0) lines.push("Sem novidades registradas essa semana.");
-    return lines.join("\n");
-  }, [obras, registros, etapas, avancos]);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const lines = [`*RELATÓRIO SEMANAL — GESTÃO & CONTROLE*`, `${fmt(weekAgo)} a ${fmt(cutoff)}`, ""];
+      let totalPendentes = 0;
+      const blocos = [];
+      for (const obra of obras) {
+        try {
+          const [etR, feR, maR, obR] = await Promise.all([
+            apiFetch(`/api/etapas?obra_id=${obra.id}`),
+            apiFetch(`/api/ferramentas?obra_id=${obra.id}`),
+            apiFetch(`/api/materiais?obra_id=${obra.id}`),
+            apiFetch(`/api/observacoes?obra_id=${obra.id}`),
+          ]);
+          const etapas = etR.etapas, ferramentas = feR.ferramentas, materiais = maR.materiais, observacoes = obR.observacoes;
+          const pendentes = etapas.filter((e) => !e.concluida);
+          totalPendentes += pendentes.length;
+          const doneCount = etapas.filter((e) => e.concluida).length;
+          const concluidasRecentes = etapas.filter((e) => e.concluida && e.concluida_em >= weekAgo);
+          const ferRecent = ferramentas.filter((f) => f.criado_em >= weekAgo);
+          const matRecent = materiais.filter((m) => m.criado_em >= weekAgo);
+          const obsRecent = observacoes.filter((o) => o.criado_em >= weekAgo);
+          if (etapas.length === 0 && ferRecent.length === 0 && matRecent.length === 0 && obsRecent.length === 0) continue;
+          const bloco = [`*${obra.cliente}* (${ESTADOS[obra.estado].label}) — ${obra.endereco}`];
+          if (etapas.length > 0) bloco.push(`  Etapas: ${doneCount}/${etapas.length} concluídas`);
+          concluidasRecentes.forEach((e) => bloco.push(`  • [Concluída] ${e.texto}`));
+          ferRecent.forEach((f) => bloco.push(`  • [Ferramenta] ${f.texto}`));
+          matRecent.forEach((m) => bloco.push(`  • [Material] ${m.texto}`));
+          obsRecent.forEach((o) => bloco.push(`  • [Observação] ${o.texto}`));
+          blocos.push(bloco.join("\n"));
+        } catch (e) {}
+      }
+      if (totalPendentes > 0) lines.push(`*⚠ ETAPAS PENDENTES (${totalPendentes})*`, "");
+      lines.push(...blocos.map((b) => b + "\n"));
+      if (blocos.length === 0 && totalPendentes === 0) lines.push("Sem novidades registradas essa semana.");
+      setReportText(lines.join("\n"));
+      setLoading(false);
+    })();
+  }, [obras]);
+
   const copy = async () => { try { await navigator.clipboard.writeText(reportText); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {} };
   const openWhatsapp = () => window.open(`https://wa.me/?text=${encodeURIComponent(reportText)}`, "_blank");
   const openEmail = () => { const subject = encodeURIComponent(`Relatório semanal — ${fmt(weekAgo)} a ${fmt(cutoff)}`); const body = encodeURIComponent(reportText.replace(/\*/g, "")); window.location.href = `mailto:?subject=${subject}&body=${body}`; };
+
   return (
     <div>
       <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <h2 style={{ color: C.ink }} className="text-xl font-extrabold uppercase tracking-wide mb-1">Relatório semanal</h2>
       <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">{fmt(weekAgo)} — {fmt(cutoff)}</p>
-      <pre style={{ background: C.surface, borderColor: C.border, color: C.ink }} className="border rounded-md p-4 text-sm whitespace-pre-wrap font-sans leading-relaxed mb-4">{reportText}</pre>
-      <div className="flex flex-wrap gap-2">
-        <button onClick={openWhatsapp} style={{ background: C.green }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">💬 WhatsApp</button>
-        <button onClick={openEmail} style={{ background: C.blue }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">✉ Email</button>
-        <button onClick={copy} style={{ borderColor: C.border, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">{copied ? "✓ Copiado" : "⧉ Copiar"}</button>
-      </div>
-    </div>
-  );
-}
-
-function BemVindoScreen({ onSave }) {
-  const [empresa, setEmpresa] = useState("");
-  const [usuario, setUsuario] = useState("");
-  const submit = () => { if (!empresa.trim() || !usuario.trim()) return; onSave({ empresa: empresa.trim(), usuario: usuario.trim() }); };
-  return (
-    <div style={{ background: C.bg, minHeight: "100vh" }} className="flex flex-col items-center justify-center p-6">
-      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">
-        <div className="flex items-center justify-center gap-2.5 mb-5">
-          <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-          <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Empresa</label>
-            <input value={empresa} onChange={(e) => setEmpresa(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Ex: Pereira Resolve" autoFocus />
+      {loading ? (
+        <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Carregando...</p>
+      ) : (
+        <>
+          <pre style={{ background: C.surface, borderColor: C.border, color: C.ink }} className="border rounded-md p-4 text-sm whitespace-pre-wrap font-sans leading-relaxed mb-4">{reportText}</pre>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={openWhatsapp} style={{ background: C.green }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">💬 WhatsApp</button>
+            <button onClick={openEmail} style={{ background: C.blue }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">✉ Email</button>
+            <button onClick={copy} style={{ borderColor: C.border, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">{copied ? "✓ Copiado" : "⧉ Copiar"}</button>
           </div>
-          <div>
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Usuário</label>
-            <input value={usuario} onChange={(e) => setUsuario(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Seu nome" />
-          </div>
-        </div>
-        <button onClick={submit} disabled={!empresa.trim() || !usuario.trim()} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-40">Começar</button>
-        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-3">Isso aparece só uma vez neste aparelho.</p>
-      </div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">© 2026 Gestão & Controle</p>
+        </>
+      )}
     </div>
   );
 }
@@ -752,109 +959,80 @@ function AuthWrap({ children }) {
   );
 }
 
-function CriarContaScreen({ onDone }) {
-  const [step, setStep] = useState("form");
+function LogoTitulo() {
+  return (
+    <div className="flex items-center justify-center gap-2.5 mb-1">
+      <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
+      <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
+    </div>
+  );
+}
+
+function BotaoGoogle({ texto }) {
+  return (
+    <button onClick={identityGoogleRedirect} style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-3 flex items-center justify-center gap-2">
+      <span style={{ color: "#4285F4" }}>G</span> {texto}
+    </button>
+  );
+}
+
+function CadastroScreen({ onIrLogin, onCadastrado, onAguardandoEmail }) {
   const [email, setEmail] = useState("");
+  const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
   const [senha2, setSenha2] = useState("");
   const [aceito, setAceito] = useState(false);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
-  const [authDraft, setAuthDraft] = useState(null);
-  const [recoveryCode, setRecoveryCode] = useState("");
-  const [copiado, setCopiado] = useState(false);
 
-  const criarConta = async () => {
+  const cadastrar = async () => {
     setErro("");
-    if (!email.trim()) { setErro("Informe um email ou telefone."); return; }
-    if (senha.length < 4) { setErro("A senha precisa ter ao menos 4 caracteres."); return; }
+    if (!email.trim() || !nome.trim()) { setErro("Preencha nome e email."); return; }
+    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
     if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
     if (!aceito) { setErro("Você precisa aceitar os Termos de Uso."); return; }
     setSalvando(true);
-    const salt = randomCode(16);
-    const passwordHash = await sha256Hex(salt + senha);
-    const code = randomCode(10);
-    const recoveryHash = await sha256Hex(code);
-    setAuthDraft({ email: email.trim(), salt, passwordHash, recoveryHash, passkeyCredentialId: null, createdAt: todayISO() });
-    setRecoveryCode(code);
-    setSalvando(false);
-    setStep("recovery");
-  };
-
-  const copiarCodigo = async () => {
-    try { await navigator.clipboard.writeText(recoveryCode); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch (e) {}
-  };
-
-  const configurarBiometria = async () => {
     try {
-      const cred = await navigator.credentials.create({
-        publicKey: {
-          challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rp: { name: "Gestão & Controle" },
-          user: { id: crypto.getRandomValues(new Uint8Array(16)), name: authDraft.email, displayName: authDraft.email },
-          pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-          timeout: 60000,
-        },
-      });
-      onDone({ ...authDraft, passkeyCredentialId: bufToBase64url(cred.rawId) });
+      await identitySignup(email.trim(), senha, nome.trim());
+      try {
+        const tokenData = await identityLogin(email.trim(), senha);
+        saveSession(tokenData);
+        onCadastrado();
+      } catch (loginErr) {
+        onAguardandoEmail(email.trim());
+      }
     } catch (err) {
-      console.error(err);
-      alert("Não foi possível configurar agora. Você pode continuar só com senha.");
-      onDone(authDraft);
+      setErro(err.message);
     }
+    setSalvando(false);
   };
-
-  if (step === "recovery") {
-    return (
-      <AuthWrap>
-        <div className="text-center mb-4">
-          <span className="text-3xl">🔑</span>
-          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Seu código de recuperação</h2>
-        </div>
-        <p style={{ color: C.inkMuted }} className="text-sm mb-3">Guarde este código em lugar seguro. É a ÚNICA forma de recuperar sua senha, já que este app não tem servidor para enviar email/SMS.</p>
-        <div style={{ background: C.bg, borderColor: C.border }} className="border rounded p-4 text-center mb-3">
-          <span style={{ color: C.ink, letterSpacing: "0.15em" }} className="text-xl font-mono font-extrabold">{recoveryCode}</span>
-        </div>
-        <button onClick={copiarCodigo} style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2 mb-2">{copiado ? "✓ Copiado" : "⧉ Copiar código"}</button>
-        <button onClick={() => setStep(biometriaSuportada() ? "biometria" : "final")} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">Já guardei, continuar</button>
-      </AuthWrap>
-    );
-  }
-
-  if (step === "biometria") {
-    return (
-      <AuthWrap>
-        <div className="text-center mb-4">
-          <span className="text-3xl">🔒</span>
-          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Login rápido</h2>
-        </div>
-        <p style={{ color: C.inkMuted }} className="text-sm mb-4">Quer usar sua digital, PIN ou padrão do celular para entrar mais rápido da próxima vez? Pode configurar depois também.</p>
-        <button onClick={configurarBiometria} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 mb-2">Configurar agora</button>
-        <button onClick={() => onDone(authDraft)} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase py-2">Pular por enquanto</button>
-      </AuthWrap>
-    );
-  }
 
   return (
     <AuthWrap>
-      <div className="flex items-center justify-center gap-2.5 mb-1">
-        <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-        <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
-      </div>
+      <LogoTitulo />
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Criar conta</p>
+      <BotaoGoogle texto="Continuar com Google" />
+      <div className="flex items-center gap-2 mb-3">
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+      </div>
       <div className="space-y-3">
         <div>
-          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email ou telefone</label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="voce@exemplo.com" autoFocus />
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nome</label>
+          <input value={nome} onChange={(e) => setNome(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Seu nome" autoFocus />
+        </div>
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="voce@exemplo.com" />
         </div>
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
-          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Mínimo 4 caracteres" />
+          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Mínimo 6 caracteres" />
         </div>
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
-          <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && criarConta()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+          <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cadastrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
         </div>
         <label className="flex items-start gap-2 text-xs" style={{ color: C.inkMuted }}>
           <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
@@ -862,170 +1040,328 @@ function CriarContaScreen({ onDone }) {
         </label>
         {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
       </div>
-      <button onClick={criarConta} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Criando..." : "Criar conta"}</button>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-3">Tudo fica salvo só neste aparelho.</p>
+      <button onClick={cadastrar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Criando..." : "Criar conta"}</button>
+      <button onClick={onIrLogin} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">Já tenho conta — entrar</button>
     </AuthWrap>
   );
 }
 
-function RecuperarSenhaScreen({ auth, onBack, onReset }) {
-  const [codigo, setCodigo] = useState("");
-  const [novaSenha, setNovaSenha] = useState("");
-  const [novaSenha2, setNovaSenha2] = useState("");
-  const [validado, setValidado] = useState(false);
-  const [erro, setErro] = useState("");
-
-  const validarCodigo = async () => {
-    setErro("");
-    const hash = await sha256Hex(codigo.trim().toUpperCase());
-    if (hash === auth.recoveryHash) setValidado(true);
-    else setErro("Código inválido.");
-  };
-
-  const redefinir = async () => {
-    setErro("");
-    if (novaSenha.length < 4) { setErro("A senha precisa ter ao menos 4 caracteres."); return; }
-    if (novaSenha !== novaSenha2) { setErro("As senhas não coincidem."); return; }
-    const salt = randomCode(16);
-    const passwordHash = await sha256Hex(salt + novaSenha);
-    onReset({ ...auth, salt, passwordHash });
-  };
-
+function AguardandoEmailScreen({ email, onVoltar }) {
   return (
-    <div style={{ background: C.bg, minHeight: "100vh" }} className="flex items-center justify-center p-6">
-      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">
-        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">Recuperar senha</h2>
-        {!validado ? (
-          <>
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Código de recuperação</label>
-            <input value={codigo} onChange={(e) => setCodigo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && validarCodigo()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none uppercase" placeholder="Cole o código guardado" autoFocus />
-            {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
-            <button onClick={validarCodigo} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5">Validar</button>
-          </>
-        ) : (
-          <>
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
-            <input type="password" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase mt-3 block">Confirmar nova senha</label>
-            <input type="password" value={novaSenha2} onChange={(e) => setNovaSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && redefinir()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
-            {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
-            <button onClick={redefinir} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5">Redefinir senha</button>
-          </>
-        )}
-        <button onClick={onBack} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">‹ voltar ao login</button>
+    <AuthWrap>
+      <div className="text-center mb-4">
+        <span className="text-3xl">✉️</span>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Confirme seu email</h2>
       </div>
-    </div>
+      <p style={{ color: C.inkMuted }} className="text-sm mb-4 text-center">
+        Mandamos um link de confirmação para <span style={{ color: C.ink }} className="font-bold">{email}</span>. Toque nele e depois volte aqui para entrar.
+      </p>
+      <button onClick={onVoltar} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">Já confirmei, ir para o login</button>
+    </AuthWrap>
   );
 }
 
-function LoginScreen({ auth, onUnlock }) {
-  const [senha, setSenha] = useState("");
-  const [lembrar, setLembrar] = useState(true);
+function RecuperarSenhaScreen({ onVoltarLogin, onIniciarRecuperacao }) {
+  const [email, setEmail] = useState("");
   const [erro, setErro] = useState("");
-  const [recuperar, setRecuperar] = useState(false);
-  const podeBiometria = !!auth.passkeyCredentialId && biometriaSuportada();
+  const [enviado, setEnviado] = useState(false);
+  const [enviando, setEnviando] = useState(false);
 
-  const entrarComBiometria = async () => {
+  const enviar = async () => {
+    setErro("");
+    if (!email.trim()) { setErro("Informe seu email."); return; }
+    setEnviando(true);
+    try {
+      await identityRecoverRequest(email.trim());
+      setEnviado(true);
+    } catch (err) {
+      setErro(err.message);
+    }
+    setEnviando(false);
+  };
+
+  if (enviado) {
+    return (
+      <AuthWrap>
+        <div className="text-center mb-4">
+          <span className="text-3xl">✉️</span>
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Verifique seu email</h2>
+        </div>
+        <p style={{ color: C.inkMuted }} className="text-sm mb-4 text-center">Mandamos um link para redefinir sua senha. Toque nele para continuar.</p>
+        <button onClick={onVoltarLogin} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">‹ voltar ao login</button>
+      </AuthWrap>
+    );
+  }
+
+  return (
+    <AuthWrap>
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">Recuperar senha</h2>
+      <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
+      <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enviar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="voce@exemplo.com" autoFocus />
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={enviar} disabled={enviando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{enviando ? "Enviando..." : "Enviar link"}</button>
+      <button onClick={onVoltarLogin} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">‹ voltar ao login</button>
+    </AuthWrap>
+  );
+}
+
+function DefinirNovaSenhaScreen({ recoveryToken, onDefinida }) {
+  const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async () => {
+    setErro("");
+    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
+    if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
+    setSalvando(true);
+    try {
+      const user = await identitySetNewPassword(recoveryToken, senha);
+      const tokenData = await identityLogin(user.email, senha);
+      saveSession(tokenData);
+      onDefinida();
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  return (
+    <AuthWrap>
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">Defina sua nova senha</h2>
+      <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
+      <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
+      <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase mt-3 block">Confirmar nova senha</label>
+      <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar e entrar"}</button>
+    </AuthWrap>
+  );
+}
+
+function LoginScreen({ onLogado, onIrCadastro }) {
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
+  const [recuperar, setRecuperar] = useState(false);
+
+  const entrar = async () => {
+    setErro("");
+    setEntrando(true);
+    try {
+      const tokenData = await identityLogin(email.trim(), senha);
+      saveSession(tokenData);
+      onLogado();
+    } catch (err) {
+      setErro(err.message);
+    }
+    setEntrando(false);
+  };
+
+  if (recuperar) return <RecuperarSenhaScreen onVoltarLogin={() => setRecuperar(false)} />;
+
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Entrar</p>
+      <BotaoGoogle texto="Continuar com Google" />
+      <div className="flex items-center gap-2 mb-3">
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+      </div>
+      <div>
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
+        <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
+      </div>
+      <div className="mt-3">
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
+        <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={entrar} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
+      <button onClick={() => setRecuperar(true)} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">Esqueceu sua senha?</button>
+      <button onClick={onIrCadastro} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">Não tenho conta — criar</button>
+    </AuthWrap>
+  );
+}
+
+function TrancaBiometricaScreen({ onDesbloqueado, onUsarSenha }) {
+  const [erro, setErro] = useState("");
+
+  const desbloquear = async () => {
     setErro("");
     try {
+      const credId = localStorage.getItem("biometria-credential-id");
       await navigator.credentials.get({
         publicKey: {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
-          allowCredentials: [{ id: base64urlToBuf(auth.passkeyCredentialId), type: "public-key" }],
+          allowCredentials: credId ? [{ id: base64urlToBuf(credId), type: "public-key" }] : [],
           userVerification: "required",
           timeout: 60000,
         },
       });
-      onUnlock(lembrar, null);
+      onDesbloqueado();
     } catch (err) {
       console.error(err);
-      setErro("Não foi possível validar. Tente com a senha.");
+      setErro("Não foi possível validar.");
     }
   };
 
-  const entrarComSenha = async () => {
-    setErro("");
-    const hash = await sha256Hex(auth.salt + senha);
-    if (hash === auth.passwordHash) onUnlock(lembrar, null);
-    else setErro("Senha incorreta.");
-  };
-
-  if (recuperar) return <RecuperarSenhaScreen auth={auth} onBack={() => setRecuperar(false)} onReset={(novoAuth) => onUnlock(true, novoAuth)} />;
+  useEffect(() => { desbloquear(); }, []);
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh" }} className="flex flex-col items-center justify-center p-6">
-      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">
-        <div className="flex items-center justify-center gap-2.5 mb-1">
-          <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-          <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
-        </div>
-        <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">{auth.email}</p>
-        {podeBiometria && (
-          <button onClick={entrarComBiometria} style={{ background: C.ink }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 mb-3">🔒 Entrar com digital / PIN</button>
-        )}
-        <div>
-          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
-          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrarComSenha()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus={!podeBiometria} />
-        </div>
-        <label className="flex items-center gap-2 text-xs mt-3" style={{ color: C.inkMuted }}>
-          <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} />
-          <span>Lembrar de mim por 30 dias</span>
-        </label>
-        {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
-        <button onClick={entrarComSenha} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5">Entrar</button>
-        <button onClick={() => setRecuperar(true)} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">Esqueceu sua senha?</button>
+    <AuthWrap>
+      <div className="text-center mb-5">
+        <LogoTitulo />
+        <p style={{ color: C.inkMuted }} className="text-xs font-mono mt-1">Toque para continuar</p>
       </div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">© 2026 Gestão & Controle</p>
-    </div>
+      <button onClick={desbloquear} style={{ background: C.ink }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 mb-2">🔒 Usar digital / PIN</button>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono text-center mb-2">{erro}</p>}
+      <button onClick={onUsarSenha} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase py-2">Sair e entrar de novo com senha</button>
+    </AuthWrap>
+  );
+}
+
+function ConfigurarBiometriaScreen({ onFeito }) {
+  const configurar = async () => {
+    try {
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: "Gestão & Controle" },
+          user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "usuario", displayName: "usuario" },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+          timeout: 60000,
+        },
+      });
+      localStorage.setItem("biometria-credential-id", bufToBase64url(cred.rawId));
+    } catch (err) {
+      console.error(err);
+    }
+    onFeito();
+  };
+
+  return (
+    <AuthWrap>
+      <div className="text-center mb-4">
+        <span className="text-3xl">🔒</span>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Tranca rápida</h2>
+      </div>
+      <p style={{ color: C.inkMuted }} className="text-sm mb-4 text-center">Quer usar sua digital, PIN ou padrão do celular para abrir o app mais rápido da próxima vez?</p>
+      <button onClick={configurar} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 mb-2">Configurar agora</button>
+      <button onClick={onFeito} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase py-2">Pular por enquanto</button>
+    </AuthWrap>
   );
 }
 
 function GestorObras() {
-  const [data, setData] = useState(EMPTY);
-  const [loading, setLoading] = useState(true);
   const [view, setView] = useState("dashboard");
   const [selectedId, setSelectedId] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [fileCache, setFileCache] = useState({});
   const [lightboxImg, setLightboxImg] = useState(null);
-  const [perfil, setPerfil] = useState(null);
-  const [perfilLoading, setPerfilLoading] = useState(true);
-  const [auth, setAuth] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [unlocked, setUnlocked] = useState(false);
   const [temaEscuro, setTemaEscuro] = useState(false);
+
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [temSessao, setTemSessao] = useState(false);
+  const [usuarioAPI, setUsuarioAPI] = useState(null);
+  const [recoveryToken, setRecoveryToken] = useState(null);
+  const [authView, setAuthView] = useState("login");
+  const [emailAguardando, setEmailAguardando] = useState("");
+  const [biometriaConfigurada, setBiometriaConfigurada] = useState(false);
+  const [biometriaPassada, setBiometriaPassada] = useState(false);
+  const [configurandoBiometria, setConfigurandoBiometria] = useState(false);
+
+  const [obras, setObras] = useState([]);
+  const [obrasLoading, setObrasLoading] = useState(false);
+  const [pendentesPorObra, setPendentesPorObra] = useState({});
+  const [obraDetalhe, setObraDetalhe] = useState(null);
+  const [obraDetalheLoading, setObraDetalheLoading] = useState(false);
+  const [erroGlobal, setErroGlobal] = useState("");
+
+  const carregarUsuarioAPI = async () => {
+    const token = await getValidAccessToken();
+    if (!token) { setTemSessao(false); setUsuarioAPI(null); return; }
+    setTemSessao(true);
+    try {
+      const res = await fetch("/api/usuarios-me", { headers: { authorization: `Bearer ${token}` } });
+      const dataRes = await res.json();
+      if (dataRes.ok) setUsuarioAPI(dataRes.usuario);
+      else { clearSession(); setTemSessao(false); }
+    } catch (e) {
+      // sem rede: mantemos a sessão, só não temos os dados do servidor por enquanto
+    }
+  };
 
   useEffect(() => {
     (async () => {
-      try {
-        const res = await window.storage.get("gestor-data");
-        setData(res ? { ...EMPTY, ...JSON.parse(res.value) } : EMPTY);
-      } catch (e) { setData(EMPTY); }
-      setLoading(false);
-      try {
-        const res = await window.storage.get("perfil");
-        setPerfil(res ? JSON.parse(res.value) : null);
-      } catch (e) { setPerfil(null); }
-      setPerfilLoading(false);
-      try {
-        const res = await window.storage.get("auth");
-        const a = res ? JSON.parse(res.value) : null;
-        setAuth(a);
-        if (a) {
-          const sess = await window.storage.get("auth-session");
-          if (sess) {
-            const s = JSON.parse(sess.value);
-            if (s.until && new Date(s.until).getTime() > Date.now()) setUnlocked(true);
-          }
-        }
-      } catch (e) { setAuth(null); }
-      setAuthLoading(false);
+      const hashParams = parseHashParams();
+      if (hashParams.recovery_token) {
+        setRecoveryToken(hashParams.recovery_token);
+        history.replaceState(null, "", window.location.pathname);
+      } else if (hashParams.access_token) {
+        saveSession(hashParams);
+        history.replaceState(null, "", window.location.pathname);
+      }
+
+      await carregarUsuarioAPI();
+      setSessionLoading(false);
+
+      setBiometriaConfigurada(!!localStorage.getItem("biometria-credential-id"));
+
       try {
         const res = await window.storage.get("tema");
         setTemaEscuro(res ? res.value === "escuro" : false);
       } catch (e) {}
     })();
   }, []);
+
+  const carregarPendentes = async (lista) => {
+    const mapa = {};
+    await Promise.all(lista.map(async (o) => {
+      try {
+        const r = await apiFetch(`/api/etapas?obra_id=${o.id}`);
+        mapa[o.id] = r.etapas.filter((e) => !e.concluida).length;
+      } catch (e) { mapa[o.id] = 0; }
+    }));
+    setPendentesPorObra(mapa);
+  };
+
+  const carregarObras = async () => {
+    setObrasLoading(true);
+    setErroGlobal("");
+    try {
+      const r = await apiFetch("/api/obras");
+      setObras(r.obras);
+      carregarPendentes(r.obras);
+    } catch (err) {
+      setErroGlobal(err.message);
+    }
+    setObrasLoading(false);
+  };
+
+  useEffect(() => { if (usuarioAPI) carregarObras(); }, [usuarioAPI]);
+
+  const aoLogar = async () => {
+    setBiometriaPassada(true);
+    await carregarUsuarioAPI();
+    if (!localStorage.getItem("biometria-credential-id") && biometriaSuportada()) {
+      setConfigurandoBiometria(true);
+    }
+  };
+
+  const sair = () => {
+    clearSession();
+    setTemSessao(false);
+    setUsuarioAPI(null);
+    setBiometriaPassada(false);
+    setObras([]);
+    setObraDetalhe(null);
+  };
 
   const alternarTema = () => {
     const novo = !temaEscuro;
@@ -1043,35 +1379,6 @@ function GestorObras() {
     };
   }, [temaEscuro]);
 
-  const salvarPerfil = async (p) => {
-    setPerfil(p);
-    try { await window.storage.set("perfil", JSON.stringify(p)); } catch (e) { console.error(e); }
-  };
-
-  const contaCriada = async (novoAuth) => {
-    setAuth(novoAuth);
-    try { await window.storage.set("auth", JSON.stringify(novoAuth)); } catch (e) { console.error(e); }
-    setUnlocked(true);
-  };
-
-  const desbloquear = async (lembrar, novoAuth) => {
-    if (novoAuth) {
-      setAuth(novoAuth);
-      try { await window.storage.set("auth", JSON.stringify(novoAuth)); } catch (e) { console.error(e); }
-    }
-    if (lembrar) {
-      const until = new Date(Date.now() + 30 * 86400000).toISOString();
-      try { await window.storage.set("auth-session", JSON.stringify({ until })); } catch (e) {}
-    }
-    setUnlocked(true);
-  };
-
-  const sair = () => {
-    try { localStorage.removeItem("auth-session"); } catch (e) {}
-    setUnlocked(false);
-  };
-
-  const persist = async (next) => { setData(next); try { await window.storage.set("gestor-data", JSON.stringify(next)); } catch (e) { console.error(e); } };
   const saveArquivo = async (id, payload) => {
     try {
       const res = await fetch("/api/arquivo-set", {
@@ -1084,10 +1391,8 @@ function GestorObras() {
         setFileCache((p) => ({ ...p, [id]: payload }));
         return true;
       }
-      console.error("Falha ao salvar arquivo no servidor", data);
       return false;
     } catch (e) {
-      console.error("Falha ao salvar arquivo (sem conexão?)", e);
       return false;
     }
   };
@@ -1111,121 +1416,142 @@ function GestorObras() {
     }).catch(() => {});
   };
 
-  const addObra = (obra) => { persist({ ...data, obras: [obra, ...data.obras] }); setShowModal(false); };
-  const changeEstado = (obraId, estado) => persist({ ...data, obras: data.obras.map((o) => (o.id === obraId ? { ...o, estado } : o)) });
-  const deleteObra = (obraId) => {
-    persist({ ...data,
-      obras: data.obras.filter((o) => o.id !== obraId),
-      registros: data.registros.filter((r) => r.obraId !== obraId),
-      etapas: data.etapas.filter((e) => e.obraId !== obraId),
-      avancos: data.avancos.filter((a) => a.obraId !== obraId),
-      equipe: data.equipe.filter((m) => m.obraId !== obraId),
-      documentos: data.documentos.filter((d) => d.obraId !== obraId),
-    });
+  // --- Obras ---
+  const criarObra = async (form) => {
+    const r = await apiFetch("/api/obras", { method: "POST", body: JSON.stringify(form) });
+    setObras((prev) => [r.obra, ...prev]);
+    setShowModal(false);
+  };
+
+  const changeEstado = async (obraId, estado) => {
+    const r = await apiFetch(`/api/obras?id=${obraId}`, { method: "PATCH", body: JSON.stringify({ estado }) });
+    setObras((prev) => prev.map((o) => (o.id === obraId ? r.obra : o)));
+  };
+
+  const deleteObra = async (obraId) => {
+    await apiFetch(`/api/obras?id=${obraId}`, { method: "DELETE" });
+    setObras((prev) => prev.filter((o) => o.id !== obraId));
     setView("dashboard");
   };
-  const addReg = (r) => persist({ ...data, registros: [r, ...data.registros] });
-  const editReg = (id, texto, resolvidoOverride) => persist({ ...data, registros: data.registros.map((r) => (r.id === id ? { ...r, texto, ...(resolvidoOverride !== undefined ? { resolvido: resolvidoOverride } : {}) } : r)) });
-  const deleteReg = (id) => persist({ ...data, registros: data.registros.filter((r) => r.id !== id) });
-  const addEtapa = (e) => persist({ ...data, etapas: [...data.etapas, e] });
-  const toggleEtapa = (id) => persist({ ...data, etapas: data.etapas.map((e) => (e.id === id ? { ...e, completada: !e.completada } : e)) });
-  const editEtapa = (id, texto) => persist({ ...data, etapas: data.etapas.map((e) => (e.id === id ? { ...e, texto } : e)) });
-  const removeEtapa = (id) => {
-    const idsParaBorrar = new Set([id]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      data.etapas.forEach((e) => { if (e.parentId && idsParaBorrar.has(e.parentId) && !idsParaBorrar.has(e.id)) { idsParaBorrar.add(e.id); changed = true; } });
-    }
-    persist({ ...data, etapas: data.etapas.filter((e) => !idsParaBorrar.has(e.id)), avancos: data.avancos.filter((a) => !idsParaBorrar.has(a.etapaId)) });
-  };
-  const addAvanco = (a) => persist({ ...data, avancos: [a, ...data.avancos] });
-  const editAvanco = (id, texto) => persist({ ...data, avancos: data.avancos.map((a) => (a.id === id ? { ...a, texto } : a)) });
-  const deleteAvanco = (id) => persist({ ...data, avancos: data.avancos.filter((a) => a.id !== id) });
-  const addEquipo = (m) => persist({ ...data, equipe: [...data.equipe, m] });
-  const removeEquipo = (id) => persist({ ...data, equipe: data.equipe.filter((m) => m.id !== id) });
-  const toggleHoje = (id) => {
-    const hoje = todayISO();
-    persist({ ...data, equipe: data.equipe.map((m) => { if (m.id !== id) return m; const has = m.asistencias?.includes(hoje); return { ...m, asistencias: has ? m.asistencias.filter((d) => d !== hoje) : [...(m.asistencias || []), hoje] }; }) });
-  };
-  const addDoc = (d) => persist({ ...data, documentos: [d, ...data.documentos] });
-  const deleteDoc = (id, arquivoId) => { if (arquivoId) deleteArquivoRemoto(arquivoId); persist({ ...data, documentos: data.documentos.filter((d) => d.id !== id) }); };
 
-  const exportBackup = () => {
-    const backup = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key === "gestor-data" || key.startsWith("arquivo:")) backup[key] = localStorage.getItem(key);
-    }
-    const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `gestor-obras-backup-${todayISO()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importInputRef = useRef(null);
-  const importBackup = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // --- Abrir una obra: carga todo lo de esa obra en paralelo ---
+  const abrirObra = async (id) => {
+    setSelectedId(id);
+    setView("obra");
+    setObraDetalhe(null);
+    setObraDetalheLoading(true);
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const keys = Object.keys(parsed);
-      if (!keys.includes("gestor-data")) throw new Error("arquivo inválido");
-      if (!window.confirm(`Isso vai SUBSTITUIR os dados atuais por este backup (${keys.length} itens). Continuar?`)) {
-        e.target.value = "";
-        return;
-      }
-      keys.forEach((k) => localStorage.setItem(k, parsed[k]));
-      window.location.reload();
+      const [et, eq, fe, ma, ob, doc] = await Promise.all([
+        apiFetch(`/api/etapas?obra_id=${id}`),
+        apiFetch(`/api/equipe?obra_id=${id}`),
+        apiFetch(`/api/ferramentas?obra_id=${id}`),
+        apiFetch(`/api/materiais?obra_id=${id}`),
+        apiFetch(`/api/observacoes?obra_id=${id}`),
+        apiFetch(`/api/documentos?obra_id=${id}`),
+      ]);
+      setObraDetalhe({
+        etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+        materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+      });
     } catch (err) {
-      alert("Não foi possível ler este arquivo de backup.");
-      console.error(err);
+      setErroGlobal(err.message);
     }
-    e.target.value = "";
+    setObraDetalheLoading(false);
   };
 
-  const espacoUsadoMB = useMemo(() => {
-    let bytes = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      const val = localStorage.getItem(key) || "";
-      bytes += key.length + val.length;
-    }
-    return bytes / (1024 * 1024);
-  }, [data, fileCache]);
-  const LIMITE_MB = 5; // estimativa conservadora do limite típico do navegador
-
-  const [showLimpar, setShowLimpar] = useState(false);
-  const limparTudo = () => {
-    const keysParaBorrar = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key === "gestor-data" || key.startsWith("arquivo:")) keysParaBorrar.push(key);
-    }
-    keysParaBorrar.forEach((k) => localStorage.removeItem(k));
-    setData(EMPTY);
-    setFileCache({});
-    setShowLimpar(false);
+  const voltarAoDashboard = () => {
     setView("dashboard");
+    if (selectedId) carregarPendentes(obras);
   };
 
-  const { obras, registros, etapas, avancos, equipe, documentos } = data;
+  // --- Etapas ---
+  const addEtapa = async (parentId, texto) => {
+    const r = await apiFetch("/api/etapas", { method: "POST", body: JSON.stringify({ obraId: selectedId, parentId, texto }) });
+    setObraDetalhe((d) => ({ ...d, etapas: [...d.etapas, r.etapa] }));
+  };
+  const toggleEtapa = async (id, concluida, fotoConclusaoId) => {
+    const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ concluida, fotoConclusaoId }) });
+    setObraDetalhe((d) => ({ ...d, etapas: d.etapas.map((e) => (e.id === id ? r.etapa : e)) }));
+  };
+  const editEtapa = async (id, texto) => {
+    const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ texto }) });
+    setObraDetalhe((d) => ({ ...d, etapas: d.etapas.map((e) => (e.id === id ? r.etapa : e)) }));
+  };
+  const removeEtapa = async (id) => {
+    await apiFetch(`/api/etapas?id=${id}`, { method: "DELETE" });
+    // recarrega para reflejar la cascada (subetapas borradas junto con el padre)
+    const r = await apiFetch(`/api/etapas?obra_id=${selectedId}`);
+    setObraDetalhe((d) => ({ ...d, etapas: r.etapas }));
+  };
+
+  // --- Ferramentas / Materiais / Observações (mismo patrón para los 3) ---
+  const criarListaHandlers = (recurso, campo) => ({
+    add: async (texto) => {
+      const r = await apiFetch(`/api/${recurso}`, { method: "POST", body: JSON.stringify({ obraId: selectedId, texto }) });
+      setObraDetalhe((d) => ({ ...d, [campo]: [r.item, ...d[campo]] }));
+    },
+    del: async (id) => {
+      await apiFetch(`/api/${recurso}?id=${id}`, { method: "DELETE" });
+      setObraDetalhe((d) => ({ ...d, [campo]: d[campo].filter((x) => x.id !== id) }));
+    },
+  });
+  const ferramentasH = criarListaHandlers("ferramentas", "ferramentas");
+  const materiaisH = criarListaHandlers("materiais", "materiais");
+  const observacoesH = criarListaHandlers("observacoes", "observacoes");
+
+  // --- Equipe ---
+  const addEquipo = async (payload) => {
+    const r = await apiFetch("/api/equipe", { method: "POST", body: JSON.stringify(payload) });
+    if (!r.convite) setObraDetalhe((d) => ({ ...d, equipe: [...d.equipe, r.equipe] }));
+    return r;
+  };
+  const removeEquipo = async (id) => {
+    await apiFetch(`/api/equipe?id=${id}`, { method: "DELETE" });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.filter((m) => m.id !== id) }));
+  };
+  const toggleHoje = async (id, hoje) => {
+    const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ data: hoje }) });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? r.equipe : m)) }));
+  };
+
+  // --- Documentos ---
+  const addDoc = async (payload) => {
+    const r = await apiFetch("/api/documentos", { method: "POST", body: JSON.stringify(payload) });
+    setObraDetalhe((d) => ({ ...d, documentos: [r.documento, ...d.documentos] }));
+  };
+  const deleteDoc = async (id, arquivoId) => {
+    await apiFetch(`/api/documentos?id=${id}`, { method: "DELETE" });
+    if (arquivoId) deleteArquivoRemoto(arquivoId);
+    setObraDetalhe((d) => ({ ...d, documentos: d.documentos.filter((x) => x.id !== id) }));
+  };
+
   const selectedObra = obras.find((o) => o.id === selectedId);
-  const totalPendientes = obras.reduce((acc, o) => acc + registros.filter((r) => r.obraId === o.id && r.categoria === "pendencia" && !r.resolvido).length + etapas.filter((e) => e.obraId === o.id && !e.completada).length, 0);
+  const totalPendientes = Object.values(pendentesPorObra).reduce((a, b) => a + b, 0);
 
   let content;
-  if (loading || perfilLoading || authLoading) {
+  if (sessionLoading) {
     content = <SplashScreen />;
-  } else if (!perfil) {
-    content = <BemVindoScreen onSave={salvarPerfil} />;
-  } else if (!auth) {
-    content = <CriarContaScreen onDone={contaCriada} />;
-  } else if (!unlocked) {
-    content = <LoginScreen auth={auth} onUnlock={desbloquear} />;
+  } else if (recoveryToken) {
+    content = <DefinirNovaSenhaScreen recoveryToken={recoveryToken} onDefinida={() => { setRecoveryToken(null); aoLogar(); }} />;
+  } else if (!temSessao) {
+    content =
+      authView === "cadastro" ? (
+        <CadastroScreen
+          onIrLogin={() => setAuthView("login")}
+          onCadastrado={aoLogar}
+          onAguardandoEmail={(email) => { setEmailAguardando(email); setAuthView("aguardandoEmail"); }}
+        />
+      ) : authView === "aguardandoEmail" ? (
+        <AguardandoEmailScreen email={emailAguardando} onVoltar={() => setAuthView("login")} />
+      ) : (
+        <LoginScreen onLogado={aoLogar} onIrCadastro={() => setAuthView("cadastro")} />
+      );
+  } else if (configurandoBiometria) {
+    content = <ConfigurarBiometriaScreen onFeito={() => { setConfigurandoBiometria(false); setBiometriaConfigurada(!!localStorage.getItem("biometria-credential-id")); }} />;
+  } else if (biometriaConfigurada && !biometriaPassada) {
+    content = <TrancaBiometricaScreen onDesbloqueado={() => setBiometriaPassada(true)} onUsarSenha={sair} />;
+  } else if (!usuarioAPI) {
+    content = <SplashScreen />;
   } else {
     content = (
     <div className="p-4">
@@ -1235,57 +1561,54 @@ function GestorObras() {
             <img src="logo.png" alt="G&C" className="w-14 h-14 rounded-full shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
-                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{perfil.empresa}</span>
-                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{perfil.usuario}</span>
+                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{RANK_LABELS[usuarioAPI.rank] || ""}</span>
+                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuarioAPI.nome}</span>
               </div>
               <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                <span title="Espaço usado no aparelho" style={{ color: espacoUsadoMB > LIMITE_MB * 0.8 ? C.rust : C.inkMuted }} className="text-[11px] font-mono">
-                  💾 {espacoUsadoMB.toFixed(1)}/{LIMITE_MB}MB
-                </span>
-                <button onClick={exportBackup} title="Baixar backup completo" style={{ color: C.inkMuted }} className="text-lg px-0.5">⤓</button>
-                <input ref={importInputRef} type="file" accept="application/json" onChange={importBackup} className="hidden" />
-                <button onClick={() => importInputRef.current?.click()} title="Restaurar de um backup" style={{ color: C.inkMuted }} className="text-lg px-0.5">⤒</button>
-                <button onClick={sair} title="Sair (bloquear app)" style={{ color: C.inkMuted }} className="flex items-center gap-0.5 text-[11px] font-mono">🔒 sair</button>
+                <button onClick={sair} title="Sair" style={{ color: C.inkMuted }} className="flex items-center gap-0.5 text-[11px] font-mono">🔒 sair</button>
                 <button onClick={alternarTema} title="Alternar modo claro/escuro" style={{ color: C.inkMuted }} className="text-lg px-0.5">{temaEscuro ? "☀️" : "🌙"}</button>
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 mb-2">
+          <div className="flex flex-wrap gap-2 mb-4">
             <button onClick={() => setShowModal(true)} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>
             <button onClick={() => setView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
             <button onClick={() => setView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
           </div>
-          <button onClick={() => setShowLimpar(true)} style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase mb-4 underline decoration-dotted">Limpar todos os dados (teste)</button>
-          {obras.length === 0 ? (
+          {erroGlobal && <p style={{ color: C.rust }} className="text-xs font-mono mb-3">{erroGlobal}</p>}
+          {obrasLoading ? (
+            <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>
+          ) : obras.length === 0 ? (
             <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Nenhuma obra cadastrada. Comece com "Nova obra".</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {obras.map((obra) => {
-                const oe = registros.filter((r) => r.obraId === obra.id);
-                const oa = avancos.filter((a) => a.obraId === obra.id);
-                const lastDates = [...oe.map((r) => r.fecha), ...oa.map((a) => a.fecha)].sort().reverse();
-                const pendCount = oe.filter((r) => r.categoria === "pendencia" && !r.resolvido).length + etapas.filter((e) => e.obraId === obra.id && !e.completada).length;
-                return <TicketCard key={obra.id} obra={obra} pendCount={pendCount} lastDate={lastDates[0]} onOpen={() => { setSelectedId(obra.id); setView("obra"); }} />;
-              })}
+              {obras.map((obra) => (
+                <TicketCard key={obra.id} obra={obra} pendCount={pendentesPorObra[obra.id] || 0} lastDate={null} onOpen={() => abrirObra(obra.id)} />
+              ))}
             </div>
           )}
         </>
       )}
       {view === "obra" && selectedObra && (
-        <ObraDetail obra={selectedObra} registros={registros} etapas={etapas} avancos={avancos} equipe={equipe} documentos={documentos}
-          onBack={() => setView("dashboard")} onAddReg={addReg} onEditReg={editReg} onDeleteReg={deleteReg}
-          onChangeEstado={changeEstado} onDeleteObra={deleteObra}
-          onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa}
-          onAddAvanco={addAvanco} onEditAvanco={editAvanco} onDeleteAvanco={deleteAvanco}
-          onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje}
-          onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
+        obraDetalheLoading || !obraDetalhe ? (
+          <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>
+        ) : (
+          <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
+            onBack={voltarAoDashboard}
+            onChangeEstado={changeEstado} onDeleteObra={deleteObra}
+            onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa}
+            onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
+            onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
+            onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del}
+            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} usuarioRank={usuarioAPI.rank}
+            onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
+        )
       )}
-      {view === "pendientes" && <PendientesView obras={obras} registros={registros} etapas={etapas} onBack={() => setView("dashboard")} onOpenObra={(id) => { setSelectedId(id); setView("obra"); }} />}
-      {view === "report" && <ReportView obras={obras} registros={registros} etapas={etapas} avancos={avancos} onBack={() => setView("dashboard")} />}
-      {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={addObra} obras={obras} />}
+      {view === "pendientes" && <PendientesView obras={obras} onBack={() => setView("dashboard")} onOpenObra={abrirObra} />}
+      {view === "report" && <ReportView obras={obras} onBack={() => setView("dashboard")} />}
+      {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
-      {showLimpar && <ConfirmarLimpezaModal onClose={() => setShowLimpar(false)} onConfirm={limparTudo} />}
     </div>
     );
   }
