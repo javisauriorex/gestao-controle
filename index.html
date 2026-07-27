@@ -15,9 +15,37 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"Special Elite"', 'ui-monospace', 'monospace'],
+          mono: ['"Special Elite"', 'ui-monospace', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
 <style>
   html, body { margin:0; padding:0; background:#EDEAE1; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
   * { box-sizing: border-box; }
+  body { font-family: 'Special Elite', ui-monospace, monospace; }
+  .font-comic { font-family: 'Bangers', cursive; letter-spacing: 0.03em; }
+  @keyframes logoPop {
+    0% { transform: scale(0.2); opacity: 0; }
+    60% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .logo-pop { animation: logoPop 0.7s cubic-bezier(0.34,1.56,0.64,1) both; border-radius: 9999px; position: relative; }
+  @keyframes blinkFade {
+    0%, 92%, 100% { opacity: 0; }
+    94%, 97% { opacity: 1; }
+  }
+  .logo-blink-img { animation: blinkFade 3.5s infinite; }
 </style>
 </head>
 <body>
@@ -97,6 +125,13 @@ function base64urlToBuf(b64url) {
   return bytes.buffer;
 }
 const biometriaSuportada = () => typeof window !== "undefined" && !!window.PublicKeyCredential;
+
+// Token compartido para autorizar las llamadas a las Functions (arquivo-set/get/delete).
+// Debe coincidir con la variable de entorno APP_TOKEN configurada en Netlify.
+// Nota honesta: como esto es un archivo estático (sin backend de autenticación propio),
+// este token es visible para quien inspeccione el código — funciona como freno básico,
+// no como seguridad real. Suficiente para esta etapa (uso personal, un solo aparato).
+const APP_TOKEN = "u-t4W4_6yoa_0Y4aeE8KR38a2EknMcSe";
 
 function compressImage(file, maxWidth = 800, quality = 0.55) {
   return new Promise((resolve, reject) => {
@@ -676,7 +711,7 @@ function BemVindoScreen({ onSave }) {
       <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">
         <div className="flex items-center justify-center gap-2.5 mb-5">
           <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-          <h1 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide whitespace-nowrap">Gestão & Controle</h1>
+          <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
         </div>
         <div className="space-y-3">
           <div>
@@ -692,6 +727,18 @@ function BemVindoScreen({ onSave }) {
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-3">Isso aparece só uma vez neste aparelho.</p>
       </div>
       <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">© 2026 Gestão & Controle</p>
+    </div>
+  );
+}
+
+function SplashScreen() {
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh" }} className="flex flex-col items-center justify-center">
+      <div className="logo-pop" style={{ width: 140, height: 140 }}>
+        <img src="logo.png" alt="" style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }} />
+        <img src="logo-blink.png" alt="" className="logo-blink-img" style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }} />
+      </div>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mt-5">Carregando...</p>
     </div>
   );
 }
@@ -793,7 +840,7 @@ function CriarContaScreen({ onDone }) {
     <AuthWrap>
       <div className="flex items-center justify-center gap-2.5 mb-1">
         <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-        <h1 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide whitespace-nowrap">Gestão & Controle</h1>
+        <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
       </div>
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Criar conta</p>
       <div className="space-y-3">
@@ -910,7 +957,7 @@ function LoginScreen({ auth, onUnlock }) {
       <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">
         <div className="flex items-center justify-center gap-2.5 mb-1">
           <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-          <h1 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide whitespace-nowrap">Gestão & Controle</h1>
+          <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
         </div>
         <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">{auth.email}</p>
         {podeBiometria && (
@@ -1027,22 +1074,41 @@ function GestorObras() {
   const persist = async (next) => { setData(next); try { await window.storage.set("gestor-data", JSON.stringify(next)); } catch (e) { console.error(e); } };
   const saveArquivo = async (id, payload) => {
     try {
-      await window.storage.set(`arquivo:${id}`, JSON.stringify(payload));
-      setFileCache((p) => ({ ...p, [id]: payload }));
-      return true;
+      const res = await fetch("/api/arquivo-set", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${APP_TOKEN}` },
+        body: JSON.stringify({ id, payload: JSON.stringify(payload) }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setFileCache((p) => ({ ...p, [id]: payload }));
+        return true;
+      }
+      console.error("Falha ao salvar arquivo no servidor", data);
+      return false;
     } catch (e) {
-      console.error("Falha ao salvar arquivo", e);
+      console.error("Falha ao salvar arquivo (sem conexão?)", e);
       return false;
     }
   };
   const loadFile = async (id) => {
     if (fileCache[id]) return;
     try {
-      const res = await window.storage.get(`arquivo:${id}`);
-      setFileCache((p) => ({ ...p, [id]: res ? JSON.parse(res.value) : "MISSING" }));
+      const res = await fetch(`/api/arquivo-get?id=${encodeURIComponent(id)}`, {
+        headers: { authorization: `Bearer ${APP_TOKEN}` },
+      });
+      if (res.status === 404) { setFileCache((p) => ({ ...p, [id]: "MISSING" })); return; }
+      const data = await res.json();
+      setFileCache((p) => ({ ...p, [id]: data.ok ? JSON.parse(data.payload) : "MISSING" }));
     } catch (e) {
       setFileCache((p) => ({ ...p, [id]: "MISSING" }));
     }
+  };
+  const deleteArquivoRemoto = (id) => {
+    fetch(`/api/arquivo-delete?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${APP_TOKEN}` },
+    }).catch(() => {});
   };
 
   const addObra = (obra) => { persist({ ...data, obras: [obra, ...data.obras] }); setShowModal(false); };
@@ -1083,7 +1149,7 @@ function GestorObras() {
     persist({ ...data, equipe: data.equipe.map((m) => { if (m.id !== id) return m; const has = m.asistencias?.includes(hoje); return { ...m, asistencias: has ? m.asistencias.filter((d) => d !== hoje) : [...(m.asistencias || []), hoje] }; }) });
   };
   const addDoc = (d) => persist({ ...data, documentos: [d, ...data.documentos] });
-  const deleteDoc = (id) => persist({ ...data, documentos: data.documentos.filter((d) => d.id !== id) });
+  const deleteDoc = (id, arquivoId) => { if (arquivoId) deleteArquivoRemoto(arquivoId); persist({ ...data, documentos: data.documentos.filter((d) => d.id !== id) }); };
 
   const exportBackup = () => {
     const backup = {};
@@ -1153,7 +1219,7 @@ function GestorObras() {
 
   let content;
   if (loading || perfilLoading || authLoading) {
-    content = <div style={{ color: C.inkMuted }} className="min-h-screen flex items-center justify-center font-mono text-sm">Carregando...</div>;
+    content = <SplashScreen />;
   } else if (!perfil) {
     content = <BemVindoScreen onSave={salvarPerfil} />;
   } else if (!auth) {
@@ -1172,7 +1238,7 @@ function GestorObras() {
                 <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{perfil.empresa}</span>
                 <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{perfil.usuario}</span>
               </div>
-              <h1 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
+              <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <span title="Espaço usado no aparelho" style={{ color: espacoUsadoMB > LIMITE_MB * 0.8 ? C.rust : C.inkMuted }} className="text-[11px] font-mono">
                   💾 {espacoUsadoMB.toFixed(1)}/{LIMITE_MB}MB
