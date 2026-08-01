@@ -1,11 +1,11 @@
 import { sql } from "./lib/db.js";
-import { getUsuario, jsonResponse, getNivel, podeModificar } from "./lib/auth.js";
+import { getUsuario, jsonResponse, getNivel, nivelEfetivo, podeModificar } from "./lib/auth.js";
 
 export default async (req) => {
   const usuario = await getUsuario(req);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const url = new URL(req.url);
-  const nivel = await getNivel(usuario.empresa_id, usuario.rank, "documentos");
+  const nivel = nivelEfetivo(await getNivel(usuario.empresa_id, usuario.rank, "documentos"), usuario.excecao_modulos, "documentos");
 
   if (req.method === "GET") {
     if (nivel === "nenhum") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
