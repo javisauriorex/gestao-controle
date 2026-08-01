@@ -1,12 +1,14 @@
 import { sql } from "./lib/db.js";
-import { getUsuario, jsonResponse, podeCrear, podeModificar } from "./lib/auth.js";
+import { getUsuario, jsonResponse, getNivel, podeModificar } from "./lib/auth.js";
 
 export default async (req) => {
   const usuario = await getUsuario(req);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const url = new URL(req.url);
+  const nivel = await getNivel(usuario.empresa_id, usuario.rank, "etapas");
 
   if (req.method === "GET") {
+    if (nivel === "nenhum") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const obraId = url.searchParams.get("obra_id");
     if (!obraId) return jsonResponse({ ok: false, error: "obra_id é obrigatório" }, 400);
     const etapas = await sql`SELECT * FROM etapas WHERE obra_id = ${obraId} ORDER BY id`;
@@ -14,7 +16,7 @@ export default async (req) => {
   }
 
   if (req.method === "POST") {
-    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    if (nivel !== "editar") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const { obraId, parentId, texto } = await req.json();
     if (!obraId || !texto) return jsonResponse({ ok: false, error: "faltam dados" }, 400);
     const rows = await sql`
@@ -26,15 +28,14 @@ export default async (req) => {
   }
 
   if (req.method === "PATCH") {
-    // Puede venir { texto } para renombrar, o { concluida, fotoConclusaoId } para marcar concluída.
-    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    if (nivel !== "editar") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = url.searchParams.get("id");
     const body = await req.json();
     const atuais = await sql`
       SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
     if (atuais.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (!podeModificar(usuario.rank, atuais[0].rank_criador)) {
+    if (!podeModificar(usuario, atuais[0].rank_criador, atuais[0].criado_por)) {
       return jsonResponse({ ok: false, error: "não pode modificar o que um escalão superior criou" }, 403);
     }
 
@@ -56,13 +57,13 @@ export default async (req) => {
   }
 
   if (req.method === "DELETE") {
-    if (!podeCrear(3, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    if (nivel !== "editar") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = url.searchParams.get("id");
     const alvos = await sql`
       SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
     if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (!podeModificar(usuario.rank, alvos[0].rank_criador)) {
+    if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "não pode apagar o que um escalão superior criou" }, 403);
     }
     await sql`DELETE FROM etapas WHERE id = ${id}`;
