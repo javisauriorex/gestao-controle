@@ -13,7 +13,7 @@ CREATE TABLE usuarios (
   email TEXT UNIQUE NOT NULL,
   nome TEXT,
   empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
-  rank INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 5), -- 1 profissional, 2 encarregado, 3 mestre, 4 engenheiro, 5 dono
+  rank INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 7), -- 1=mais poder ... 7=menos poder: 1 dono, 2 engenheiro chefe de obra, 3 engenheiro estagiário, 4 mestre de obra, 5 encarregado, 6 chefe de turma, 7 profissional
   criado_em TIMESTAMPTZ DEFAULT now()
 );
 
@@ -21,7 +21,7 @@ CREATE TABLE convites (
   id SERIAL PRIMARY KEY,
   empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
-  rank INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 5),
+  rank INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 7),
   funcao TEXT,
   obra_id INTEGER,
   aceito BOOLEAN DEFAULT false,
@@ -38,6 +38,7 @@ CREATE TABLE obras (
   data_inicio DATE,
   estado TEXT DEFAULT 'ativa',
   criado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  responsavel_id INTEGER NOT NULL REFERENCES usuarios(id),
   criado_em TIMESTAMPTZ DEFAULT now()
 );
 
@@ -99,6 +100,18 @@ CREATE TABLE documentos (
   criado_em TIMESTAMPTZ DEFAULT now()
 );
 
+-- Permissões como dados: cada empresa tem sua própria matriz rank x módulo -> nível.
+-- Editável por rank 1-4 desde a tela "Permissões" (Etapa B). Semeada com defaults
+-- ao criar cada empresa nova (ver lib/auth.js).
+CREATE TABLE permissoes (
+  id SERIAL PRIMARY KEY,
+  empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  rank INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 7),
+  modulo TEXT NOT NULL CHECK (modulo IN ('etapas', 'equipe', 'documentos', 'ferramentas', 'materiais', 'observacoes')),
+  nivel TEXT NOT NULL CHECK (nivel IN ('nenhum', 'visualizar', 'editar')),
+  UNIQUE (empresa_id, rank, modulo)
+);
+
 CREATE INDEX idx_usuarios_email ON usuarios(email);
 CREATE INDEX idx_obras_empresa ON obras(empresa_id);
 CREATE INDEX idx_equipe_obra ON equipe(obra_id);
@@ -108,4 +121,6 @@ CREATE INDEX idx_etapas_parent ON etapas(parent_id);
 CREATE INDEX idx_ferramentas_obra ON ferramentas(obra_id);
 CREATE INDEX idx_materiais_obra ON materiais(obra_id);
 CREATE INDEX idx_observacoes_obra ON observacoes(obra_id);
+CREATE INDEX idx_documentos_obra ON documentos(obra_id);
 CREATE INDEX idx_convites_email ON convites(email);
+CREATE INDEX idx_permissoes_empresa ON permissoes(empresa_id);
