@@ -25,10 +25,36 @@ async function getIdentityUser(req) {
   }
 }
 
+// Matriz de permissões default (rank 1..7 x módulo -> nível).
+// 1 = mais poder (Dono) ... 7 = menos poder (Profissional).
+// Semeada uma vez por empresa nova; editável depois via tela "Permissões" (rank 1-4).
+const MODULOS = ["etapas", "equipe", "documentos", "ferramentas", "materiais", "observacoes"];
+const NIVEL_DEFAULT_POR_RANK = {
+  1: "editar", 2: "editar", 3: "editar", 4: "editar", 5: "editar",
+  6: "visualizar",
+  7: "nenhum", // sobrescrito abaixo para etapas/documentos
+};
+function nivelDefault(rank, modulo) {
+  if (rank === 7) return modulo === "etapas" || modulo === "documentos" ? "visualizar" : "nenhum";
+  return NIVEL_DEFAULT_POR_RANK[rank] || "nenhum";
+}
+
+async function semearPermissoesDefault(empresaId) {
+  for (let rank = 1; rank <= 7; rank++) {
+    for (const modulo of MODULOS) {
+      await sql`
+        INSERT INTO permissoes (empresa_id, rank, modulo, nivel)
+        VALUES (${empresaId}, ${rank}, ${modulo}, ${nivelDefault(rank, modulo)})
+        ON CONFLICT (empresa_id, rank, modulo) DO NOTHING
+      `;
+    }
+  }
+}
+
 // Devuelve el usuario de NUESTRA tabla `usuarios` a partir del token de Identity.
 // Si es la primera vez que esta persona entra:
 //   - si hay un convite pendiente para su email, se une a esa empresa con el rank invitado
-//   - si NO hay convite, se crea una empresa nueva y esta persona queda como Dono (rank 5)
+//   - si NO hay convite, se crea una empresa nueva y esta persona queda como Dono (rank 1)
 export async function getUsuario(req) {
   const identityUser = await getIdentityUser(req);
   if (!identityUser || !identityUser.email) return null;
@@ -61,32 +87,48 @@ export async function getUsuario(req) {
     return novoUsuario;
   }
 
-  // Nadie invitó a esta persona: arranca su propia empresa como Dono.
+  // Nadie invitó a esta persona: arranca su propia empresa como Dono (rank 1, o mais alto).
   const empresas = await sql`INSERT INTO empresas (nome) VALUES (${nome + " — empresa"}) RETURNING *`;
   const empresa = empresas[0];
   const novos = await sql`
     INSERT INTO usuarios (email, nome, empresa_id, rank)
-    VALUES (${email}, ${nome}, ${empresa.id}, 5)
+    VALUES (${email}, ${nome}, ${empresa.id}, 1)
     RETURNING *
   `;
   const novoUsuario = novos[0];
   await sql`UPDATE empresas SET dono_usuario_id = ${novoUsuario.id} WHERE id = ${empresa.id}`;
+  await semearPermissoesDefault(empresa.id);
   return novoUsuario;
 }
 
-// --- Reglas de permiso (una sola vez, usadas por todas las Functions) ---
+// --- Reglas de permiso ---
 
-// ¿El actor tiene rank suficiente para esta acción?
-export function podeCrear(rankMinimo, rankAtor) {
-  return rankAtor >= rankMinimo;
+// Consulta la matriz de permissões de la empresa: ¿qué nível tiene este rank para este módulo?
+export async function getNivel(empresaId, rank, modulo) {
+  const rows = await sql`
+    SELECT nivel FROM permissoes WHERE empresa_id = ${empresaId} AND rank = ${rank} AND modulo = ${modulo}
+  `;
+  return rows.length > 0 ? rows[0].nivel : nivelDefault(rank, modulo);
 }
 
-// Regla universal **: un escalafón inferior no modifica/borra lo que cargó uno superior.
-export function podeModificar(rankAtor, rankCriador) {
-  return rankAtor >= rankCriador;
+// Umbral simple por rank (para acciones que NO son parte de la matriz de módulos, ej. obras).
+// Numeração invertida: rank MENOR o igual al máximo permitido = tiene acceso.
+export function podeCrear(rankMaximoPermitido, rankAtor) {
+  return rankAtor <= rankMaximoPermitido;
 }
 
-// Al gestionar Equipe: nadie asigna un rank mayor al propio.
+// Regla universal **: um escalão inferior não modifica/apaga o que um superior criou.
+// Numeração invertida: rank MENOR = mais poder.
+// Entre pares do MESMO rank, desempata por antiguidade na empresa (id menor = entrou primeiro).
+// Quem criou o conteúdo sempre pode modificá-lo, independente de antiguidade.
+export function podeModificar(ator, rankCriador, idCriador) {
+  if (ator.id === idCriador) return true;
+  if (ator.rank < rankCriador) return true;
+  if (ator.rank > rankCriador) return false;
+  return ator.id < idCriador;
+}
+
+// Al gestionar Equipe: nadie asigna un rank MEJOR (número menor) que el propio.
 export function podeAsignarRank(rankAtor, rankAAsignar) {
-  return rankAAsignar <= rankAtor;
+  return rankAAsignar >= rankAtor;
 }
