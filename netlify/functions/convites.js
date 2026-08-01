@@ -19,7 +19,7 @@ export default async (req) => {
     const id = url.searchParams.get("id");
     const alvos = await sql`SELECT * FROM convites WHERE id = ${id} AND empresa_id = ${usuario.empresa_id}`;
     if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (usuario.rank < 2) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    if (usuario.rank > 6) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     await sql`DELETE FROM convites WHERE id = ${id}`;
     return jsonResponse({ ok: true });
   }
