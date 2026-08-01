@@ -84,7 +84,16 @@ const REG_CATS = {
 };
 
 const FUNCOES = ["Encarregado", "Oficial", "Ajudante", "Almoxarife", "Frete", "Outro"];
-const RANK_LABELS = { 1: "Profissional", 2: "Encarregado", 3: "Mestre de obra", 4: "Engenheiro", 5: "Dono" };
+const RANK_LABELS = { 1: "Dono", 2: "Engenheiro Chefe de Obra", 3: "Engenheiro Estagiário", 4: "Mestre de Obra", 5: "Encarregado", 6: "Chefe de Turma", 7: "Profissional" };
+const RANK_DESCRICOES = {
+  1: "acesso total a todas as obras da empresa",
+  2: "gerencia obras, equipe e conteúdo como o Dono",
+  3: "mesmo nível de acesso que o Engenheiro Chefe",
+  4: "gerencia etapas, equipe e conteúdo da obra",
+  5: "carrega conteúdo, conclui etapas, gerencia equipe",
+  6: "só visualiza — não pode editar nada",
+  7: "só visualiza Etapas e Documentos — sem acesso ao resto",
+};
 const ESTADOS = {
   ativa: { label: "ATIVA", color: C.blue },
   pausada: { label: "PAUSADA", color: C.amber },
@@ -420,7 +429,7 @@ function CollapsibleSection({ title, defaultOpen = true, children }) {
   );
 }
 
-function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loadFile, saveArquivo, onViewImage }) {
+function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loadFile, saveArquivo, onViewImage, podeEditar = true }) {
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [erro, setErro] = useState("");
@@ -490,38 +499,44 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
               <span style={{ color: C.inkMuted }} className="text-[11px] font-mono shrink-0">{fmtTs(d.criado_em)}</span>
               {isImg && !faltando && <button onClick={() => f && onViewImage(f.dataUrl)} style={{ color: C.teal }} className="text-xs font-bold uppercase shrink-0">Ver</button>}
               {!faltando && <button onClick={() => download(d)} style={{ color: C.blue }} className="text-xs font-bold uppercase shrink-0">Baixar</button>}
-              <button onClick={() => remover(d)} style={{ color: C.rust }}>🗑</button>
+              {podeEditar && <button onClick={() => remover(d)} style={{ color: C.rust }}>🗑</button>}
             </div>
           );
         })}
         {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nenhum documento anexado.</p>}
       </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
-      <input ref={inputRef} type="file" onChange={handleFile} className="hidden" />
-      <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ background: C.ink }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2 disabled:opacity-50">
-        + {uploading ? "Enviando..." : "Adicionar projeto"}
-      </button>
+      {podeEditar && (
+        <>
+          <input ref={inputRef} type="file" onChange={handleFile} className="hidden" />
+          <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ background: C.ink }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2 disabled:opacity-50">
+            + {uploading ? "Enviando..." : "Adicionar projeto"}
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
-function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioRank }) {
+function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioRank, podeEditar = true }) {
   const [email, setEmail] = useState("");
   const [funcao, setFuncao] = useState("");
-  const [rank, setRank] = useState(1);
+  const [rank, setRank] = useState(usuarioRank + 1 <= 7 ? usuarioRank + 1 : 7);
   const [erro, setErro] = useState("");
   const [msg, setMsg] = useState("");
   const [salvando, setSalvando] = useState(false);
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
-  const ranksDisponiveis = [1, 2, 3, 4, 5].filter((r) => r <= usuarioRank);
+  const ranksDisponiveis = [1, 2, 3, 4, 5, 6, 7].filter((r) => r >= usuarioRank);
+  const funcaoSugerida = `${RANK_LABELS[rank]} ${list.filter((m) => m.rank === rank).length + 1}`;
 
   const submit = async () => {
     if (!email.trim()) return;
     setErro(""); setMsg(""); setSalvando(true);
     try {
-      const r = await onAdd({ obraId, email: email.trim(), rank, funcao: (funcao || FUNCOES[0]).trim() });
+      const r = await onAdd({ obraId, email: email.trim(), rank, funcao: (funcao || funcaoSugerida).trim() });
       setMsg(r.convite ? `Convite enviado para ${email.trim()} — vai entrar assim que criar a conta.` : "Adicionado.");
       setEmail(""); setFuncao("");
     } catch (err) {
@@ -547,7 +562,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioR
           const presenteHoje = m.asistencias?.includes(hoje);
           return (
             <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2 flex items-center gap-2">
-              <button onClick={() => marcarPresenca(m)} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs">
+              <button onClick={() => podeEditar && marcarPresenca(m)} disabled={!podeEditar} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
                 {presenteHoje ? "✓" : ""}
               </button>
               <div className="flex-1 min-w-0 truncate">
@@ -555,22 +570,28 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioR
                 <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email} · {RANK_LABELS[m.rank]}</div>
               </div>
               <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
-              <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>
+              {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
             </div>
           );
         })}
         {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem equipe atribuída.</p>}
       </div>
-      <div className="flex flex-wrap gap-2">
-        <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
-        <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={FUNCOES[0]} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-24 shrink-0" />
-        <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
-          {ranksDisponiveis.map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
-        </select>
-        <datalist id="funcoes-equipe">{funcoesHistoricas.map((f) => <option key={f} value={f} />)}</datalist>
-        <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
-      </div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Se o email ainda não tem conta, fica um convite pendente com o rank escolhido.</p>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {podeEditar && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+            <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={funcaoSugerida} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
+            <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
+              {ranksDisponiveis.map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+            </select>
+            <datalist id="funcoes-equipe">{funcoesHistoricas.map((f) => <option key={f} value={f} />)}</datalist>
+            <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+          </div>
+          <p style={{ color: C.amber }} className="text-[11px] font-mono mt-1.5">→ {RANK_LABELS[rank]} · {RANK_DESCRICOES[rank]}</p>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Se o email ainda não tem conta, fica um convite pendente. Sugestão de função: "{funcaoSugerida}".</p>
+        </>
+      )}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
       {msg && <p style={{ color: C.green }} className="text-xs font-mono mt-1">{msg}</p>}
     </div>
@@ -586,7 +607,7 @@ function Lightbox({ src, onClose }) {
   );
 }
 
-function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, nomesHistoricos = [] }) {
+function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, nomesHistoricos = [], podeEditar = true }) {
   const [openSub, setOpenSub] = useState(false);
   const [editando, setEditando] = useState(false);
   const [nomeEdit, setNomeEdit] = useState(etapa.texto);
@@ -605,6 +626,7 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
   };
 
   const toggleSimples = async () => {
+    if (!podeEditar) return;
     setErro("");
     try { await onToggle(etapa.id, !etapa.concluida, etapa.foto_conclusao_id); } catch (err) { setErro(err.message); }
   };
@@ -640,7 +662,7 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
     <div style={{ marginLeft: depth * 14 }}>
       <div style={{ borderColor: C.border, background: C.bg }} className="border rounded-md p-2.5 mb-2">
         <div className="flex items-center gap-1.5">
-          <button onClick={toggleSimples} style={{ borderColor: etapa.concluida ? C.green : C.border, background: etapa.concluida ? C.green : "transparent" }} className="w-4 h-4 border-2 rounded flex items-center justify-center shrink-0 text-white text-[10px]">{etapa.concluida ? "✓" : ""}</button>
+          <button onClick={toggleSimples} disabled={!podeEditar} style={{ borderColor: etapa.concluida ? C.green : C.border, background: etapa.concluida ? C.green : "transparent" }} className="w-4 h-4 border-2 rounded flex items-center justify-center shrink-0 text-white text-[10px] disabled:opacity-60">{etapa.concluida ? "✓" : ""}</button>
           <button onClick={() => setOpenSub(!openSub)} title="Subetapas" className="shrink-0">{temFilhos ? (openSub ? "📂" : "📁") : "📄"}</button>
           {editando ? (
             <input value={nomeEdit} onChange={(e) => setNomeEdit(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvarNome()} onBlur={salvarNome} autoFocus style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="flex-1 min-w-0 border rounded px-2 py-0.5 text-sm outline-none" />
@@ -648,10 +670,10 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
             <span style={{ color: etapa.concluida ? C.inkMuted : C.ink, textDecoration: etapa.concluida ? "line-through" : "none" }} className="text-sm flex-1 min-w-0 truncate">{etapa.texto}</span>
           )}
           {temFilhos && <span style={{ color: C.inkMuted }} className="text-[10px] font-mono shrink-0">{filhos.filter((f) => f.concluida).length}/{filhos.length}</span>}
-          {!editando && <button onClick={() => { setNomeEdit(etapa.texto); setEditando(true); }} style={{ color: C.inkMuted }} className="shrink-0">✎</button>}
-          <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
-          <button onClick={() => inputRef.current?.click()} disabled={uploading} title="Concluir com foto" style={{ color: C.inkMuted }} className="shrink-0">📷</button>
-          <button onClick={removerEtapa} style={{ color: C.rust }} className="shrink-0">🗑</button>
+          {podeEditar && !editando && <button onClick={() => { setNomeEdit(etapa.texto); setEditando(true); }} style={{ color: C.inkMuted }} className="shrink-0">✎</button>}
+          {podeEditar && <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />}
+          {podeEditar && <button onClick={() => inputRef.current?.click()} disabled={uploading} title="Concluir com foto" style={{ color: C.inkMuted }} className="shrink-0">📷</button>}
+          {podeEditar && <button onClick={removerEtapa} style={{ color: C.rust }} className="shrink-0">🗑</button>}
         </div>
         {etapa.foto_conclusao_id && (
           <div className="mt-2 flex items-center gap-2">
@@ -665,19 +687,21 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
       {openSub && (
         <div style={{ borderLeft: `2px dashed ${C.border}`, marginLeft: 8 }} className="pl-2 mb-2">
           {filhos.map((f) => (
-            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} />
+            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
           ))}
-          <div className="flex gap-2 mb-2">
-            <input value={novoSub} onChange={(e) => setNovoSub(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSub()} placeholder="Nova subetapa" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
-            <button onClick={addSub} disabled={!novoSub.trim()} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
-          </div>
+          {podeEditar && (
+            <div className="flex gap-2 mb-2">
+              <input value={novoSub} onChange={(e) => setNovoSub(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSub()} placeholder="Nova subetapa" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+              <button onClick={addSub} disabled={!novoSub.trim()} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage }) {
+function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, podeEditar = true }) {
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const raiz = etapas.filter((e) => !e.parent_id);
@@ -694,21 +718,24 @@ function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa,
       <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · 📷 conclui com foto.</p>
       <div className="mb-3">
         {raiz.map((e) => (
-          <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} />
+          <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
         ))}
         {raiz.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem etapas cadastradas.</p>}
       </div>
-      <div className="flex gap-2">
-        <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ex: instalação elétrica" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
-        <datalist id="nomes-etapas">{nomesHistoricos.map((n) => <option key={n} value={n} />)}</datalist>
-        <button onClick={submit} disabled={!texto.trim()} style={{ background: C.ink }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
-      </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {podeEditar && (
+        <div className="flex gap-2">
+          <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ex: instalação elétrica" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+          <datalist id="nomes-etapas">{nomesHistoricos.map((n) => <option key={n} value={n} />)}</datalist>
+          <button onClick={submit} disabled={!texto.trim()} style={{ background: C.ink }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+        </div>
+      )}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
     </div>
   );
 }
 
-function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId }) {
+function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId, podeEditar = true }) {
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const historico = [...new Set(items.map((i) => i.texto).filter(Boolean))];
@@ -733,16 +760,19 @@ function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph
               <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">{fmtTs(item.criado_em)}</span>
               <p style={{ color: C.ink }} className="text-sm">{item.texto}</p>
             </div>
-            <button onClick={() => remover(item)} style={{ color: C.rust }} className="opacity-0 group-hover:opacity-100 hover:opacity-60 transition shrink-0">🗑</button>
+            {podeEditar && <button onClick={() => remover(item)} style={{ color: C.rust }} className="opacity-0 group-hover:opacity-100 hover:opacity-60 transition shrink-0">🗑</button>}
           </div>
         ))}
         {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nada registrado ainda.</p>}
       </div>
-      <div className="flex gap-2">
-        <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder={placeholder} list={datalistId} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
-        <datalist id={datalistId}>{historico.map((h) => <option key={h} value={h} />)}</datalist>
-        <button onClick={submit} disabled={!texto.trim()} style={{ background: color }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
-      </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {podeEditar && (
+        <div className="flex gap-2">
+          <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder={placeholder} list={datalistId} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+          <datalist id={datalistId}>{historico.map((h) => <option key={h} value={h} />)}</datalist>
+          <button onClick={submit} disabled={!texto.trim()} style={{ background: color }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+        </div>
+      )}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
     </div>
   );
@@ -763,7 +793,7 @@ function BottomNav({ onInicio, onConfig, active }) {
   );
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose }) {
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onAbrirPermissoes, onBackupForcado, fazendoBackup }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div onClick={onClose} className="absolute inset-0 bg-black/40" />
@@ -777,7 +807,15 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose }) 
           </div>
         </div>
         <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
+        {usuario.rank <= 4 && (
+          <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Permissões</button>
+        )}
         <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
+        {usuario.rank === 1 && (
+          <button onClick={onBackupForcado} disabled={fazendoBackup} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono disabled:opacity-50">
+            {fazendoBackup ? "Gerando..." : "⤓ Backup de tudo"}
+          </button>
+        )}
         <button onClick={onSair} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 text-sm font-mono">🔒 Sair</button>
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-auto pt-4">© 2026 Gestão & Controle</p>
       </div>
@@ -804,6 +842,87 @@ function TicketCard({ obra, pendCount, lastDate, onOpen }) {
   );
 }
 
+function PermissoesScreen({ onBack }) {
+  const [permissoes, setPermissoes] = useState(null);
+  const [erro, setErro] = useState("");
+  const [salvandoCelda, setSalvandoCelda] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiFetch("/api/permissoes");
+        setPermissoes(r.permissoes);
+      } catch (err) { setErro(err.message); }
+    })();
+  }, []);
+
+  const nivelDe = (rank, modulo) => {
+    const row = permissoes?.find((p) => p.rank === rank && p.modulo === modulo);
+    return row ? row.nivel : "nenhum";
+  };
+
+  const ciclo = { nenhum: "visualizar", visualizar: "editar", editar: "nenhum" };
+  const corDe = { nenhum: C.inkMuted, visualizar: C.blue, editar: C.green };
+  const labelNivel = { nenhum: "Nenhum", visualizar: "Ver", editar: "Editar" };
+
+  const toggle = async (rank, modulo) => {
+    const novo = ciclo[nivelDe(rank, modulo)];
+    const key = `${rank}-${modulo}`;
+    setSalvandoCelda(key);
+    setErro("");
+    try {
+      await apiFetch("/api/permissoes", { method: "PATCH", body: JSON.stringify({ rank, modulo, nivel: novo }) });
+      setPermissoes((prev) => {
+        const existe = prev.find((p) => p.rank === rank && p.modulo === modulo);
+        if (existe) return prev.map((p) => (p.rank === rank && p.modulo === modulo ? { ...p, nivel: novo } : p));
+        return [...prev, { rank, modulo, nivel: novo }];
+      });
+    } catch (err) { setErro(err.message); }
+    setSalvandoCelda(null);
+  };
+
+  if (!permissoes) return <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>;
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">🔑 Permissões</h2>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Toque numa célula para alternar: Nenhum → Ver → Editar</p>
+      <div className="overflow-x-auto -mx-4 px-4">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left p-1"></th>
+              {MODULOS_OBRA.map((m) => <th key={m.key} style={{ color: C.inkMuted }} className="p-1 font-mono font-normal text-center">{m.glyph}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {[1, 2, 3, 4, 5, 6, 7].map((rank) => (
+              <tr key={rank}>
+                <td style={{ color: C.ink }} className="p-1 font-mono whitespace-nowrap pr-2 text-[11px]">{RANK_LABELS[rank]}</td>
+                {MODULOS_OBRA.map((m) => {
+                  const nivel = nivelDe(rank, m.key);
+                  const key = `${rank}-${m.key}`;
+                  return (
+                    <td key={m.key} className="p-1 text-center">
+                      <button onClick={() => toggle(rank, m.key)} disabled={salvandoCelda === key}
+                        style={{ borderColor: corDe[nivel], color: corDe[nivel] }}
+                        className="border rounded w-14 py-1 text-[10px] font-mono uppercase disabled:opacity-50">
+                        {salvandoCelda === key ? "..." : labelNivel[nivel]}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-3">{erro}</p>}
+    </div>
+  );
+}
+
 const MODULOS_OBRA = [
   { key: "etapas", label: "Etapas", glyph: "☑" },
   { key: "equipe", label: "Equipe", glyph: "👥" },
@@ -813,16 +932,20 @@ const MODULOS_OBRA = [
   { key: "observacoes", label: "Observações", glyph: "📝" },
 ];
 
-function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
+function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
-  onAddEquipo, onRemoveEquipo, onToggleHoje, usuarioRank,
+  onAddEquipo, onRemoveEquipo, onToggleHoje, usuarioRank, niveis,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage }) {
   const [erroObra, setErroObra] = useState("");
   const [modulo, setModulo] = useState(null);
+  const [transferindo, setTransferindo] = useState(false);
+  const [novoResponsavel, setNovoResponsavel] = useState("");
   const { etapas, equipe, ferramentas, materiais, observacoes, documentos } = obraDetalhe;
   const etapasObraCount = etapas.length;
   const etapasObraDone = etapas.filter((e) => e.concluida).length;
+  const responsavelAtual = equipe.find((m) => m.usuario_id === obra.responsavel_id);
+  const modulosVisiveis = MODULOS_OBRA.filter((m) => (niveis?.[m.key] || "nenhum") !== "nenhum");
 
   const cycleEstado = async () => {
     setErroObra("");
@@ -837,6 +960,16 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
     catch (err) { setErroObra(err.message); }
   };
 
+  const transferir = async () => {
+    if (!novoResponsavel) return;
+    setErroObra("");
+    try {
+      await onTransferirObra(obra.id, Number(novoResponsavel));
+      setTransferindo(false);
+      setNovoResponsavel("");
+    } catch (err) { setErroObra(err.message); }
+  };
+
   const contagens = {
     etapas: etapasObraCount > 0 ? `${etapasObraDone}/${etapasObraCount}` : null,
     equipe: equipe.length || null,
@@ -848,16 +981,17 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
 
   if (modulo) {
     const mod = MODULOS_OBRA.find((m) => m.key === modulo);
+    const podeEditar = (niveis?.[modulo] || "nenhum") === "editar";
     return (
       <div>
         <button onClick={() => setModulo(null)} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ {obra.cliente}</button>
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.glyph} {mod.label}</h2>
-        {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />}
-        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} usuarioRank={usuarioRank} />}
-        {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} />}
-        {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" />}
-        {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" />}
-        {modulo === "observacoes" && <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" />}
+        {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
+        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
+        {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
+        {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
+        {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
+        {modulo === "observacoes" && <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" podeEditar={podeEditar} />}
       </div>
     );
   }
@@ -874,11 +1008,26 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra,
           </div>
           <StampBadge estado={obra.estado} onClick={cycleEstado} />
         </div>
+        <div style={{ borderColor: C.border }} className="border-t mt-4 pt-3 flex items-center justify-between flex-wrap gap-2">
+          <p style={{ color: C.inkMuted }} className="text-xs font-mono">
+            👤 Responsável: <span style={{ color: C.ink }}>{responsavelAtual ? `${responsavelAtual.nome} (${RANK_LABELS[responsavelAtual.rank]})` : "—"}</span>
+          </p>
+          <button onClick={() => setTransferindo(!transferindo)} style={{ color: C.blue }} className="text-xs font-mono uppercase">🔄 Transferir</button>
+        </div>
+        {transferindo && (
+          <div className="flex gap-2 mt-2">
+            <select value={novoResponsavel} onChange={(e) => setNovoResponsavel(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs outline-none bg-white">
+              <option value="">Escolha o novo responsável...</option>
+              {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
+            </select>
+            <button onClick={transferir} disabled={!novoResponsavel} style={{ background: C.blue }} className="text-white text-xs font-bold uppercase rounded px-3 disabled:opacity-40 shrink-0">Confirmar</button>
+          </div>
+        )}
         <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
         {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
       </div>
       <div className="grid grid-cols-2 gap-3">
-        {MODULOS_OBRA.map((m) => (
+        {modulosVisiveis.map((m) => (
           <button key={m.key} onClick={() => setModulo(m.key)} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 text-center active:opacity-70 transition">
             <div className="text-2xl">{m.glyph}</div>
             <div style={{ color: C.ink }} className="text-sm font-bold uppercase tracking-wide mt-2">{m.label}</div>
@@ -1346,6 +1495,8 @@ function GestorObras() {
   const [obraDetalheLoading, setObraDetalheLoading] = useState(false);
   const [erroGlobal, setErroGlobal] = useState("");
   const [showConfig, setShowConfig] = useState(false);
+  const [meusNiveis, setMeusNiveis] = useState(null);
+  const [fazendoBackup, setFazendoBackup] = useState(false);
 
   const carregarUsuarioAPI = async () => {
     const token = await getValidAccessToken();
@@ -1408,7 +1559,18 @@ function GestorObras() {
     setObrasLoading(false);
   };
 
-  useEffect(() => { if (usuarioAPI) carregarObras(); }, [usuarioAPI]);
+  const carregarNiveis = async (usuario) => {
+    try {
+      const r = await apiFetch("/api/permissoes");
+      const meus = {};
+      r.permissoes.filter((p) => p.rank === usuario.rank).forEach((p) => { meus[p.modulo] = p.nivel; });
+      setMeusNiveis(meus);
+    } catch (e) {
+      setMeusNiveis({});
+    }
+  };
+
+  useEffect(() => { if (usuarioAPI) { carregarObras(); carregarNiveis(usuarioAPI); } }, [usuarioAPI]);
 
   const aoLogar = async () => {
     setBiometriaPassada(true);
@@ -1492,10 +1654,46 @@ function GestorObras() {
     setObras((prev) => prev.map((o) => (o.id === obraId ? r.obra : o)));
   };
 
+  const transferirObra = async (obraId, novoResponsavelId) => {
+    const r = await apiFetch(`/api/obras?id=${obraId}`, { method: "PATCH", body: JSON.stringify({ novoResponsavelId }) });
+    setObras((prev) => prev.map((o) => (o.id === obraId ? r.obra : o)));
+  };
+
   const deleteObra = async (obraId) => {
     await apiFetch(`/api/obras?id=${obraId}`, { method: "DELETE" });
     setObras((prev) => prev.filter((o) => o.id !== obraId));
     setView("dashboard");
+  };
+
+  const backupForcado = async () => {
+    setFazendoBackup(true);
+    try {
+      const pacote = { geradoEm: new Date().toISOString(), obras: [] };
+      for (const obra of obras) {
+        const [et, eq, fe, ma, ob, doc] = await Promise.all([
+          apiFetch(`/api/etapas?obra_id=${obra.id}`).catch(() => ({ etapas: [] })),
+          apiFetch(`/api/equipe?obra_id=${obra.id}`).catch(() => ({ equipe: [] })),
+          apiFetch(`/api/ferramentas?obra_id=${obra.id}`).catch(() => ({ ferramentas: [] })),
+          apiFetch(`/api/materiais?obra_id=${obra.id}`).catch(() => ({ materiais: [] })),
+          apiFetch(`/api/observacoes?obra_id=${obra.id}`).catch(() => ({ observacoes: [] })),
+          apiFetch(`/api/documentos?obra_id=${obra.id}`).catch(() => ({ documentos: [] })),
+        ]);
+        pacote.obras.push({
+          obra, etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+        });
+      }
+      const blob = new Blob([JSON.stringify(pacote, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gc-backup-${todayISO()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setErroGlobal(err.message);
+    }
+    setFazendoBackup(false);
   };
 
   // --- Abrir una obra: carga todo lo de esa obra en paralelo ---
@@ -1656,17 +1854,18 @@ function GestorObras() {
         ) : (
           <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
             onBack={voltarAoDashboard}
-            onChangeEstado={changeEstado} onDeleteObra={deleteObra}
+            onChangeEstado={changeEstado} onDeleteObra={deleteObra} onTransferirObra={transferirObra}
             onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa}
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
             onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
             onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del}
-            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} usuarioRank={usuarioAPI.rank}
+            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} usuarioRank={usuarioAPI.rank} niveis={meusNiveis}
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
       )}
       {view === "pendientes" && <PendientesView obras={obras} onBack={() => setView("dashboard")} onOpenObra={abrirObra} />}
       {view === "report" && <ReportView obras={obras} onBack={() => setView("dashboard")} />}
+      {view === "permissoes" && <PermissoesScreen onBack={() => setView("dashboard")} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
     </div>
@@ -1675,7 +1874,7 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); setView("permissoes"); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
       </>
     );
   }
