@@ -46,6 +46,71 @@
     94%, 97% { opacity: 1; }
   }
   .logo-blink-img { animation: blinkFade 3.5s infinite; }
+
+  /* Splash: el título crece en altura empujando al conjunto centrado hacia arriba (el logo "sube" solo) */
+  @keyframes splashTitleGrow {
+    0% { max-height: 0; margin-top: 0; }
+    100% { max-height: 140px; margin-top: 14px; }
+  }
+  .splash-title-wrap {
+    max-height: 0;
+    overflow: hidden;
+    text-align: center;
+    line-height: 1.15;
+    animation: splashTitleGrow 0.9s ease-out 1s forwards;
+  }
+
+  /* Efecto "reparto de cartas": cada letra entra grande y se achica a su tamaño final */
+  @keyframes dealLetter {
+    0% { transform: scale(2.6); opacity: 0; }
+    55% { transform: scale(0.85); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .deal-letter {
+    display: inline-block;
+    opacity: 0;
+    animation-name: dealLetter;
+    animation-duration: 0.35s;
+    animation-timing-function: cubic-bezier(0.22, 0.9, 0.3, 1);
+    animation-fill-mode: both;
+  }
+
+  /* Barrita de carga estilo Windows XP: aparece recién en el segundo 2, en loop */
+  .xp-loader-wrap {
+    position: absolute;
+    bottom: 56px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    opacity: 0;
+    animation: fadeIn 0.2s ease 2s forwards;
+  }
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+  .xp-loader-track {
+    width: 160px;
+    height: 12px;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    background: #ffffff;
+    border: 1px solid #b8b8b8;
+  }
+  .xp-loader-bar {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    width: 38%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #1b5fa8, #6fb2f0, #1b5fa8);
+    animation: xpSlide 1.1s linear 2s infinite;
+  }
+  @keyframes xpSlide {
+    0% { left: -40%; }
+    100% { left: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -302,6 +367,25 @@ function isImagemDoc(doc) {
   return EXT_IMAGEM.includes(ext);
 }
 
+// Formatos permitidos en Documentos: planos (PDF), administrativo (Word/Excel), fotos.
+// Nada de video: es justo lo que más pesa el bandwidth sin aportar tanto valor acá.
+const TIPO_MIME_DOC = {
+  "application/pdf": "pdf",
+  "application/msword": "word",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word",
+  "application/vnd.ms-excel": "excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "excel",
+  "image/jpeg": "imagem",
+  "image/png": "imagem",
+};
+const TIPO_EXT_DOC = { pdf: "pdf", doc: "word", docx: "word", xls: "excel", xlsx: "excel", jpg: "imagem", jpeg: "imagem", png: "imagem" };
+function categoriaDoc(doc) {
+  if (doc.tipo && TIPO_MIME_DOC[doc.tipo]) return TIPO_MIME_DOC[doc.tipo];
+  const ext = (doc.nome || "").split(".").pop().toLowerCase();
+  return TIPO_EXT_DOC[ext] || "outro";
+}
+const ICONE_DOC = { pdf: "📕", word: "📘", excel: "📗", outro: "📄" };
+
 function StampBadge({ estado, onClick }) {
   const e = ESTADOS[estado];
   return (
@@ -433,11 +517,18 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [erro, setErro] = useState("");
+  const [pdfAberto, setPdfAberto] = useState(null);
   const list = documentos;
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const categoria = categoriaDoc({ tipo: file.type, nome: file.name });
+    if (categoria === "outro") {
+      setErro("Formato não suportado. Apenas PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG ou PNG.");
+      e.target.value = "";
+      return;
+    }
     if (file.size > 4.5 * 1024 * 1024) {
       alert("O arquivo é muito grande (máx ~4MB).");
       e.target.value = "";
@@ -472,6 +563,15 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
     a.click();
   };
 
+  const abrir = (doc) => {
+    const f = fileCache[doc.arquivo_id];
+    if (!f || f === "MISSING") return;
+    const categoria = categoriaDoc(doc);
+    if (categoria === "imagem") onViewImage(f.dataUrl);
+    else if (categoria === "pdf") setPdfAberto({ src: f.dataUrl, nome: doc.nome });
+    else download(doc);
+  };
+
   const remover = async (doc) => {
     setErro("");
     try {
@@ -483,49 +583,53 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
 
   return (
     <div>
-      <div className="space-y-1.5 mb-3">
+      <div className="grid grid-cols-3 gap-2 mb-3">
         {list.map((d) => {
-          const isImg = isImagemDoc(d);
+          const categoria = categoriaDoc(d);
           const f = fileCache[d.arquivo_id];
           const faltando = f === "MISSING";
           return (
-            <div key={d.id} style={{ background: C.bg, borderColor: faltando ? C.rust : C.border }} className="border rounded px-3 py-2 flex items-center gap-2">
-              {isImg && f && !faltando ? (
-                <img src={f.dataUrl} onClick={() => onViewImage(f.dataUrl)} className="w-9 h-9 object-cover rounded shrink-0 cursor-pointer" />
-              ) : (
-                <span>{faltando ? "⚠" : isImg ? "🖼" : "📄"}</span>
+            <div key={d.id} className="relative flex flex-col items-center gap-1">
+              <button onClick={() => abrir(d)} disabled={faltando} style={{ background: C.bg, borderColor: faltando ? C.rust : C.border }} className="w-full aspect-square border rounded-lg overflow-hidden flex items-center justify-center disabled:opacity-60">
+                {categoria === "imagem" && f && !faltando ? (
+                  <img src={f.dataUrl} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-3xl">{faltando ? "⚠" : ICONE_DOC[categoria]}</span>
+                )}
+              </button>
+              {podeEditar && (
+                <button onClick={() => remover(d)} style={{ background: C.rust }} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs leading-none shadow">×</button>
               )}
-              <span style={{ color: faltando ? C.rust : C.ink }} className="text-sm flex-1 min-w-0 truncate">{d.nome}{faltando ? " (indisponível)" : ""}</span>
-              <span style={{ color: C.inkMuted }} className="text-[11px] font-mono shrink-0">{fmtTs(d.criado_em)}</span>
-              {isImg && !faltando && <button onClick={() => f && onViewImage(f.dataUrl)} style={{ color: C.teal }} className="text-xs font-bold uppercase shrink-0">Ver</button>}
-              {!faltando && <button onClick={() => download(d)} style={{ color: C.blue }} className="text-xs font-bold uppercase shrink-0">Baixar</button>}
-              {podeEditar && <button onClick={() => remover(d)} style={{ color: C.rust }}>🗑</button>}
+              <span style={{ color: faltando ? C.rust : C.inkMuted }} className="text-[10px] font-mono text-center truncate w-full px-0.5">{d.nome}{faltando ? " (indisp.)" : ""}</span>
             </div>
           );
         })}
-        {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nenhum documento anexado.</p>}
+        {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono col-span-3">Nenhum documento anexado.</p>}
       </div>
       {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
       {podeEditar && (
         <>
-          <input ref={inputRef} type="file" onChange={handleFile} className="hidden" />
+          <input ref={inputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/jpeg,image/png" onChange={handleFile} className="hidden" />
           <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ background: C.ink }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2 disabled:opacity-50">
             + {uploading ? "Enviando..." : "Adicionar projeto"}
           </button>
+          <p style={{ color: C.inkMuted }} className="text-[10px] font-mono mt-1.5">PDF, Word, Excel, JPG ou PNG — até 4MB.</p>
         </>
       )}
+      {pdfAberto && <PdfViewer src={pdfAberto.src} nome={pdfAberto.nome} onClose={() => setPdfAberto(null)} />}
     </div>
   );
 }
 
-function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioRank, podeEditar = true }) {
+function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExcecao, usuarioRank, podeEditar = true }) {
   const [email, setEmail] = useState("");
   const [funcao, setFuncao] = useState("");
   const [rank, setRank] = useState(usuarioRank + 1 <= 7 ? usuarioRank + 1 : 7);
   const [erro, setErro] = useState("");
   const [msg, setMsg] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [excecaoAberta, setExcecaoAberta] = useState(null);
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
@@ -555,22 +659,51 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, usuarioR
     try { await onToggleHoje(m.id, hoje); } catch (err) { setErro(err.message); }
   };
 
+  const toggleBloqueio = async (m, moduloKey) => {
+    setErro("");
+    const atual = m.excecao_modulos || {};
+    const bloqueado = atual[moduloKey] === "nenhum";
+    const novo = { ...atual };
+    if (bloqueado) delete novo[moduloKey];
+    else novo[moduloKey] = "nenhum";
+    try { await onSetExcecao(m.id, Object.keys(novo).length > 0 ? novo : null); } catch (err) { setErro(err.message); }
+  };
+
   return (
     <div>
       <div className="space-y-2 mb-3">
         {list.map((m) => {
           const presenteHoje = m.asistencias?.includes(hoje);
+          const temExcecao = m.excecao_modulos && Object.keys(m.excecao_modulos).length > 0;
           return (
-            <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2 flex items-center gap-2">
-              <button onClick={() => podeEditar && marcarPresenca(m)} disabled={!podeEditar} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
-                {presenteHoje ? "✓" : ""}
-              </button>
-              <div className="flex-1 min-w-0 truncate">
-                <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.funcao || RANK_LABELS[m.rank]}</span>
-                <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email} · {RANK_LABELS[m.rank]}</div>
+            <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => podeEditar && marcarPresenca(m)} disabled={!podeEditar} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
+                  {presenteHoje ? "✓" : ""}
+                </button>
+                <div className="flex-1 min-w-0 truncate">
+                  <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.funcao || RANK_LABELS[m.rank]}</span>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email} · {RANK_LABELS[m.rank]}{temExcecao ? " · acesso personalizado" : ""}</div>
+                </div>
+                <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
+                {podeEditar && <button onClick={() => setExcecaoAberta(excecaoAberta === m.id ? null : m.id)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Personalizar acesso" className="shrink-0">⚙</button>}
+                {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
               </div>
-              <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
-              {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
+              {excecaoAberta === m.id && (
+                <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t">
+                  <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-1.5">Bloquear acesso a (independente do rank):</p>
+                  <div className="flex flex-wrap gap-2">
+                    {MODULOS_OBRA.map((mod) => {
+                      const bloqueado = m.excecao_modulos?.[mod.key] === "nenhum";
+                      return (
+                        <button key={mod.key} onClick={() => toggleBloqueio(m, mod.key)} style={{ borderColor: bloqueado ? C.rust : C.border, background: bloqueado ? C.rust : "transparent", color: bloqueado ? "#fff" : C.inkMuted }} className="border rounded px-2 py-1 text-[11px] font-mono">
+                          {mod.glyph} {mod.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -603,6 +736,18 @@ function Lightbox({ src, onClose }) {
     <div onClick={onClose} className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-[100]">
       <img src={src} className="max-w-full max-h-full rounded shadow-2xl" onClick={(e) => e.stopPropagation()} />
       <button onClick={onClose} className="absolute top-4 right-4 text-white text-3xl leading-none">×</button>
+    </div>
+  );
+}
+
+function PdfViewer({ src, nome, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/85 flex flex-col z-[100]">
+      <div style={{ background: C.surface, borderColor: C.border }} className="flex items-center justify-between px-4 py-3 border-b">
+        <span style={{ color: C.ink }} className="text-sm font-bold truncate flex-1 pr-2">{nome}</span>
+        <button onClick={onClose} style={{ color: C.ink }} className="text-2xl leading-none px-1">×</button>
+      </div>
+      <iframe src={src} title={nome} className="flex-1 w-full border-0" style={{ background: "#fff" }} />
     </div>
   );
 }
@@ -935,7 +1080,7 @@ const MODULOS_OBRA = [
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
-  onAddEquipo, onRemoveEquipo, onToggleHoje, usuarioRank, niveis,
+  onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, niveis,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage }) {
   const [erroObra, setErroObra] = useState("");
   const [modulo, setModulo] = useState(null);
@@ -987,7 +1132,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
         <button onClick={() => setModulo(null)} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ {obra.cliente}</button>
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.glyph} {mod.label}</h2>
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
-        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
+        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
         {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
@@ -1150,14 +1295,31 @@ function ReportView({ obras, onBack }) {
   );
 }
 
+// Reparte cada letra con una animación tipo "carta servida por el crupier", en cascada.
+// 15 caracteres totales (GESTÃO=6 + &=1 + CONTROLE=8) repartidos en 1 segundo -> ~66.7ms entre letra y letra.
+function DealText({ text, startIndex, color, fontSize }) {
+  return text.split("").map((ch, i) => (
+    <span key={i} className="deal-letter" style={{ color, fontSize, animationDelay: `${1000 + (startIndex + i) * (1000 / 15)}ms` }}>
+      {ch === " " ? "\u00A0" : ch}
+    </span>
+  ));
+}
+
 function SplashScreen() {
   return (
-    <div style={{ background: C.bg, minHeight: "100vh" }} className="flex flex-col items-center justify-center">
+    <div style={{ background: C.bg, minHeight: "100vh", position: "relative" }} className="flex flex-col items-center justify-center overflow-hidden">
       <div className="logo-pop" style={{ width: 140, height: 140 }}>
         <img src="logo.png" alt="" style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }} />
         <img src="logo-blink.png" alt="" className="logo-blink-img" style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }} />
       </div>
-      <p style={{ color: C.inkMuted }} className="text-xs font-mono mt-5">Carregando...</p>
+      <div className="splash-title-wrap font-comic">
+        <div><DealText text="GESTÃO" startIndex={0} color={C.ink} fontSize={26} /></div>
+        <div><DealText text="&" startIndex={6} color={C.amber} fontSize={26} /></div>
+        <div><DealText text="CONTROLE" startIndex={7} color={C.ink} fontSize={26} /></div>
+      </div>
+      <div className="xp-loader-wrap">
+        <div className="xp-loader-track"><div className="xp-loader-bar" /></div>
+      </div>
     </div>
   );
 }
@@ -1775,6 +1937,10 @@ function GestorObras() {
     const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ data: hoje }) });
     setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? r.equipe : m)) }));
   };
+  const setExcecao = async (id, excecaoModulos) => {
+    const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ excecaoModulos }) });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? { ...m, excecao_modulos: r.usuario.excecao_modulos } : m)) }));
+  };
 
   // --- Documentos ---
   const addDoc = async (payload) => {
@@ -1859,7 +2025,7 @@ function GestorObras() {
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
             onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
             onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del}
-            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} usuarioRank={usuarioAPI.rank} niveis={meusNiveis}
+            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} onSetExcecao={setExcecao} usuarioRank={usuarioAPI.rank} niveis={meusNiveis}
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
       )}
