@@ -119,3 +119,25 @@ export function nivelEfetivo(nivelDoRank, excecaoModulos, modulo) {
   const excecao = excecaoModulos[modulo];
   return NIVEL_ORDEM[excecao] < NIVEL_ORDEM[nivelDoRank] ? excecao : nivelDoRank;
 }
+
+// Umbral simple por rank (para acciones que NO son parte de la matriz de módulos, ej. obras).
+// Numeração invertida: rank MENOR o igual al máximo permitido = tiene acceso.
+export function podeCrear(rankMaximoPermitido, rankAtor) {
+  return rankAtor <= rankMaximoPermitido;
+}
+
+// Regla universal **: um escalão inferior não modifica/apaga o que um superior criou.
+// Numeração invertida: rank MENOR = mais poder.
+// Entre pares do MESMO rank, desempata por antiguidade na empresa (id menor = entrou primeiro).
+// Quem criou o conteúdo sempre pode modificá-lo, independente de antiguidade.
+export function podeModificar(ator, rankCriador, idCriador) {
+  if (ator.id === idCriador) return true;
+  if (ator.rank < rankCriador) return true;
+  if (ator.rank > rankCriador) return false;
+  return ator.id < idCriador;
+}
+
+// Al gestionar Equipe: nadie asigna un rank MEJOR (número menor) que el propio.
+export function podeAsignarRank(rankAtor, rankAAsignar) {
+  return rankAAsignar >= rankAtor;
+}
