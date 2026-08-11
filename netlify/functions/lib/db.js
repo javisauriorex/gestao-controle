@@ -1,4 +1,3 @@
-import { neon } from "@netlify/neon";
-
-// Usa automáticamente NETLIFY_DATABASE_URL, configurada sola al activar Netlify DB.
-export const sql = neon();
+import { getDatabase } from "@netlify/database";
+const db = getDatabase();
+export const sql = db.sql;
