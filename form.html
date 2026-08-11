@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gestão & Controle — cadastre-se</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #EDEAE1; --ink: #262420; --ink-muted: #6B655C;
+    --amber: #D98E04; --surface: #FFFFFF; --border: #D8D2C4; --green: #4C7A3D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    font-family: 'Special Elite', ui-monospace, monospace;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 16px;
+  }
+  .font-comic { font-family: 'Bangers', cursive; letter-spacing: 0.03em; }
+  .card { width: 100%; max-width: 380px; }
+  .logo-wrap { width: 96px; height: 96px; margin: 0 auto 14px; border-radius: 9999px; overflow: hidden; }
+  .logo-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  h1 { text-align: center; font-size: 26px; margin: 0 0 4px; line-height: 1.1; }
+  h1 .amp { color: var(--amber); }
+  p.sub { text-align: center; color: var(--ink-muted); font-size: 13px; margin: 0 0 24px; }
+  label { display: block; font-size: 12px; color: var(--ink-muted); text-transform: uppercase; margin-bottom: 4px; margin-top: 14px; }
+  input {
+    width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-family: 'Special Elite', monospace; font-size: 15px; background: var(--surface); color: var(--ink);
+  }
+  input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+  button.enviar {
+    width: 100%; margin-top: 22px; padding: 14px; border: none; border-radius: 8px;
+    background: var(--amber); color: #fff; font-weight: bold; text-transform: uppercase;
+    letter-spacing: 0.05em; font-size: 15px; cursor: pointer;
+  }
+  button.enviar:disabled { opacity: 0.5; }
+  .erro { color: #B54B33; font-size: 13px; margin-top: 10px; text-align: center; }
+  .sucesso { text-align: center; }
+  .sucesso .check { font-size: 48px; color: var(--green); margin-bottom: 8px; }
+  .sucesso h2 { font-size: 22px; margin: 0 0 8px; }
+  .sucesso p { color: var(--ink-muted); font-size: 14px; margin: 0 0 24px; }
+  a.testar {
+    display: block; text-align: center; padding: 14px; border-radius: 8px;
+    background: var(--ink); color: #fff; text-decoration: none; font-weight: bold;
+    text-transform: uppercase; letter-spacing: 0.05em; font-size: 15px;
+  }
+  footer { margin-top: 28px; text-align: center; color: var(--ink-muted); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div id="formulario">
+    <div class="logo-wrap"><img src="logo.png" alt="G&C" /></div>
+    <h1 class="font-comic">GESTÃO <span class="amp">&amp;</span> CONTROLE</h1>
+    <p class="sub">Deixe seu contato e vamos te avisar quando o app estiver disponível pra você testar.</p>
+
+    <label for="nome">Nome</label>
+    <input id="nome" type="text" placeholder="Seu nome" autocomplete="name" />
+
+    <label for="empresa">Empresa <span style="text-transform:none;">(opcional)</span></label>
+    <input id="empresa" type="text" placeholder="Nome da sua empresa" autocomplete="organization" />
+
+    <label for="contato">E-mail ou WhatsApp</label>
+    <input id="contato" type="text" placeholder="seu@email.com ou (71) 9xxxx-xxxx" autocomplete="email" />
+
+    <button class="enviar" id="btnEnviar" onclick="enviar()">Cadastrar</button>
+    <p class="erro" id="erro" style="display:none;"></p>
+  </div>
+
+  <div id="sucesso" class="sucesso" style="display:none;">
+    <div class="check">✓</div>
+    <h2 class="font-comic">Cadastrado!</h2>
+    <p>Obrigado pelo interesse. Já pode conhecer o app agora mesmo:</p>
+    <a class="testar" href="/">Testar o aplicativo</a>
+  </div>
+
+  <footer>Gestão & Controle — ConstruNordeste 2026</footer>
+</div>
+
+<script>
+  async function enviar() {
+    const nome = document.getElementById('nome').value.trim();
+    const empresa = document.getElementById('empresa').value.trim();
+    const contato = document.getElementById('contato').value.trim();
+    const erroEl = document.getElementById('erro');
+    const btn = document.getElementById('btnEnviar');
+    erroEl.style.display = 'none';
+
+    if (!nome || !contato) {
+      erroEl.textContent = 'Preencha nome e e-mail/WhatsApp.';
+      erroEl.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ nome, empresa, contato }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Não foi possível enviar.');
+
+      document.getElementById('formulario').style.display = 'none';
+      document.getElementById('sucesso').style.display = 'block';
+    } catch (err) {
+      erroEl.textContent = err.message || 'Algo deu errado. Tente de novo.';
+      erroEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Cadastrar';
+    }
+  }
+</script>
+
+</body>
+</html>
