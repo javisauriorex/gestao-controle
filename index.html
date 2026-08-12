@@ -938,7 +938,7 @@ function BottomNav({ onInicio, onConfig, active }) {
   );
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onAbrirPermissoes, onBackupForcado, fazendoBackup }) {
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onAbrirPermissoes, onAbrirLeads, onBackupForcado, fazendoBackup }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div onClick={onClose} className="absolute inset-0 bg-black/40" />
@@ -954,6 +954,9 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
         {usuario.rank <= 4 && (
           <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Permissões</button>
+        )}
+        {usuario.email === "marcelojavierbonet@gmail.com" && (
+          <button onClick={onAbrirLeads} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📋 Leads (expo)</button>
         )}
         <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
         {usuario.rank === 1 && (
@@ -983,6 +986,65 @@ function TicketCard({ obra, pendCount, lastDate, onOpen }) {
       <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: `1px dashed ${C.border}` }}>
         <span style={{ color: C.inkMuted }} className="text-xs font-mono">🕐 {lastDate ? `há ${daysAgo(lastDate)}d` : "sem atividade"}</span>
       </div>
+    </div>
+  );
+}
+
+function LeadsScreen({ onBack }) {
+  const [leads, setLeads] = useState(null);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiFetch("/api/leads");
+        setLeads(r.leads);
+      } catch (err) {
+        setErro(err.message);
+      }
+    })();
+  }, []);
+
+  const exportarCSV = () => {
+    const linhas = [["Nome", "Empresa", "Contato", "Data"]];
+    leads.forEach((l) => linhas.push([l.nome, l.empresa || "", l.contato, fmtTs(l.criado_em)]));
+    const csv = linhas.map((linha) => linha.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads-gc-${todayISO()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
+      <div className="flex items-center justify-between mb-4">
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">📋 Leads (expo)</h2>
+        {leads && leads.length > 0 && (
+          <button onClick={exportarCSV} style={{ background: C.teal }} className="text-white text-xs font-bold uppercase rounded px-3 py-1.5">⤓ Exportar CSV</button>
+        )}
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-sm font-mono mb-3">{erro}</p>}
+      {!leads && !erro && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Carregando...</p>}
+      {leads && leads.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nenhum lead capturado ainda.</p>}
+      {leads && leads.length > 0 && (
+        <div className="space-y-2">
+          <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-2">{leads.length} contato{leads.length !== 1 ? "s" : ""} capturado{leads.length !== 1 ? "s" : ""}</p>
+          {leads.map((l) => (
+            <div key={l.id} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-3">
+              <div className="flex justify-between items-start gap-2">
+                <span style={{ color: C.ink }} className="font-bold text-sm">{l.nome}</span>
+                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono shrink-0">{fmtTs(l.criado_em)}</span>
+              </div>
+              {l.empresa && <p style={{ color: C.inkMuted }} className="text-xs">{l.empresa}</p>}
+              <p style={{ color: C.amber }} className="text-sm font-mono mt-1">{l.contato}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2032,6 +2094,7 @@ function GestorObras() {
       {view === "pendientes" && <PendientesView obras={obras} onBack={() => setView("dashboard")} onOpenObra={abrirObra} />}
       {view === "report" && <ReportView obras={obras} onBack={() => setView("dashboard")} />}
       {view === "permissoes" && <PermissoesScreen onBack={() => setView("dashboard")} />}
+      {view === "leads" && <LeadsScreen onBack={() => setView("dashboard")} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
     </div>
@@ -2040,7 +2103,7 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); setView("permissoes"); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); setView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); setView("leads"); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
       </>
     );
   }
