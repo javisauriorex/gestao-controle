@@ -36,4 +36,73 @@ export default async (req) => {
       const rows = await sql`
         INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
         VALUES (${obraId}, ${membro.id}, ${funcao || ""}, ${usuario.id})
-        ON CONFLICT (obra_id, usuario_id) DO UPDATE SET
+        ON CONFLICT (obra_id, usuario_id) DO UPDATE SET funcao = ${funcao || ""}
+        RETURNING *
+      `;
+      return jsonResponse({ ok: true, equipe: { ...rows[0], email: membro.email, nome: membro.nome, rank: membro.rank }, convite: false });
+    }
+
+    if (!rank) return jsonResponse({ ok: false, error: "rank é obrigatório para convidar alguém novo" }, 400);
+    if (!podeAsignarRank(usuario.rank, rank)) {
+      return jsonResponse({ ok: false, error: "não pode atribuir um rank melhor (número menor) que o próprio" }, 403);
+    }
+    const rows = await sql`
+      INSERT INTO convites (empresa_id, email, rank, funcao, obra_id, criado_por)
+      VALUES (${usuario.empresa_id}, ${emailNorm}, ${rank}, ${funcao || ""}, ${obraId}, ${usuario.id})
+      RETURNING *
+    `;
+    return jsonResponse({ ok: true, convite: rows[0] });
+  }
+
+  if (req.method === "PATCH") {
+    const id = url.searchParams.get("id");
+    const body = await req.json();
+
+    if (body.excecaoModulos !== undefined) {
+      if (nivel !== "editar") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+      const alvos = await sql`
+        SELECT e.*, u.rank as rank_membro FROM equipe e JOIN usuarios u ON u.id = e.usuario_id WHERE e.id = ${id}
+      `;
+      if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+      if (!podeModificar(usuario, alvos[0].rank_membro, alvos[0].usuario_id)) {
+        return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+      }
+      const rows = await sql`
+        UPDATE usuarios SET excecao_modulos = ${JSON.stringify(body.excecaoModulos)}
+        WHERE id = ${alvos[0].usuario_id}
+        RETURNING *
+      `;
+      return jsonResponse({ ok: true, usuario: rows[0] });
+    }
+
+    if (nivel !== "editar") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    const { data } = body;
+    const alvos = await sql`SELECT * FROM equipe WHERE id = ${id}`;
+    if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    const atual = alvos[0];
+    const asistencias = Array.isArray(atual.asistencias) ? atual.asistencias : [];
+    const tem = asistencias.includes(data);
+    const novas = tem ? asistencias.filter((d) => d !== data) : [...asistencias, data];
+    const rows = await sql`UPDATE equipe SET asistencias = ${JSON.stringify(novas)} WHERE id = ${id} RETURNING *`;
+    return jsonResponse({ ok: true, equipe: rows[0] });
+  }
+
+  if (req.method === "DELETE") {
+    if (nivel !== "editar") return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    const id = url.searchParams.get("id");
+    if (!id) return jsonResponse({ ok: false, error: "id é obrigatório" }, 400);
+    const alvos = await sql`
+      SELECT e.*, u.rank as rank_membro FROM equipe e JOIN usuarios u ON u.id = e.usuario_id WHERE e.id = ${id}
+    `;
+    if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    if (!podeModificar(usuario, alvos[0].rank_membro, alvos[0].usuario_id)) {
+      return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    }
+    await sql`DELETE FROM equipe WHERE id = ${id}`;
+    return jsonResponse({ ok: true });
+  }
+
+  return jsonResponse({ ok: false, error: "method not allowed" }, 405);
+};
+
+export const config = { path: "/api/equipe" };
