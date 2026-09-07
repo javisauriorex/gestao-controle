@@ -1,8 +1,14 @@
 {
   "name": "gestao-controle",
   "compatibility_date": "2026-09-06",
+  "main": "src/worker.js",
   "assets": {
     "directory": "./",
-    "not_found_handling": "single-page-application"
-  }
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "r2_buckets": [
+    { "binding": "ARQUIVOS", "bucket_name": "gc-arquivos" }
+  ]
 }
