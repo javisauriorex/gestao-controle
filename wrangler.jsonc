@@ -8,7 +8,7 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
-  "r2_buckets": [
-    { "binding": "ARQUIVOS", "bucket_name": "gc-arquivos" }
+  "kv_namespaces": [
+    { "binding": "ARQUIVOS", "id": "69073bc20831472287c1f4ce0a077f9d" }
   ]
 }
