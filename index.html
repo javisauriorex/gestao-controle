@@ -202,86 +202,46 @@ function base64urlToBuf(b64url) {
 }
 const biometriaSuportada = () => typeof window !== "undefined" && !!window.PublicKeyCredential;
 
-// --- Netlify Identity: autenticación real, sin librerías externas (puro fetch contra sus endpoints) ---
-const siteUrl = () => window.location.origin;
+// --- Login propio (JWT contra /api/auth/*), reemplaza a Netlify Identity ---
 
-async function identitySignup(email, password, nome) {
-  const res = await fetch(`${siteUrl()}/.netlify/identity/signup`, {
+async function apiSignup(email, password, nome) {
+  const res = await fetch("/api/auth/signup", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password, user_metadata: { full_name: nome } }),
+    body: JSON.stringify({ email, senha: password, nome }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.msg || data.error_description || "Não foi possível criar a conta.");
+  if (!res.ok || !data.ok) throw new Error(data.error || "Não foi possível criar a conta.");
   return data;
 }
 
-async function identityLogin(email, password) {
-  const res = await fetch(`${siteUrl()}/.netlify/identity/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: `grant_type=password&username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error_description || "Email ou senha incorretos.");
-  return data;
-}
-
-async function identityRecoverRequest(email) {
-  const res = await fetch(`${siteUrl()}/.netlify/identity/recover`, {
+async function apiLogin(email, password) {
+  const res = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.msg || "Não foi possível iniciar a recuperação.");
-  }
-}
-
-async function identitySetNewPassword(recoveryToken, newPassword) {
-  const res = await fetch(`${siteUrl()}/.netlify/identity/user`, {
-    method: "PUT",
-    headers: { "content-type": "application/json", authorization: `Bearer ${recoveryToken}` },
-    body: JSON.stringify({ password: newPassword }),
+    body: JSON.stringify({ email, senha: password }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.msg || "Não foi possível definir a nova senha.");
+  if (!res.ok || !data.ok) throw new Error(data.error || "Email ou senha incorretos.");
   return data;
 }
 
-function identityGoogleRedirect() {
-  window.location.href = `${siteUrl()}/.netlify/identity/authorize?provider=google`;
-}
-
-function parseHashParams() {
-  const hash = window.location.hash.replace(/^#/, "");
-  if (!hash) return {};
-  const out = {};
-  new URLSearchParams(hash).forEach((v, k) => (out[k] = v));
-  return out;
-}
-
-function saveSession(tokenData) {
-  const session = {
-    access_token: tokenData.access_token,
-    refresh_token: tokenData.refresh_token,
-    expires_at: Date.now() + (tokenData.expires_in || 3600) * 1000,
-  };
-  localStorage.setItem("identity-session", JSON.stringify(session));
+function saveSession(authData) {
+  const session = { token: authData.token, usuario: authData.usuario };
+  localStorage.setItem("gc-session", JSON.stringify(session));
   return session;
 }
 
 function getSession() {
   try {
-    return JSON.parse(localStorage.getItem("identity-session"));
+    return JSON.parse(localStorage.getItem("gc-session"));
   } catch (e) {
     return null;
   }
 }
 
 function clearSession() {
-  localStorage.removeItem("identity-session");
+  localStorage.removeItem("gc-session");
 }
 
 // Helper central: toda llamada a nuestras Functions pasa por acá.
@@ -297,29 +257,11 @@ async function apiFetch(path, opts = {}) {
   return data;
 }
 
-async function refreshSession(session) {
-  const res = await fetch(`${siteUrl()}/.netlify/identity/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(session.refresh_token)}`,
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return saveSession(data);
-}
-
-// Devuelve un access_token válido (refrescando si hizo falta) o null si no hay sesión.
+// El token propio dura 30 dias (definido en el backend); si el servidor lo rechaza (401),
+// el propio apiFetch/carregarUsuarioAPI limpia la sesión. No hay refresh — más simple, alcanza para esta etapa.
 async function getValidAccessToken() {
-  let session = getSession();
-  if (!session) return null;
-  if (Date.now() > session.expires_at - 60000) {
-    session = await refreshSession(session);
-    if (!session) {
-      clearSession();
-      return null;
-    }
-  }
-  return session.access_token;
+  const session = getSession();
+  return session?.token || null;
 }
 
 // Token compartido para autorizar las llamadas a las Functions (arquivo-set/get/delete).
@@ -1405,15 +1347,7 @@ function LogoTitulo() {
   );
 }
 
-function BotaoGoogle({ texto }) {
-  return (
-    <button onClick={identityGoogleRedirect} style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-3 flex items-center justify-center gap-2">
-      <span style={{ color: "#4285F4" }}>G</span> {texto}
-    </button>
-  );
-}
-
-function CadastroScreen({ onIrLogin, onCadastrado, onAguardandoEmail }) {
+function CadastroScreen({ onIrLogin, onCadastrado }) {
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
@@ -1430,14 +1364,9 @@ function CadastroScreen({ onIrLogin, onCadastrado, onAguardandoEmail }) {
     if (!aceito) { setErro("Você precisa aceitar os Termos de Uso."); return; }
     setSalvando(true);
     try {
-      await identitySignup(email.trim(), senha, nome.trim());
-      try {
-        const tokenData = await identityLogin(email.trim(), senha);
-        saveSession(tokenData);
-        onCadastrado();
-      } catch (loginErr) {
-        onAguardandoEmail(email.trim());
-      }
+      const authData = await apiSignup(email.trim(), senha, nome.trim());
+      saveSession(authData);
+      onCadastrado();
     } catch (err) {
       setErro(err.message);
     }
@@ -1448,12 +1377,6 @@ function CadastroScreen({ onIrLogin, onCadastrado, onAguardandoEmail }) {
     <AuthWrap>
       <LogoTitulo />
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Criar conta</p>
-      <BotaoGoogle texto="Continuar com Google" />
-      <div className="flex items-center gap-2 mb-3">
-        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
-        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
-        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
-      </div>
       <div className="space-y-3">
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nome</label>
@@ -1483,113 +1406,18 @@ function CadastroScreen({ onIrLogin, onCadastrado, onAguardandoEmail }) {
   );
 }
 
-function AguardandoEmailScreen({ email, onVoltar }) {
-  return (
-    <AuthWrap>
-      <div className="text-center mb-4">
-        <span className="text-3xl">✉️</span>
-        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Confirme seu email</h2>
-      </div>
-      <p style={{ color: C.inkMuted }} className="text-sm mb-4 text-center">
-        Mandamos um link de confirmação para <span style={{ color: C.ink }} className="font-bold">{email}</span>. Toque nele e depois volte aqui para entrar.
-      </p>
-      <button onClick={onVoltar} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">Já confirmei, ir para o login</button>
-    </AuthWrap>
-  );
-}
-
-function RecuperarSenhaScreen({ onVoltarLogin, onIniciarRecuperacao }) {
-  const [email, setEmail] = useState("");
-  const [erro, setErro] = useState("");
-  const [enviado, setEnviado] = useState(false);
-  const [enviando, setEnviando] = useState(false);
-
-  const enviar = async () => {
-    setErro("");
-    if (!email.trim()) { setErro("Informe seu email."); return; }
-    setEnviando(true);
-    try {
-      await identityRecoverRequest(email.trim());
-      setEnviado(true);
-    } catch (err) {
-      setErro(err.message);
-    }
-    setEnviando(false);
-  };
-
-  if (enviado) {
-    return (
-      <AuthWrap>
-        <div className="text-center mb-4">
-          <span className="text-3xl">✉️</span>
-          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Verifique seu email</h2>
-        </div>
-        <p style={{ color: C.inkMuted }} className="text-sm mb-4 text-center">Mandamos um link para redefinir sua senha. Toque nele para continuar.</p>
-        <button onClick={onVoltarLogin} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">‹ voltar ao login</button>
-      </AuthWrap>
-    );
-  }
-
-  return (
-    <AuthWrap>
-      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">Recuperar senha</h2>
-      <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
-      <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enviar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="voce@exemplo.com" autoFocus />
-      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
-      <button onClick={enviar} disabled={enviando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{enviando ? "Enviando..." : "Enviar link"}</button>
-      <button onClick={onVoltarLogin} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">‹ voltar ao login</button>
-    </AuthWrap>
-  );
-}
-
-function DefinirNovaSenhaScreen({ recoveryToken, onDefinida }) {
-  const [senha, setSenha] = useState("");
-  const [senha2, setSenha2] = useState("");
-  const [erro, setErro] = useState("");
-  const [salvando, setSalvando] = useState(false);
-
-  const salvar = async () => {
-    setErro("");
-    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
-    if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
-    setSalvando(true);
-    try {
-      const user = await identitySetNewPassword(recoveryToken, senha);
-      const tokenData = await identityLogin(user.email, senha);
-      saveSession(tokenData);
-      onDefinida();
-    } catch (err) {
-      setErro(err.message);
-    }
-    setSalvando(false);
-  };
-
-  return (
-    <AuthWrap>
-      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">Defina sua nova senha</h2>
-      <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
-      <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
-      <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase mt-3 block">Confirmar nova senha</label>
-      <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
-      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
-      <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar e entrar"}</button>
-    </AuthWrap>
-  );
-}
-
 function LoginScreen({ onLogado, onIrCadastro }) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [entrando, setEntrando] = useState(false);
-  const [recuperar, setRecuperar] = useState(false);
 
   const entrar = async () => {
     setErro("");
     setEntrando(true);
     try {
-      const tokenData = await identityLogin(email.trim(), senha);
-      saveSession(tokenData);
+      const authData = await apiLogin(email.trim(), senha);
+      saveSession(authData);
       onLogado();
     } catch (err) {
       setErro(err.message);
@@ -1597,18 +1425,10 @@ function LoginScreen({ onLogado, onIrCadastro }) {
     setEntrando(false);
   };
 
-  if (recuperar) return <RecuperarSenhaScreen onVoltarLogin={() => setRecuperar(false)} />;
-
   return (
     <AuthWrap>
       <LogoTitulo />
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Entrar</p>
-      <BotaoGoogle texto="Continuar com Google" />
-      <div className="flex items-center gap-2 mb-3">
-        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
-        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
-        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
-      </div>
       <div>
         <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
@@ -1619,7 +1439,6 @@ function LoginScreen({ onLogado, onIrCadastro }) {
       </div>
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
       <button onClick={entrar} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
-      <button onClick={() => setRecuperar(true)} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">Esqueceu sua senha?</button>
       <button onClick={onIrCadastro} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">Não tenho conta — criar</button>
     </AuthWrap>
   );
@@ -1706,9 +1525,7 @@ function GestorObras() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [temSessao, setTemSessao] = useState(false);
   const [usuarioAPI, setUsuarioAPI] = useState(null);
-  const [recoveryToken, setRecoveryToken] = useState(null);
   const [authView, setAuthView] = useState("login");
-  const [emailAguardando, setEmailAguardando] = useState("");
   const [biometriaConfigurada, setBiometriaConfigurada] = useState(false);
   const [biometriaPassada, setBiometriaPassada] = useState(false);
   const [configurandoBiometria, setConfigurandoBiometria] = useState(false);
@@ -1740,15 +1557,6 @@ function GestorObras() {
 
   useEffect(() => {
     (async () => {
-      const hashParams = parseHashParams();
-      if (hashParams.recovery_token) {
-        setRecoveryToken(hashParams.recovery_token);
-        history.replaceState(null, "", window.location.pathname);
-      } else if (hashParams.access_token) {
-        saveSession(hashParams);
-        history.replaceState(null, "", window.location.pathname);
-      }
-
       await carregarUsuarioAPI();
       setSessionLoading(false);
 
@@ -2046,18 +1854,10 @@ function GestorObras() {
   let content;
   if (sessionLoading) {
     content = <SplashScreen />;
-  } else if (recoveryToken) {
-    content = <DefinirNovaSenhaScreen recoveryToken={recoveryToken} onDefinida={() => { setRecoveryToken(null); aoLogar(); }} />;
   } else if (!temSessao) {
     content =
       authView === "cadastro" ? (
-        <CadastroScreen
-          onIrLogin={() => setAuthView("login")}
-          onCadastrado={aoLogar}
-          onAguardandoEmail={(email) => { setEmailAguardando(email); setAuthView("aguardandoEmail"); }}
-        />
-      ) : authView === "aguardandoEmail" ? (
-        <AguardandoEmailScreen email={emailAguardando} onVoltar={() => setAuthView("login")} />
+        <CadastroScreen onIrLogin={() => setAuthView("login")} onCadastrado={aoLogar} />
       ) : (
         <LoginScreen onLogado={aoLogar} onIrCadastro={() => setAuthView("cadastro")} />
       );
