@@ -1,0 +1,9 @@
+src/
+node_modules/
+.git/
+package.json
+package-lock.json
+wrangler.jsonc
+schema.sql
+netlify/
+migration_senha.sql
