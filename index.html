@@ -160,9 +160,9 @@ const RANK_DESCRICOES = {
   7: "só visualiza Etapas e Documentos — sem acesso ao resto",
 };
 const ESTADOS = {
-  ativa: { label: "ATIVA", color: C.blue },
-  pausada: { label: "PAUSADA", color: C.amber },
-  concluida: { label: "CONCLUÍDA", color: C.green },
+  ativa: { label: "ATIVA", color: C.blue, selo: "selo_ativa_8.webp" },
+  pausada: { label: "PAUSADA", color: C.amber, selo: "selo_pausada_9.webp" },
+  concluida: { label: "CONCLUÍDA", color: C.green, selo: "selo_concluida_10.webp" },
 };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -386,11 +386,11 @@ function categoriaDoc(doc) {
 }
 const ICONE_DOC = { pdf: "📕", word: "📘", excel: "📗", outro: "📄" };
 
-function StampBadge({ estado, onClick }) {
+function StampBadge({ estado, onClick, grande = false }) {
   const e = ESTADOS[estado];
   return (
-    <button onClick={onClick} title="Toque para mudar o estado" style={{ color: e.color, borderColor: e.color, transform: "rotate(-6deg)", fontFamily: "ui-monospace, monospace" }} className="text-[10px] font-extrabold tracking-widest border-2 rounded px-2 py-0.5 uppercase bg-transparent hover:opacity-70 transition shrink-0">
-      {e.label}
+    <button onClick={onClick} title="Toque para mudar o estado" style={{ transform: "rotate(-6deg)" }} className="shrink-0 bg-transparent hover:opacity-70 transition">
+      <img src={e.selo} alt={e.label} className={grande ? "h-10 w-auto object-contain" : "h-7 w-auto object-contain"} draggable="false" />
     </button>
   );
 }
@@ -927,11 +927,11 @@ function BottomNav({ onInicio, onConfig, active }) {
   return (
     <div style={{ background: C.surface, borderColor: C.border }} className="fixed bottom-0 left-0 right-0 border-t flex justify-around items-center py-2 z-40">
       <button onClick={onInicio} className="flex flex-col items-center gap-0.5 px-6 py-1">
-        <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-xl">🏠</span>
+        <img src="logo_home_11.webp" alt="Início" className="w-6 h-6 object-contain" style={{ opacity: active === "inicio" ? 1 : 0.55 }} draggable="false" />
         <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Início</span>
       </button>
       <button onClick={onConfig} className="flex flex-col items-center gap-0.5 px-6 py-1">
-        <span style={{ color: C.inkMuted }} className="text-xl">☰</span>
+        <img src="logo_config_12.webp" alt="Config" className="w-6 h-6 object-contain" style={{ opacity: 0.55 }} draggable="false" />
         <span style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase">Config</span>
       </button>
     </div>
@@ -953,7 +953,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         </div>
         <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
         {usuario.rank <= 4 && (
-          <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Permissões</button>
+          <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono flex items-center justify-center gap-2"><img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" /> Permissões</button>
         )}
         {usuario.email === "marcelojavierbonet@gmail.com" && (
           <button onClick={onAbrirLeads} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📋 Leads (expo)</button>
@@ -973,17 +973,19 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
 
 function TicketCard({ obra, pendCount, lastDate, onOpen }) {
   return (
-    <div onClick={onOpen} style={{ background: C.surface, borderColor: C.border, backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 6px, ${C.bg} 6px, ${C.bg} 10px)`, backgroundSize: "100% 3px", backgroundRepeat: "no-repeat", backgroundPosition: "bottom" }} className="relative cursor-pointer border rounded-md p-4 pb-5 shadow-sm active:shadow-md transition">
-      {pendCount > 0 && <div style={{ background: C.rust }} className="absolute -top-2 -right-2 text-white text-[11px] font-extrabold rounded-full w-6 h-6 flex items-center justify-center shadow">{pendCount}</div>}
-      <div className="flex justify-between items-start gap-2">
-        <div>
-          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"}</p>
-          <h3 style={{ color: C.ink }} className="text-lg font-extrabold leading-tight mt-0.5">{obra.cliente}</h3>
-          <p style={{ color: C.inkMuted }} className="text-sm mt-0.5">{obra.endereco}</p>
+    <div onClick={onOpen} style={{ borderColor: C.border }} className="relative cursor-pointer border rounded-md overflow-hidden shadow-sm active:shadow-md transition">
+      {pendCount > 0 && <div style={{ background: C.rust }} className="absolute top-2 right-2 z-10 text-white text-[11px] font-extrabold rounded-full w-6 h-6 flex items-center justify-center shadow">{pendCount}</div>}
+      <div className="relative w-full" style={{ aspectRatio: "900 / 570", backgroundImage: "url(pizarrao_obra_7.jpeg)", backgroundSize: "cover", backgroundPosition: "center" }}>
+        <div className="absolute" style={{ left: "6%", top: "13%", width: "36%", transform: "rotate(-5deg)" }}>
+          <p style={{ color: "#6B655C" }} className="text-[10px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"}</p>
+          <h3 style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-base font-extrabold leading-tight mt-0.5">{obra.cliente}</h3>
+          <p style={{ color: "#6B655C", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs mt-0.5">{obra.endereco}</p>
         </div>
-        <StampBadge estado={obra.estado} onClick={() => {}} />
+        <div className="absolute" style={{ right: "8%", top: "22%" }}>
+          <StampBadge estado={obra.estado} onClick={() => {}} />
+        </div>
       </div>
-      <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: `1px dashed ${C.border}` }}>
+      <div style={{ background: C.surface, borderColor: C.border }} className="border-t px-4 py-2 flex items-center justify-between">
         <span style={{ color: C.inkMuted }} className="text-xs font-mono">🕐 {lastDate ? `há ${daysAgo(lastDate)}d` : "sem atividade"}</span>
       </div>
     </div>
@@ -1131,12 +1133,12 @@ function PermissoesScreen({ onBack }) {
 }
 
 const MODULOS_OBRA = [
-  { key: "etapas", label: "Etapas", glyph: "☑" },
-  { key: "equipe", label: "Equipe", glyph: "👥" },
-  { key: "documentos", label: "Documentos", glyph: "📎" },
-  { key: "ferramentas", label: "Ferramentas", glyph: "🔧" },
-  { key: "materiais", label: "Materiais", glyph: "📦" },
-  { key: "observacoes", label: "Observações", glyph: "📝" },
+  { key: "etapas", label: "Etapas", glyph: "☑", cajao: "cajon_etapas_1.webp" },
+  { key: "equipe", label: "Equipe", glyph: "👥", cajao: "cajon_equipe_2.webp" },
+  { key: "documentos", label: "Documentos", glyph: "📎", cajao: "cajon_documentos_3.webp" },
+  { key: "ferramentas", label: "Ferramentas", glyph: "🔧", cajao: "cajon_ferramentas_4.webp" },
+  { key: "materiais", label: "Materiais", glyph: "📦", cajao: "cajon_materiais_5.webp" },
+  { key: "observacoes", label: "Observações", glyph: "📝", cajao: "cajon_observacoes_6.webp" },
 ];
 
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
@@ -1192,7 +1194,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     return (
       <div>
         <button onClick={() => setModulo(null)} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ {obra.cliente}</button>
-        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.glyph} {mod.label}</h2>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.label}</h2>
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
@@ -1213,7 +1215,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
             <h2 style={{ color: C.ink }} className="text-2xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
             <p style={{ color: C.inkMuted }} className="text-sm mt-1">{obra.endereco}</p>
           </div>
-          <StampBadge estado={obra.estado} onClick={cycleEstado} />
+          <StampBadge estado={obra.estado} onClick={cycleEstado} grande />
         </div>
         <div style={{ borderColor: C.border }} className="border-t mt-4 pt-3 flex items-center justify-between flex-wrap gap-2">
           <p style={{ color: C.inkMuted }} className="text-xs font-mono">
@@ -1235,10 +1237,9 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
       </div>
       <div className="grid grid-cols-2 gap-3">
         {modulosVisiveis.map((m) => (
-          <button key={m.key} onClick={() => setModulo(m.key)} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 text-center active:opacity-70 transition">
-            <div className="text-2xl">{m.glyph}</div>
-            <div style={{ color: C.ink }} className="text-sm font-bold uppercase tracking-wide mt-2">{m.label}</div>
-            {contagens[m.key] != null && <div style={{ color: C.inkMuted }} className="text-xs font-mono mt-1">{contagens[m.key]}</div>}
+          <button key={m.key} onClick={() => setModulo(m.key)} style={{ borderColor: C.border }} className="relative border rounded-md overflow-hidden active:opacity-80 transition">
+            <img src={m.cajao} alt={m.label} className="w-full h-auto block" draggable="false" />
+            {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-2 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
           </button>
         ))}
       </div>
@@ -1721,6 +1722,7 @@ function GestorObras() {
   const [showConfig, setShowConfig] = useState(false);
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
+  const navRestauradaRef = useRef(false);
 
   const carregarUsuarioAPI = async () => {
     const token = await getValidAccessToken();
@@ -1759,6 +1761,13 @@ function GestorObras() {
     })();
   }, []);
 
+  useEffect(() => {
+    try {
+      if (view === "dashboard") localStorage.removeItem("gc-nav");
+      else localStorage.setItem("gc-nav", JSON.stringify({ view, selectedId }));
+    } catch (e) {}
+  }, [view, selectedId]);
+
   const carregarPendentes = async (lista) => {
     const mapa = {};
     await Promise.all(lista.map(async (o) => {
@@ -1770,6 +1779,18 @@ function GestorObras() {
     setPendentesPorObra(mapa);
   };
 
+  const restaurarNavegacao = (listaObras) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("gc-nav") || "null");
+      if (!saved) return;
+      if (saved.view === "obra" && saved.selectedId && listaObras.some((o) => o.id === saved.selectedId)) {
+        abrirObra(saved.selectedId);
+      } else if (["pendientes", "report", "permissoes", "leads"].includes(saved.view)) {
+        setView(saved.view);
+      }
+    } catch (e) {}
+  };
+
   const carregarObras = async () => {
     setObrasLoading(true);
     setErroGlobal("");
@@ -1777,6 +1798,10 @@ function GestorObras() {
       const r = await apiFetch("/api/obras");
       setObras(r.obras);
       carregarPendentes(r.obras);
+      if (!navRestauradaRef.current) {
+        navRestauradaRef.current = true;
+        restaurarNavegacao(r.obras);
+      }
     } catch (err) {
       setErroGlobal(err.message);
     }
