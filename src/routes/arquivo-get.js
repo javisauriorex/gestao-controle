@@ -8,9 +8,9 @@ export default async function arquivoGetHandler(req, env) {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     if (!id) return jsonResponse({ ok: false, error: "id é obrigatório" }, 400);
-    const obj = await env.ARQUIVOS.get(id);
-    if (obj === null) return jsonResponse({ ok: false, error: "not_found" }, 404);
-    const payload = await obj.json();
+    // KV devuelve el valor ya parseado directamente (a diferencia de R2, que devuelve un objeto).
+    const payload = await env.ARQUIVOS.get(id, "json");
+    if (payload === null) return jsonResponse({ ok: false, error: "not_found" }, 404);
     return jsonResponse({ ok: true, payload });
   } catch (e) {
     return jsonResponse({ ok: false, error: String(e) }, 500);
