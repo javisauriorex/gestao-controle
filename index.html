@@ -167,7 +167,7 @@ const ESTADOS = {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+const fmt = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
 const fmtTs = (ts) => (ts ? new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
 const daysAgo = (iso) => Math.floor((Date.now() - new Date(iso + "T00:00:00").getTime()) / 86400000);
 
@@ -1169,16 +1169,16 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
         <img src="arquivero_completo_15.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
 
         {/* Texto sobre a hoja 1: dados da obra */}
-        <div className="absolute" style={{ left: "6%", top: "5%", width: "36%", transform: "rotate(-4deg)" }}>
-          <p style={{ color: "#6B655C" }} className="text-[10px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"} · desde {fmt(obra.data_inicio)}</p>
-          <h2 style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-lg font-extrabold leading-tight mt-1">{obra.cliente}</h2>
-          <p style={{ color: "#6B655C", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs mt-1">{obra.endereco}</p>
+        <div className="absolute" style={{ left: "7%", top: "6%", width: "34%", transform: "rotate(-4deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-xs font-bold font-mono uppercase tracking-wide">{obra.tipo || "Obra"}{obra.data_inicio ? ` · desde ${fmt(obra.data_inicio)}` : ""}</p>
+          <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-2xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
+          <p style={{ color: "#3D3934", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-bold mt-1">{obra.endereco}</p>
         </div>
 
         {/* Texto sobre a hoja 2: responsável */}
-        <div className="absolute" style={{ left: "58%", top: "22%", width: "26%", transform: "rotate(-3deg)" }}>
-          <p style={{ color: "#6B655C" }} className="text-[9px] font-mono uppercase tracking-wide">Responsável</p>
-          <p style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
+        <div className="absolute" style={{ left: "60%", top: "24%", width: "22%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-[11px] font-bold font-mono uppercase tracking-wide">Responsável</p>
+          <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-base font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
         </div>
 
         {/* Selo de status, ENORME, bem visível */}
