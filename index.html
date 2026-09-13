@@ -328,11 +328,11 @@ function categoriaDoc(doc) {
 }
 const ICONE_DOC = { pdf: "📕", word: "📘", excel: "📗", outro: "📄" };
 
-function StampBadge({ estado, onClick, grande = false }) {
+function StampBadge({ estado, onClick, grande = false, enorme = false }) {
   const e = ESTADOS[estado];
   return (
-    <button onClick={onClick} title="Toque para mudar o estado" style={{ transform: "rotate(-6deg)" }} className="shrink-0 bg-transparent hover:opacity-70 transition">
-      <img src={e.selo} alt={e.label} className={grande ? "h-10 w-auto object-contain" : "h-7 w-auto object-contain"} draggable="false" />
+    <button onClick={onClick} title="Toque para mudar o estado" style={{ transform: "rotate(-8deg)" }} className="shrink-0 bg-transparent hover:opacity-70 transition">
+      <img src={e.selo} alt={e.label} className={enorme ? "w-full h-auto object-contain" : grande ? "h-10 w-auto object-contain" : "h-7 w-auto object-contain"} draggable="false" />
     </button>
   );
 }
@@ -963,7 +963,6 @@ function LeadsScreen({ onBack }) {
 
   return (
     <div>
-      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <div className="flex items-center justify-between mb-4">
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">📋 Leads (expo)</h2>
         {leads && leads.length > 0 && (
@@ -1035,7 +1034,6 @@ function PermissoesScreen({ onBack }) {
 
   return (
     <div>
-      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">🔑 Permissões</h2>
       <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Toque numa célula para alternar: Nenhum → Ver → Editar</p>
       <div className="overflow-x-auto -mx-4 px-4">
@@ -1086,9 +1084,8 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
   onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, niveis,
-  onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage }) {
+  onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
   const [erroObra, setErroObra] = useState("");
-  const [modulo, setModulo] = useState(null);
   const [transferindo, setTransferindo] = useState(false);
   const [novoResponsavel, setNovoResponsavel] = useState("");
   const { etapas, equipe, ferramentas, materiais, observacoes, documentos } = obraDetalhe;
@@ -1134,7 +1131,6 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     const podeEditar = (niveis?.[modulo] || "nenhum") === "editar";
     return (
       <div>
-        <button onClick={() => setModulo(null)} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ {obra.cliente}</button>
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.label}</h2>
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
@@ -1170,24 +1166,30 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   return (
     <div>
       <div className="relative -mx-4 -mt-4 mb-3">
-        <img src="arquivero_completo_14.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
+        <img src="arquivero_completo_15.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
 
-        {/* Texto sobre o papel */}
+        {/* Texto sobre a hoja 1: dados da obra */}
         <div className="absolute" style={{ left: "6%", top: "5%", width: "36%", transform: "rotate(-4deg)" }}>
           <p style={{ color: "#6B655C" }} className="text-[10px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"} · desde {fmt(obra.data_inicio)}</p>
           <h2 style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-lg font-extrabold leading-tight mt-1">{obra.cliente}</h2>
           <p style={{ color: "#6B655C", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs mt-1">{obra.endereco}</p>
         </div>
 
-        {/* Selo de status, sobre o corcho livre */}
-        <div className="absolute" style={{ right: "6%", top: "8%" }}>
-          <StampBadge estado={obra.estado} onClick={cycleEstado} grande />
+        {/* Texto sobre a hoja 2: responsável */}
+        <div className="absolute" style={{ left: "58%", top: "22%", width: "26%", transform: "rotate(-3deg)" }}>
+          <p style={{ color: "#6B655C" }} className="text-[9px] font-mono uppercase tracking-wide">Responsável</p>
+          <p style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
+        </div>
+
+        {/* Selo de status, ENORME, bem visível */}
+        <div className="absolute" style={{ right: "3%", top: "1%", width: "42%" }}>
+          <StampBadge estado={obra.estado} onClick={cycleEstado} enorme />
         </div>
 
         {/* Botões invisíveis sobre cada caixa do archivero — a imagem já tem mascote + texto */}
         <div className="absolute grid grid-cols-2" style={{ left: 0, right: 0, top: "37%", bottom: 0, gridTemplateRows: "repeat(3, 1fr)" }}>
           {modulosVisiveis.map((m) => (
-            <button key={m.key} onClick={() => setModulo(m.key)} className="relative active:bg-black/10 transition">
+            <button key={m.key} onClick={() => onAbrirModulo(m.key)} className="relative active:bg-black/10 transition">
               {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-4 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
             </button>
           ))}
@@ -1217,7 +1219,6 @@ function PendientesView({ obras, onBack, onOpenObra }) {
 
   return (
     <div>
-      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <h2 style={{ color: C.ink }} className="text-xl font-extrabold uppercase tracking-wide mb-1">● Pendências</h2>
       <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">Etapas ainda não concluídas, em todas as obras</p>
       {loading && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Carregando...</p>}
@@ -1289,7 +1290,6 @@ function ReportView({ obras, onBack }) {
 
   return (
     <div>
-      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
       <h2 style={{ color: C.ink }} className="text-xl font-extrabold uppercase tracking-wide mb-1">Relatório semanal</h2>
       <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">{fmt(weekAgo)} — {fmt(cutoff)}</p>
       {loading ? (
@@ -1524,6 +1524,7 @@ function ConfigurarBiometriaScreen({ onFeito }) {
 
 function GestorObras() {
   const [view, setView] = useState("dashboard");
+  const [modulo, setModulo] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [fileCache, setFileCache] = useState({});
@@ -1765,6 +1766,7 @@ function GestorObras() {
   const abrirObra = async (id) => {
     setSelectedId(id);
     setView("obra");
+    setModulo(null);
     window.history.pushState({ gcObra: true }, "");
     setObraDetalhe(null);
     setObraDetalheLoading(true);
@@ -1787,18 +1789,35 @@ function GestorObras() {
     setObraDetalheLoading(false);
   };
 
+  const abrirModulo = (key) => {
+    setModulo(key);
+    window.history.pushState({ gcModulo: true }, "");
+  };
+
+  const irParaView = (v) => {
+    setView(v);
+    window.history.pushState({ gcView: v }, "");
+  };
+
   const voltarAoDashboard = () => {
     setView("dashboard");
+    setModulo(null);
     if (selectedId) carregarPendentes(obras);
   };
 
+  // Único ponto que escuta o botão/gesto nativo de voltar do Android.
+  // Fecha primeiro o módulo aberto; se não há módulo, volta pro dashboard a partir de qualquer view.
   useEffect(() => {
     const onPopState = () => {
-      if (view === "obra") voltarAoDashboard();
+      if (view === "obra" && modulo) {
+        setModulo(null);
+      } else if (view !== "dashboard") {
+        voltarAoDashboard();
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [view]);
+  }, [view, modulo, selectedId, obras]);
 
   // --- Etapas ---
   const addEtapa = async (parentId, texto) => {
@@ -1901,8 +1920,8 @@ function GestorObras() {
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
             <button onClick={() => setShowModal(true)} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>
-            <button onClick={() => setView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
-            <button onClick={() => setView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
+            <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
+            <button onClick={() => irParaView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
           </div>
           {erroGlobal && <p style={{ color: C.rust }} className="text-xs font-mono mb-3">{erroGlobal}</p>}
           {obrasLoading ? (
@@ -1923,7 +1942,7 @@ function GestorObras() {
           <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>
         ) : (
           <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
-            onBack={voltarAoDashboard}
+            onBack={voltarAoDashboard} modulo={modulo} onAbrirModulo={abrirModulo}
             onChangeEstado={changeEstado} onDeleteObra={deleteObra} onTransferirObra={transferirObra}
             onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa}
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
@@ -1945,7 +1964,7 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); setView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); setView("leads"); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
       </>
     );
   }
