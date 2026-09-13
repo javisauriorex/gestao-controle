@@ -34,9 +34,23 @@ export default async function obrasHandler(req, env) {
   if (req.method === "PATCH") {
     if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = new URL(req.url).searchParams.get("id");
-    const { estado } = await req.json();
+    const {
+      estado = null,
+      novoResponsavelId = null,
+      cliente = null,
+      endereco = null,
+      tipo = null,
+    } = await req.json();
+    // COALESCE: só atualiza os campos que vieram preenchidos, deixa o resto como estava.
     const rows = await sql`
-      UPDATE obras SET estado = ${estado} WHERE id = ${id} AND empresa_id = ${usuario.empresa_id} RETURNING *
+      UPDATE obras SET
+        estado = COALESCE(${estado}, estado),
+        responsavel_id = COALESCE(${novoResponsavelId}, responsavel_id),
+        cliente = COALESCE(${cliente}, cliente),
+        endereco = COALESCE(${endereco}, endereco),
+        tipo = COALESCE(${tipo}, tipo)
+      WHERE id = ${id} AND empresa_id = ${usuario.empresa_id}
+      RETURNING *
     `;
     if (rows.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
     return jsonResponse({ ok: true, obra: rows[0] });
@@ -51,4 +65,5 @@ export default async function obrasHandler(req, env) {
   }
 
   return jsonResponse({ ok: false, error: "method not allowed" }, 405);
-}
+                                                 }
+
