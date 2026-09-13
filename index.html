@@ -914,20 +914,19 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
 }
 
 function TicketCard({ obra, pendCount, lastDate, onOpen }) {
+  const e = ESTADOS[obra.estado];
   return (
-    <div onClick={onOpen} style={{ borderColor: C.border }} className="relative cursor-pointer border rounded-md overflow-hidden shadow-sm active:shadow-md transition">
-      {pendCount > 0 && <div style={{ background: C.rust }} className="absolute top-2 right-2 z-10 text-white text-[11px] font-extrabold rounded-full w-6 h-6 flex items-center justify-center shadow">{pendCount}</div>}
-      <div className="relative w-full" style={{ aspectRatio: "900 / 570", backgroundImage: "url(pizarrao_obra_7.jpeg)", backgroundSize: "cover", backgroundPosition: "center" }}>
-        <div className="absolute" style={{ left: "6%", top: "13%", width: "36%", transform: "rotate(-5deg)" }}>
-          <p style={{ color: "#6B655C" }} className="text-[10px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"}</p>
-          <h3 style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-base font-extrabold leading-tight mt-0.5">{obra.cliente}</h3>
-          <p style={{ color: "#6B655C", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs mt-0.5">{obra.endereco}</p>
+    <div onClick={onOpen} style={{ background: C.surface, borderColor: C.border, backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 6px, ${C.bg} 6px, ${C.bg} 10px)`, backgroundSize: "100% 3px", backgroundRepeat: "no-repeat", backgroundPosition: "bottom" }} className="relative cursor-pointer border rounded-md p-4 pb-5 shadow-sm active:shadow-md transition">
+      {pendCount > 0 && <div style={{ background: C.rust }} className="absolute -top-2 -right-2 text-white text-[11px] font-extrabold rounded-full w-6 h-6 flex items-center justify-center shadow">{pendCount}</div>}
+      <div className="flex justify-between items-start gap-2">
+        <div>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"}</p>
+          <h3 style={{ color: C.ink }} className="text-lg font-extrabold leading-tight mt-0.5">{obra.cliente}</h3>
+          <p style={{ color: C.inkMuted }} className="text-sm mt-0.5">{obra.endereco}</p>
         </div>
-        <div className="absolute" style={{ right: "8%", top: "22%" }}>
-          <StampBadge estado={obra.estado} onClick={() => {}} />
-        </div>
+        <span style={{ color: e.color, borderColor: e.color, transform: "rotate(-6deg)", fontFamily: "ui-monospace, monospace" }} className="text-[10px] font-extrabold tracking-widest border-2 rounded px-2 py-0.5 uppercase shrink-0">{e.label}</span>
       </div>
-      <div style={{ background: C.surface, borderColor: C.border }} className="border-t px-4 py-2 flex items-center justify-between">
+      <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: `1px dashed ${C.border}` }}>
         <span style={{ color: C.inkMuted }} className="text-xs font-mono">🕐 {lastDate ? `há ${daysAgo(lastDate)}d` : "sem atividade"}</span>
       </div>
     </div>
@@ -1150,16 +1149,34 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   return (
     <div>
       <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
-      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-5 mb-5">
-        <div className="flex justify-between items-start gap-3">
-          <div>
-            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"} · desde {fmt(obra.data_inicio)}</p>
-            <h2 style={{ color: C.ink }} className="text-2xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
-            <p style={{ color: C.inkMuted }} className="text-sm mt-1">{obra.endereco}</p>
-          </div>
+
+      <div style={{ borderColor: C.border }} className="relative border rounded-md overflow-hidden mb-3" >
+        <img src="arquivero_completo_14.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
+
+        {/* Texto sobre o papel */}
+        <div className="absolute" style={{ left: "6%", top: "5%", width: "36%", transform: "rotate(-4deg)" }}>
+          <p style={{ color: "#6B655C" }} className="text-[10px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"} · desde {fmt(obra.data_inicio)}</p>
+          <h2 style={{ color: "#262420", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-lg font-extrabold leading-tight mt-1">{obra.cliente}</h2>
+          <p style={{ color: "#6B655C", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs mt-1">{obra.endereco}</p>
+        </div>
+
+        {/* Selo de status, sobre o corcho livre */}
+        <div className="absolute" style={{ right: "6%", top: "8%" }}>
           <StampBadge estado={obra.estado} onClick={cycleEstado} grande />
         </div>
-        <div style={{ borderColor: C.border }} className="border-t mt-4 pt-3 flex items-center justify-between flex-wrap gap-2">
+
+        {/* Botões invisíveis sobre cada caixa do archivero — a imagem já tem mascote + texto */}
+        <div className="absolute grid grid-cols-2" style={{ left: 0, right: 0, top: "37%", bottom: 0, gridTemplateRows: "repeat(3, 1fr)" }}>
+          {modulosVisiveis.map((m) => (
+            <button key={m.key} onClick={() => setModulo(m.key)} className="relative active:bg-black/10 transition">
+              {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-4 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-5">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <p style={{ color: C.inkMuted }} className="text-xs font-mono">
             👤 Responsável: <span style={{ color: C.ink }}>{responsavelAtual ? `${responsavelAtual.nome} (${RANK_LABELS[responsavelAtual.rank]})` : "—"}</span>
           </p>
@@ -1176,14 +1193,6 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
         )}
         <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
         {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {modulosVisiveis.map((m) => (
-          <button key={m.key} onClick={() => setModulo(m.key)} style={{ borderColor: C.border }} className="relative border rounded-md overflow-hidden active:opacity-80 transition">
-            <img src={m.cajao} alt={m.label} className="w-full h-auto block" draggable="false" />
-            {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-2 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
-          </button>
-        ))}
       </div>
     </div>
   );
