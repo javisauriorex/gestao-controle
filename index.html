@@ -1141,6 +1141,27 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
         {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
+        {modulo === "observacoes" && (
+          <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p style={{ color: C.inkMuted }} className="text-xs font-mono">
+                👤 Responsável: <span style={{ color: C.ink }}>{responsavelAtual ? `${responsavelAtual.nome} (${RANK_LABELS[responsavelAtual.rank]})` : "—"}</span>
+              </p>
+              <button onClick={() => setTransferindo(!transferindo)} style={{ color: C.blue }} className="text-xs font-mono uppercase">🔄 Transferir</button>
+            </div>
+            {transferindo && (
+              <div className="flex gap-2 mt-2">
+                <select value={novoResponsavel} onChange={(e) => setNovoResponsavel(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs outline-none bg-white">
+                  <option value="">Escolha o novo responsável...</option>
+                  {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
+                </select>
+                <button onClick={transferir} disabled={!novoResponsavel} style={{ background: C.blue }} className="text-white text-xs font-bold uppercase rounded px-3 disabled:opacity-40 shrink-0">Confirmar</button>
+              </div>
+            )}
+            <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
+            {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
+          </div>
+        )}
         {modulo === "observacoes" && <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" podeEditar={podeEditar} />}
       </div>
     );
@@ -1148,9 +1169,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
 
   return (
     <div>
-      <button onClick={onBack} style={{ color: C.inkMuted }} className="flex items-center gap-1 text-sm font-mono mb-4">‹ voltar</button>
-
-      <div style={{ borderColor: C.border }} className="relative border rounded-md overflow-hidden mb-3" >
+      <div className="relative -mx-4 -mt-4 mb-3">
         <img src="arquivero_completo_14.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
 
         {/* Texto sobre o papel */}
@@ -1173,26 +1192,6 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
             </button>
           ))}
         </div>
-      </div>
-
-      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <p style={{ color: C.inkMuted }} className="text-xs font-mono">
-            👤 Responsável: <span style={{ color: C.ink }}>{responsavelAtual ? `${responsavelAtual.nome} (${RANK_LABELS[responsavelAtual.rank]})` : "—"}</span>
-          </p>
-          <button onClick={() => setTransferindo(!transferindo)} style={{ color: C.blue }} className="text-xs font-mono uppercase">🔄 Transferir</button>
-        </div>
-        {transferindo && (
-          <div className="flex gap-2 mt-2">
-            <select value={novoResponsavel} onChange={(e) => setNovoResponsavel(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs outline-none bg-white">
-              <option value="">Escolha o novo responsável...</option>
-              {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
-            </select>
-            <button onClick={transferir} disabled={!novoResponsavel} style={{ background: C.blue }} className="text-white text-xs font-bold uppercase rounded px-3 disabled:opacity-40 shrink-0">Confirmar</button>
-          </div>
-        )}
-        <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
-        {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
       </div>
     </div>
   );
@@ -1766,6 +1765,7 @@ function GestorObras() {
   const abrirObra = async (id) => {
     setSelectedId(id);
     setView("obra");
+    window.history.pushState({ gcObra: true }, "");
     setObraDetalhe(null);
     setObraDetalheLoading(true);
     try {
@@ -1791,6 +1791,14 @@ function GestorObras() {
     setView("dashboard");
     if (selectedId) carregarPendentes(obras);
   };
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (view === "obra") voltarAoDashboard();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [view]);
 
   // --- Etapas ---
   const addEtapa = async (parentId, texto) => {
