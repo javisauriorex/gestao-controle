@@ -442,6 +442,53 @@ function NuevaObraModal({ onClose, onSave, obras = [] }) {
   );
 }
 
+function EditarObraModal({ obra, equipe, onClose, onSave }) {
+  const [cliente, setCliente] = useState(obra.cliente || "");
+  const [endereco, setEndereco] = useState(obra.endereco || "");
+  const [tipo, setTipo] = useState(obra.tipo || "");
+  const [responsavelId, setResponsavelId] = useState(obra.responsavel_id || "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const submit = async () => {
+    if (!cliente.trim()) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      await onSave({ cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), novoResponsavelId: responsavelId || null });
+      onClose();
+    } catch (err) {
+      setErro(err.message);
+      setSalvando(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-md shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Editar obra</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl">×</button>
+        </div>
+        <div className="space-y-3">
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Cliente</label>
+            <input value={cliente} onChange={(e) => setCliente(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Endereço</label>
+            <input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Tipo de trabalho</label>
+            <input value={tipo} onChange={(e) => setTipo(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Responsável</label>
+            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none bg-white">
+              <option value="">— sem responsável —</option>
+              {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome}</option>)}
+            </select>
+          </div>
+          {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
+        </div>
+        <button onClick={submit} disabled={!cliente.trim() || salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-40">{salvando ? "Salvando..." : "Salvar alterações"}</button>
+      </div>
+    </div>
+  );
+}
+
 function CollapsibleSection({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -913,7 +960,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
   );
 }
 
-function TicketCard({ obra, pendCount, lastDate, onOpen }) {
+function TicketCard({ obra, pendCount, lastDate, onOpen, onEdit, onDelete }) {
   const e = ESTADOS[obra.estado];
   return (
     <div onClick={onOpen} style={{ background: C.surface, borderColor: C.border, backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 6px, ${C.bg} 6px, ${C.bg} 10px)`, backgroundSize: "100% 3px", backgroundRepeat: "no-repeat", backgroundPosition: "bottom" }} className="relative cursor-pointer border rounded-md p-4 pb-5 shadow-sm active:shadow-md transition">
@@ -928,6 +975,10 @@ function TicketCard({ obra, pendCount, lastDate, onOpen }) {
       </div>
       <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: `1px dashed ${C.border}` }}>
         <span style={{ color: C.inkMuted }} className="text-xs font-mono">🕐 {lastDate ? `há ${daysAgo(lastDate)}d` : "sem atividade"}</span>
+        <div className="flex items-center gap-3">
+          <button onClick={(ev) => { ev.stopPropagation(); onEdit(); }} style={{ color: C.blue }} className="text-xs font-mono uppercase">✏️ Editar</button>
+          <button onClick={(ev) => { ev.stopPropagation(); onDelete(); }} style={{ color: C.rust }} className="text-xs font-mono uppercase">🗑️ Eliminar</button>
+        </div>
       </div>
     </div>
   );
@@ -1072,12 +1123,12 @@ function PermissoesScreen({ onBack }) {
 }
 
 const MODULOS_OBRA = [
-  { key: "etapas", label: "Etapas", glyph: "☑", cajao: "cajon_etapas_1.webp" },
-  { key: "equipe", label: "Equipe", glyph: "👥", cajao: "cajon_equipe_2.webp" },
-  { key: "documentos", label: "Documentos", glyph: "📎", cajao: "cajon_documentos_3.webp" },
-  { key: "ferramentas", label: "Ferramentas", glyph: "🔧", cajao: "cajon_ferramentas_4.webp" },
-  { key: "materiais", label: "Materiais", glyph: "📦", cajao: "cajon_materiais_5.webp" },
-  { key: "observacoes", label: "Observações", glyph: "📝", cajao: "cajon_observacoes_6.webp" },
+  { key: "equipe", label: "Equipe", glyph: "👥", cajao: "cajon_equipe_2.webp", icone: "icone_equipe_2.webp" },
+  { key: "etapas", label: "Etapas", glyph: "☑", cajao: "cajon_etapas_1.webp", icone: "icone_etapas_1.webp" },
+  { key: "ferramentas", label: "Ferramentas", glyph: "🔧", cajao: "cajon_ferramentas_4.webp", icone: "icone_ferramentas_4.webp" },
+  { key: "materiais", label: "Materiais", glyph: "📦", cajao: "cajon_materiais_5.webp", icone: "icone_materiais_5.webp" },
+  { key: "observacoes", label: "Observações", glyph: "📝", cajao: "cajon_observacoes_6.webp", icone: "icone_observacoes_6.webp" },
+  { key: "documentos", label: "Documentos", glyph: "📎", cajao: "cajon_documentos_3.webp", icone: "icone_documentos_3.webp" },
 ];
 
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
@@ -1131,7 +1182,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     const podeEditar = (niveis?.[modulo] || "nenhum") === "editar";
     return (
       <div>
-        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4">{mod.label}</h2>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}</h2>
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
@@ -1168,18 +1219,34 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
       <div className="relative -mx-4 -mt-4 mb-3">
         <img src="arquivero_completo_16.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
 
-        {/* Texto sobre a hoja 1: dados da obra.
-            Hoja 1 medida em pixels sobre a imagem 1048×1797: left 1.9% top 4.9% right 44.75% bottom 34.9%.
-            Container do texto = essa caixa com ~5% de margem de contorno pra dentro em cada lado. */}
+        {/* ===== POSICIONAMENTO DO TEXTO SOBRE O ARCHIVERO =====
+            Imagem fonte: arquivero_completo_16.webp, 1048×1797px exatos (ver aspectRatio acima).
+            Toda posição abaixo usa % (não px fixo) DE PROPÓSITO: o container tem w-full/h-auto,
+            então escala com a largura real da tela do aparelho — % mantém o texto colado no
+            papel em qualquer tamanho de tela; px fixo quebraria em resoluções diferentes.
+            Os % foram calculados assim: medi em Python (threshold de brilho/saturação) a borda
+            real de cada folha de papel dentro do arquivo fonte de 1048×1797px, depois apliquei
+            uma margem de contorno pra dentro (a caixa de texto fica menor que a folha) — não são
+            números chutados.
+
+            HOJA 1 (dados da obra):
+              borda medida da folha (px):    left=20   top=88   right=469  bottom=628
+              borda medida da folha (%):     left=1.9% top=4.9% right=44.8% bottom=35.0%
+              caixa de texto usada (%):      left=7%   top=9%   width=32%  (margem de ~5% pra dentro)
+              rotação: -3deg, transformOrigin "top left" (pivota do canto onde o left/top aponta,
+              não do centro — se não, a rotação empurra o texto pra fora do papel)
+
+            HOJA 2 (responsável):
+              borda medida da folha (px):    left=626  top=306  right=871  bottom=612
+              borda medida da folha (%):     left=59.7% top=17.0% right=83.1% bottom=34.1%
+              caixa de texto usada (%):      left=63%  top=21%   width=17%  (margem de ~3-4% pra dentro)
+              rotação: -2deg, transformOrigin "top left" */}
         <div className="absolute" style={{ left: "7%", top: "9%", width: "32%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
           <p style={{ color: "#4A4640" }} className="text-xs font-bold font-mono uppercase tracking-wide">{obra.tipo || "Obra"}{obra.data_inicio ? ` · desde ${fmt(obra.data_inicio)}` : ""}</p>
           <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
           <p style={{ color: "#3D3934", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-bold mt-1">{obra.endereco}</p>
         </div>
 
-        {/* Texto sobre a hoja 2: responsável.
-            Hoja 2 medida em pixels: left 59.7% top 17% right 83.1% bottom 34%.
-            Container do texto = essa caixa com margem de contorno pra dentro. */}
         <div className="absolute" style={{ left: "63%", top: "21%", width: "17%", transform: "rotate(-2deg)", transformOrigin: "top left" }}>
           <p style={{ color: "#4A4640" }} className="text-[10px] font-bold font-mono uppercase tracking-wide">Responsável</p>
           <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
@@ -1531,6 +1598,8 @@ function GestorObras() {
   const [modulo, setModulo] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [editandoObra, setEditandoObra] = useState(null);
+  const [equipeParaEditar, setEquipeParaEditar] = useState([]);
   const [fileCache, setFileCache] = useState({});
   const [lightboxImg, setLightboxImg] = useState(null);
   const [temaEscuro, setTemaEscuro] = useState(false);
@@ -1730,9 +1799,25 @@ function GestorObras() {
   };
 
   const deleteObra = async (obraId) => {
+    if (!window.confirm("Excluir esta obra? Essa ação não pode ser desfeita.")) return;
     await apiFetch(`/api/obras?id=${obraId}`, { method: "DELETE" });
     setObras((prev) => prev.filter((o) => o.id !== obraId));
     setView("dashboard");
+  };
+
+  const abrirEdicaoObra = async (obra) => {
+    setEditandoObra(obra);
+    try {
+      const r = await apiFetch(`/api/equipe?obra_id=${obra.id}`);
+      setEquipeParaEditar(r.equipe);
+    } catch (e) {
+      setEquipeParaEditar([]);
+    }
+  };
+
+  const salvarEdicaoObra = async (dados) => {
+    const r = await apiFetch(`/api/obras?id=${editandoObra.id}`, { method: "PATCH", body: JSON.stringify(dados) });
+    setObras((prev) => prev.map((o) => (o.id === editandoObra.id ? r.obra : o)));
   };
 
   const backupForcado = async () => {
@@ -1935,7 +2020,7 @@ function GestorObras() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {obras.map((obra) => (
-                <TicketCard key={obra.id} obra={obra} pendCount={pendentesPorObra[obra.id] || 0} lastDate={null} onOpen={() => abrirObra(obra.id)} />
+                <TicketCard key={obra.id} obra={obra} pendCount={pendentesPorObra[obra.id] || 0} lastDate={null} onOpen={() => abrirObra(obra.id)} onEdit={() => abrirEdicaoObra(obra)} onDelete={() => deleteObra(obra.id)} />
               ))}
             </div>
           )}
@@ -1961,6 +2046,7 @@ function GestorObras() {
       {view === "permissoes" && <PermissoesScreen onBack={() => setView("dashboard")} />}
       {view === "leads" && <LeadsScreen onBack={() => setView("dashboard")} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} />}
+      {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
     </div>
     );
