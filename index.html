@@ -1166,19 +1166,23 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   return (
     <div>
       <div className="relative -mx-4 -mt-4 mb-3">
-        <img src="arquivero_completo_15.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
+        <img src="arquivero_completo_16.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
 
-        {/* Texto sobre a hoja 1: dados da obra */}
-        <div className="absolute" style={{ left: "7%", top: "6%", width: "34%", transform: "rotate(-4deg)", transformOrigin: "top left" }}>
+        {/* Texto sobre a hoja 1: dados da obra.
+            Hoja 1 medida em pixels sobre a imagem 1048×1797: left 1.9% top 4.9% right 44.75% bottom 34.9%.
+            Container do texto = essa caixa com ~5% de margem de contorno pra dentro em cada lado. */}
+        <div className="absolute" style={{ left: "7%", top: "9%", width: "32%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
           <p style={{ color: "#4A4640" }} className="text-xs font-bold font-mono uppercase tracking-wide">{obra.tipo || "Obra"}{obra.data_inicio ? ` · desde ${fmt(obra.data_inicio)}` : ""}</p>
-          <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-2xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
+          <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
           <p style={{ color: "#3D3934", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-bold mt-1">{obra.endereco}</p>
         </div>
 
-        {/* Texto sobre a hoja 2: responsável */}
-        <div className="absolute" style={{ left: "60%", top: "24%", width: "22%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
-          <p style={{ color: "#4A4640" }} className="text-[11px] font-bold font-mono uppercase tracking-wide">Responsável</p>
-          <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-base font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
+        {/* Texto sobre a hoja 2: responsável.
+            Hoja 2 medida em pixels: left 59.7% top 17% right 83.1% bottom 34%.
+            Container do texto = essa caixa com margem de contorno pra dentro. */}
+        <div className="absolute" style={{ left: "63%", top: "21%", width: "17%", transform: "rotate(-2deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-[10px] font-bold font-mono uppercase tracking-wide">Responsável</p>
+          <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
         </div>
 
         {/* Selo de status, ENORME, bem visível */}
