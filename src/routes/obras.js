@@ -21,11 +21,11 @@ export default async function obrasHandler(req, env) {
 
   if (req.method === "POST") {
     if (!podeCrear(4, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
-    const { cliente, endereco, tipo, dataInicio } = await req.json();
+    const { cliente, endereco, tipo, dataInicio, responsavelId } = await req.json();
     if (!cliente) return jsonResponse({ ok: false, error: "cliente é obrigatório" }, 400);
     const rows = await sql`
       INSERT INTO obras (empresa_id, cliente, endereco, tipo, data_inicio, estado, criado_por, responsavel_id)
-      VALUES (${usuario.empresa_id}, ${cliente}, ${endereco || ""}, ${tipo || ""}, ${dataInicio || null}, 'ativa', ${usuario.id}, ${usuario.id})
+      VALUES (${usuario.empresa_id}, ${cliente}, ${endereco || ""}, ${tipo || ""}, ${dataInicio || null}, 'ativa', ${usuario.id}, ${responsavelId || usuario.id})
       RETURNING *
     `;
     return jsonResponse({ ok: true, obra: rows[0] });
@@ -65,5 +65,4 @@ export default async function obrasHandler(req, env) {
   }
 
   return jsonResponse({ ok: false, error: "method not allowed" }, 405);
-                                                 }
-
+}
