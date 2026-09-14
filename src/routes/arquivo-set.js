@@ -9,9 +9,12 @@ export default async function arquivoSetHandler(req, env) {
   try {
     const { id, payload } = await req.json();
     if (!id || !payload) return jsonResponse({ ok: false, error: "id e payload são obrigatórios" }, 400);
-    await env.ARQUIVOS.put(id, JSON.stringify(payload));
+    // O frontend já manda `payload` como string JSON pronta (JSON.stringify feito lá).
+    // Gravamos ela tal qual, sem stringify de novo — senão fica JSON dentro de JSON
+    // e a leitura depois vem corrompida.
+    await env.ARQUIVOS.put(id, payload);
     return jsonResponse({ ok: true });
   } catch (e) {
-    return jsonResponse({ ok: false, error: String(e) }, 500);
+    return jsonResponse({ ok: false, error: String(e && e.message || e) }, 500);
   }
 }
