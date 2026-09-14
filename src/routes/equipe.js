@@ -9,7 +9,14 @@ export default async function equipeHandler(req, env) {
 
   if (req.method === "GET") {
     const obraId = url.searchParams.get("obra_id");
-    if (!obraId) return jsonResponse({ ok: false, error: "obra_id é obrigatório" }, 400);
+    if (!obraId) {
+      // Sem obra_id: devolve todo mundo da empresa (usado pra escolher responsável
+      // em qualquer obra, mesmo que a pessoa ainda não esteja na equipe dessa obra específica).
+      const todos = await sql`
+        SELECT id as usuario_id, email, nome, rank FROM usuarios WHERE empresa_id = ${usuario.empresa_id} ORDER BY nome
+      `;
+      return jsonResponse({ ok: true, equipe: todos });
+    }
     const equipe = await sql`
       SELECT e.*, u.email, u.nome, u.rank FROM equipe e
       JOIN usuarios u ON u.id = e.usuario_id
