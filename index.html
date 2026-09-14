@@ -540,10 +540,10 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
       const dataUrl = await fileToDataURL(file);
       const arquivoId = uid();
       const ok = await saveArquivo(arquivoId, { nome: file.name, tipo: file.type, dataUrl });
-      if (ok) {
+      if (ok === true) {
         await onAdd({ obraId, nome: file.name, tipo: file.type, arquivoId });
       } else {
-        alert("Não foi possível salvar o arquivo — provavelmente falta espaço. Verifique o indicador de espaço no topo.");
+        alert(`Não foi possível salvar o arquivo: ${ok?.erro || "erro desconhecido"}`);
       }
     } catch (err) {
       setErro(err.message || "Não foi possível processar o arquivo.");
@@ -785,7 +785,7 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
       const dataUrl = await compressImage(file);
       const fotoId = uid();
       const ok = await saveArquivo(fotoId, { nome: "conclusao.jpg", tipo: "image/jpeg", dataUrl });
-      if (!ok) { setErro("Não foi possível salvar a foto (sem espaço?)."); setUploading(false); e.target.value = ""; return; }
+      if (ok !== true) { setErro(`Não foi possível salvar a foto: ${ok?.erro || "erro desconhecido"}`); setUploading(false); e.target.value = ""; return; }
       await onToggle(etapa.id, true, fotoId);
     } catch (err) { setErro(err.message); }
     setUploading(false);
@@ -1753,14 +1753,16 @@ function GestorObras() {
         headers: { "content-type": "application/json", authorization: `Bearer ${APP_TOKEN}` },
         body: JSON.stringify({ id, payload: JSON.stringify(payload) }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.ok) {
         setFileCache((p) => ({ ...p, [id]: payload }));
         return true;
       }
-      return false;
+      console.error("saveArquivo falhou:", res.status, data.error);
+      return { erro: data.error || `Erro ${res.status}` };
     } catch (e) {
-      return false;
+      console.error("saveArquivo exceção:", e);
+      return { erro: e.message };
     }
   };
   const loadFile = async (id) => {
