@@ -167,7 +167,11 @@ const ESTADOS = {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const fmt = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
+const fmt = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
 const fmtTs = (ts) => (ts ? new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
 const daysAgo = (iso) => Math.floor((Date.now() - new Date(iso + "T00:00:00").getTime()) / 86400000);
 
@@ -396,11 +400,12 @@ function ConfirmarLimpezaModal({ onClose, onConfirm }) {
   );
 }
 
-function NuevaObraModal({ onClose, onSave, obras = [] }) {
+function NuevaObraModal({ onClose, onSave, obras = [], equipe = [] }) {
   const [cliente, setCliente] = useState("");
   const [endereco, setEndereco] = useState("");
   const [tipo, setTipo] = useState("");
   const [dataInicio, setDataInicio] = useState(todayISO());
+  const [responsavelId, setResponsavelId] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const clientesHistoricos = [...new Set(obras.map((o) => o.cliente).filter(Boolean))];
@@ -410,7 +415,7 @@ function NuevaObraModal({ onClose, onSave, obras = [] }) {
     setErro("");
     setSalvando(true);
     try {
-      await onSave({ cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), dataInicio });
+      await onSave({ cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), dataInicio, responsavelId: responsavelId || null });
     } catch (err) {
       setErro(err.message);
       setSalvando(false);
@@ -432,6 +437,12 @@ function NuevaObraModal({ onClose, onSave, obras = [] }) {
             <input value={tipo} onChange={(e) => setTipo(e.target.value)} list="tipos-historicos" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Ex: reforma elétrica, pintura" /></div>
           <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Data de início</label>
             <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Responsável</label>
+            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none bg-white">
+              <option value="">— eu mesmo —</option>
+              {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome}</option>)}
+            </select>
+          </div>
           {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
         </div>
         <datalist id="clientes-historicos">{clientesHistoricos.map((c) => <option key={c} value={c} />)}</datalist>
@@ -1221,35 +1232,26 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
 
         {/* ===== POSICIONAMENTO DO TEXTO SOBRE O ARCHIVERO =====
             Imagem fonte: arquivero_completo_16.webp, 1048×1797px exatos (ver aspectRatio acima).
-            Toda posição abaixo usa % (não px fixo) DE PROPÓSITO: o container tem w-full/h-auto,
-            então escala com a largura real da tela do aparelho — % mantém o texto colado no
-            papel em qualquer tamanho de tela; px fixo quebraria em resoluções diferentes.
-            Os % foram calculados assim: medi em Python (threshold de brilho/saturação) a borda
-            real de cada folha de papel dentro do arquivo fonte de 1048×1797px, depois apliquei
-            uma margem de contorno pra dentro (a caixa de texto fica menor que a folha) — não são
-            números chutados.
+            % (não px fixo) DE PROPÓSITO: container é w-full/h-auto, escala com a tela do aparelho.
+            Margem de contorno = 25% da largura/altura DA PRÓPRIA FOLHA (não da imagem toda) —
+            dobrada em relação à versão anterior, pra sobrar espaço visível de forma inequívoca.
 
-            HOJA 1 (dados da obra):
-              borda medida da folha (px):    left=20   top=88   right=469  bottom=628
-              borda medida da folha (%):     left=1.9% top=4.9% right=44.8% bottom=35.0%
-              caixa de texto usada (%):      left=7%   top=9%   width=32%  (margem de ~5% pra dentro)
-              rotação: -3deg, transformOrigin "top left" (pivota do canto onde o left/top aponta,
-              não do centro — se não, a rotação empurra o texto pra fora do papel)
-
-            HOJA 2 (responsável):
-              borda medida da folha (px):    left=626  top=306  right=871  bottom=612
-              borda medida da folha (%):     left=59.7% top=17.0% right=83.1% bottom=34.1%
-              caixa de texto usada (%):      left=63%  top=21%   width=17%  (margem de ~3-4% pra dentro)
-              rotação: -2deg, transformOrigin "top left" */}
-        <div className="absolute" style={{ left: "7%", top: "9%", width: "32%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
-          <p style={{ color: "#4A4640" }} className="text-xs font-bold font-mono uppercase tracking-wide">{obra.tipo || "Obra"}{obra.data_inicio ? ` · desde ${fmt(obra.data_inicio)}` : ""}</p>
-          <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xl font-extrabold leading-tight mt-1">{obra.cliente}</h2>
-          <p style={{ color: "#3D3934", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-bold mt-1">{obra.endereco}</p>
+            HOJA 1 — borda da folha medida (%): left=1.9% top=4.9% right=44.8% bottom=35.0%
+                     (largura=42.9% altura=30.1%) → margem 25%: ~10.7% horizontal, ~7.5% vertical
+                     caixa de texto final: left=13% top=12% width=24%
+            HOJA 2 — borda da folha medida (%): left=59.7% top=17.0% right=83.1% bottom=34.1%
+                     (largura=23.4% altura=17.1%) → margem 25%: ~5.9% horizontal, ~4.3% vertical
+                     caixa de texto final: left=66% top=22% width=12%
+            Rotação com transformOrigin "top left" (pivota do canto declarado, não do centro). */}
+        <div className="absolute" style={{ left: "13%", top: "12%", width: "24%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-[11px] font-bold font-mono uppercase tracking-wide">{obra.tipo || "Obra"}{obra.data_inicio ? ` · desde ${fmt(obra.data_inicio)}` : ""}</p>
+          <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-lg font-extrabold leading-tight mt-1">{obra.cliente}</h2>
+          <p style={{ color: "#3D3934", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs font-bold mt-1">{obra.endereco}</p>
         </div>
 
-        <div className="absolute" style={{ left: "63%", top: "21%", width: "17%", transform: "rotate(-2deg)", transformOrigin: "top left" }}>
-          <p style={{ color: "#4A4640" }} className="text-[10px] font-bold font-mono uppercase tracking-wide">Responsável</p>
-          <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-sm font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
+        <div className="absolute" style={{ left: "66%", top: "22%", width: "12%", transform: "rotate(-2deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-[9px] font-bold font-mono uppercase tracking-wide">Responsável</p>
+          <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
         </div>
 
         {/* Selo de status, ENORME, bem visível */}
@@ -1808,7 +1810,7 @@ function GestorObras() {
   const abrirEdicaoObra = async (obra) => {
     setEditandoObra(obra);
     try {
-      const r = await apiFetch(`/api/equipe?obra_id=${obra.id}`);
+      const r = await apiFetch(`/api/equipe`);
       setEquipeParaEditar(r.equipe);
     } catch (e) {
       setEquipeParaEditar([]);
@@ -2008,7 +2010,7 @@ function GestorObras() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
-            <button onClick={() => setShowModal(true)} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>
+            <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>
             <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
             <button onClick={() => irParaView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
           </div>
@@ -2045,7 +2047,7 @@ function GestorObras() {
       {view === "report" && <ReportView obras={obras} onBack={() => setView("dashboard")} />}
       {view === "permissoes" && <PermissoesScreen onBack={() => setView("dashboard")} />}
       {view === "leads" && <LeadsScreen onBack={() => setView("dashboard")} />}
-      {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} />}
+      {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
       {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
     </div>
