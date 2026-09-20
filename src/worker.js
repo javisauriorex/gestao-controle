@@ -2,6 +2,7 @@ import { login, signup } from "./lib/auth.js";
 import documentos from "./routes/documentos.js";
 import equipe from "./routes/equipe.js";
 import etapas from "./routes/etapas.js";
+import etapaFotos from "./routes/etapa-fotos.js";
 import obras from "./routes/obras.js";
 import convites from "./routes/convites.js";
 import observacoes from "./routes/observacoes.js";
@@ -20,6 +21,7 @@ const ROTAS = {
   "/api/documentos": documentos,
   "/api/equipe": equipe,
   "/api/etapas": etapas,
+  "/api/etapa-fotos": etapaFotos,
   "/api/obras": obras,
   "/api/convites": convites,
   "/api/observacoes": observacoes,
