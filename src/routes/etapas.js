@@ -43,10 +43,10 @@ export default async function etapasHandler(req, env) {
       return jsonResponse({ ok: true, etapa: rows[0] });
     }
 
+    // Concluída agora é um check simples, independente das fotos (que vivem em etapa_fotos).
     const rows = await sql`
       UPDATE etapas SET
         concluida = ${!!body.concluida},
-        foto_conclusao_id = ${body.fotoConclusaoId || null},
         concluida_por = ${body.concluida ? usuario.id : null},
         concluida_em = ${body.concluida ? new Date().toISOString() : null}
       WHERE id = ${id}
