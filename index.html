@@ -341,6 +341,70 @@ function StampBadge({ estado, onClick, grande = false, enorme = false }) {
   );
 }
 
+function EtapaFotosGaleria({ etapaId, fileCache, loadFile, onViewImage, onAddFoto, onDeleteFoto, podeEditar, saveArquivo }) {
+  const [fotos, setFotos] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [erro, setErro] = useState("");
+  const inputRef = useRef(null);
+
+  const carregar = async () => {
+    try {
+      const r = await apiFetch(`/api/etapa-fotos?etapa_id=${etapaId}`);
+      setFotos(r.fotos);
+    } catch (err) {
+      setFotos([]);
+    }
+  };
+
+  useEffect(() => { carregar(); }, [etapaId]);
+
+  const handleAdd = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setErro("");
+    try {
+      const dataUrl = await compressImage(file);
+      const fotoId = uid();
+      const ok = await saveArquivo(fotoId, { nome: "avanco.jpg", tipo: "image/jpeg", dataUrl });
+      if (ok !== true) { setErro(`Não foi possível salvar: ${ok?.erro || "erro desconhecido"}`); setUploading(false); e.target.value = ""; return; }
+      await onAddFoto(etapaId, fotoId);
+      await carregar();
+    } catch (err) { setErro(err.message); }
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  const handleDelete = async (fotoRowId) => {
+    if (!window.confirm("Apagar esta foto?")) return;
+    try { await onDeleteFoto(fotoRowId); await carregar(); } catch (err) { setErro(err.message); }
+  };
+
+  if (fotos === null) return null;
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {fotos.map((f) => (
+          <div key={f.id} className="relative">
+            <Thumbnail fotoId={f.arquivo_id} fileCache={fileCache} loadFile={loadFile} onView={onViewImage} />
+            {podeEditar && (
+              <button onClick={() => handleDelete(f.id)} style={{ background: C.rust }} className="absolute -top-1.5 -right-1.5 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center shadow">×</button>
+            )}
+          </div>
+        ))}
+        {podeEditar && (
+          <>
+            <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handleAdd} className="hidden" />
+            <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ borderColor: C.border, color: C.inkMuted }} className="w-16 h-16 border-2 border-dashed rounded shrink-0 flex items-center justify-center text-xl disabled:opacity-50">{uploading ? "…" : "+"}</button>
+          </>
+        )}
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{erro}</p>}
+    </div>
+  );
+}
+
 function Thumbnail({ fotoId, fileCache, loadFile, onView }) {
   useEffect(() => { if (!fileCache[fotoId]) loadFile(fotoId); }, [fotoId]);
   const file = fileCache[fotoId];
@@ -752,12 +816,11 @@ function PdfViewer({ src, nome, onClose }) {
   );
 }
 
-function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, nomesHistoricos = [], podeEditar = true }) {
+function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, onAddFoto, onDeleteFoto, nomesHistoricos = [], podeEditar = true }) {
   const [openSub, setOpenSub] = useState(false);
   const [editando, setEditando] = useState(false);
   const [nomeEdit, setNomeEdit] = useState(etapa.texto);
   const [novoSub, setNovoSub] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [erro, setErro] = useState("");
   const inputRef = useRef(null);
   const filhos = allEtapas.filter((e) => e.parent_id === etapa.id);
@@ -773,23 +836,7 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
   const toggleSimples = async () => {
     if (!podeEditar) return;
     setErro("");
-    try { await onToggle(etapa.id, !etapa.concluida, etapa.foto_conclusao_id); } catch (err) { setErro(err.message); }
-  };
-
-  const handlePhoto = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    setErro("");
-    try {
-      const dataUrl = await compressImage(file);
-      const fotoId = uid();
-      const ok = await saveArquivo(fotoId, { nome: "conclusao.jpg", tipo: "image/jpeg", dataUrl });
-      if (ok !== true) { setErro(`Não foi possível salvar a foto: ${ok?.erro || "erro desconhecido"}`); setUploading(false); e.target.value = ""; return; }
-      await onToggle(etapa.id, true, fotoId);
-    } catch (err) { setErro(err.message); }
-    setUploading(false);
-    e.target.value = "";
+    try { await onToggle(etapa.id, !etapa.concluida); } catch (err) { setErro(err.message); }
   };
 
   const addSub = async () => {
@@ -816,23 +863,19 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
           )}
           {temFilhos && <span style={{ color: C.inkMuted }} className="text-[10px] font-mono shrink-0">{filhos.filter((f) => f.concluida).length}/{filhos.length}</span>}
           {podeEditar && !editando && <button onClick={() => { setNomeEdit(etapa.texto); setEditando(true); }} style={{ color: C.inkMuted }} className="shrink-0">✎</button>}
-          {podeEditar && <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />}
-          {podeEditar && <button onClick={() => inputRef.current?.click()} disabled={uploading} title="Concluir com foto" style={{ color: C.inkMuted }} className="shrink-0">📷</button>}
           {podeEditar && <button onClick={removerEtapa} style={{ color: C.rust }} className="shrink-0">🗑</button>}
         </div>
-        {etapa.foto_conclusao_id && (
-          <div className="mt-2 flex items-center gap-2">
-            <Thumbnail fotoId={etapa.foto_conclusao_id} fileCache={fileCache} loadFile={loadFile} onView={onViewImage} />
-            <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">Concluída em {fmtTs(etapa.concluida_em)}</span>
-          </div>
+        {etapa.concluida && etapa.concluida_em && (
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Concluída em {fmtTs(etapa.concluida_em)}</p>
         )}
+        <EtapaFotosGaleria etapaId={etapa.id} fileCache={fileCache} loadFile={loadFile} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} podeEditar={podeEditar} saveArquivo={saveArquivo} />
         {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{erro}</p>}
       </div>
 
       {openSub && (
         <div style={{ borderLeft: `2px dashed ${C.border}`, marginLeft: 8 }} className="pl-2 mb-2">
           {filhos.map((f) => (
-            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
+            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
           ))}
           {podeEditar && (
             <div className="flex gap-2 mb-2">
@@ -846,7 +889,7 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
   );
 }
 
-function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, podeEditar = true }) {
+function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, onAddFoto, onDeleteFoto, podeEditar = true }) {
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const raiz = etapas.filter((e) => !e.parent_id);
@@ -860,10 +903,10 @@ function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa,
 
   return (
     <div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · 📷 conclui com foto.</p>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · + adiciona fotos de avanço (livre, quantas quiser).</p>
       <div className="mb-3">
         {raiz.map((e) => (
-          <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
+          <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
         ))}
         {raiz.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem etapas cadastradas.</p>}
       </div>
@@ -1143,7 +1186,7 @@ const MODULOS_OBRA = [
 ];
 
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
-  onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa,
+  onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa, onAddFotoEtapa, onDeleteFotoEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
   onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, niveis,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
@@ -1196,7 +1239,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}</h2>
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
-        {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
+        {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFotoEtapa} onDeleteFoto={onDeleteFotoEtapa} podeEditar={podeEditar} />}
         {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
         {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
         {modulo === "observacoes" && (
@@ -1917,9 +1960,15 @@ function GestorObras() {
     const r = await apiFetch("/api/etapas", { method: "POST", body: JSON.stringify({ obraId: selectedId, parentId, texto }) });
     setObraDetalhe((d) => ({ ...d, etapas: [...d.etapas, r.etapa] }));
   };
-  const toggleEtapa = async (id, concluida, fotoConclusaoId) => {
-    const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ concluida, fotoConclusaoId }) });
+  const toggleEtapa = async (id, concluida) => {
+    const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ concluida }) });
     setObraDetalhe((d) => ({ ...d, etapas: d.etapas.map((e) => (e.id === id ? r.etapa : e)) }));
+  };
+  const addFotoEtapa = async (etapaId, arquivoId) => {
+    await apiFetch(`/api/etapa-fotos`, { method: "POST", body: JSON.stringify({ etapaId, arquivoId }) });
+  };
+  const deleteFotoEtapa = async (fotoRowId) => {
+    await apiFetch(`/api/etapa-fotos?id=${fotoRowId}`, { method: "DELETE" });
   };
   const editEtapa = async (id, texto) => {
     const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ texto }) });
@@ -2037,7 +2086,7 @@ function GestorObras() {
           <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
             onBack={voltarAoDashboard} modulo={modulo} onAbrirModulo={abrirModulo}
             onChangeEstado={changeEstado} onDeleteObra={deleteObra} onTransferirObra={transferirObra}
-            onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa}
+            onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa} onAddFotoEtapa={addFotoEtapa} onDeleteFotoEtapa={deleteFotoEtapa}
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
             onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
             onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del}
