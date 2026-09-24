@@ -65,7 +65,7 @@ export async function verifyJWT(token, secret) {
 // Password hashing (PBKDF2 con Web Crypto) — guardado como "salt:hash" en hex.
 // ============================================================
 
-async function hashSenha(senha) {
+export async function hashSenha(senha) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const hash = await pbkdf2(senha, salt);
   return `${toHex(salt)}:${toHex(hash)}`;
@@ -117,8 +117,12 @@ async function semearPermissoesDefault(sql, empresaId) {
 
 // ============================================================
 // Signup / Login — reemplazan el flujo de Netlify Identity.
+// Se llaman desde el router (worker.js) en /api/auth/signup y /api/auth/login.
 // ============================================================
 
+// POST /api/auth/signup  { email, senha, nome }
+// Misma lógica de "primeiro a entrar": si hay convite pendiente, se une a esa empresa;
+// si no, crea empresa nueva y queda como Dono (rank 1).
 export async function signup(req, env) {
   const sql = getSql(env);
   const { email: rawEmail, senha, nome } = await req.json();
@@ -167,6 +171,7 @@ export async function signup(req, env) {
   return jsonResponse({ ok: true, token, usuario: { id: novoUsuario.id, email: novoUsuario.email, nome: novoUsuario.nome } });
 }
 
+// POST /api/auth/login  { email, senha }
 export async function login(req, env) {
   const sql = getSql(env);
   const { email: rawEmail, senha } = await req.json();
@@ -184,7 +189,61 @@ export async function login(req, env) {
 }
 
 // ============================================================
-// getUsuario — ahora recibe (req, env)
+// Login com Google — mesma lógica de "primeira vez" do signup (convite
+// pendente → junta na empresa; senão → cria empresa nova como Dono),
+// só que sem senha, porque a identidade já vem confirmada pelo Google.
+// ============================================================
+
+export async function loginOuCriarComGoogle(email, nome, env) {
+  const sql = getSql(env);
+  const emailNorm = email.toLowerCase();
+
+  const existentes = await sql`SELECT * FROM usuarios WHERE email = ${emailNorm}`;
+  let usuario;
+
+  if (existentes.length > 0) {
+    usuario = existentes[0];
+  } else {
+    const convites = await sql`
+      SELECT * FROM convites WHERE email = ${emailNorm} AND aceito = false ORDER BY id DESC LIMIT 1
+    `;
+    if (convites.length > 0) {
+      const convite = convites[0];
+      const novos = await sql`
+        INSERT INTO usuarios (email, nome, empresa_id, rank)
+        VALUES (${emailNorm}, ${nome || emailNorm}, ${convite.empresa_id}, ${convite.rank})
+        RETURNING *
+      `;
+      await sql`UPDATE convites SET aceito = true WHERE id = ${convite.id}`;
+      usuario = novos[0];
+      if (convite.obra_id) {
+        await sql`
+          INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
+          VALUES (${convite.obra_id}, ${usuario.id}, ${convite.funcao || ""}, ${convite.criado_por})
+          ON CONFLICT (obra_id, usuario_id) DO NOTHING
+        `;
+      }
+    } else {
+      const empresas = await sql`INSERT INTO empresas (nome) VALUES (${(nome || emailNorm) + " — empresa"}) RETURNING *`;
+      const empresa = empresas[0];
+      const novos = await sql`
+        INSERT INTO usuarios (email, nome, empresa_id, rank)
+        VALUES (${emailNorm}, ${nome || emailNorm}, ${empresa.id}, 1)
+        RETURNING *
+      `;
+      usuario = novos[0];
+      await sql`UPDATE empresas SET dono_usuario_id = ${usuario.id} WHERE id = ${empresa.id}`;
+      await semearPermissoesDefault(sql, empresa.id);
+    }
+  }
+
+  const token = await signJWT({ usuarioId: usuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+  return { token, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome } };
+}
+
+// ============================================================
+// getUsuario — ahora recibe (req, env) porque necesita env.JWT_SECRET y env.DATABASE_URL.
+// Todas las functions que ya tenías cambian UNA línea: getUsuario(req) → getUsuario(req, env).
 // ============================================================
 
 export async function getUsuario(req, env) {
@@ -199,7 +258,7 @@ export async function getUsuario(req, env) {
   return rows.length > 0 ? rows[0] : null;
 }
 
-// --- Reglas de permiso (idénticas a las que ya tenías) ---
+// --- Reglas de permiso (idénticas a las que ya tenías, no se tocan) ---
 
 export async function getNivel(empresaId, rank, modulo, env) {
   const sql = getSql(env);
