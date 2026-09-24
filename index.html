@@ -981,7 +981,7 @@ function BottomNav({ onInicio, onConfig, active }) {
   );
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onAbrirPermissoes, onAbrirLeads, onBackupForcado, fazendoBackup }) {
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div onClick={onClose} className="absolute inset-0 bg-black/40" />
@@ -1001,6 +1001,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         {usuario.email === "marcelojavierbonet@gmail.com" && (
           <button onClick={onAbrirLeads} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📋 Leads (expo)</button>
         )}
+        <button onClick={onAbrirDefinirSenha} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Definir senha</button>
         <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
         {usuario.rank === 1 && (
           <button onClick={onBackupForcado} disabled={fazendoBackup} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono disabled:opacity-50">
@@ -1009,6 +1010,62 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         )}
         <button onClick={onSair} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 text-sm font-mono">🔒 Sair</button>
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-auto pt-4">© 2026 Gestão & Controle</p>
+      </div>
+    </div>
+  );
+}
+
+function DefinirSenhaModal({ usuario, onClose }) {
+  const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
+  const [erro, setErro] = useState("");
+  const [ok, setOk] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async () => {
+    setErro("");
+    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
+    if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
+    setSalvando(true);
+    try {
+      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ novaSenha: senha }) });
+      // Oferece salvar no gerenciador de senhas do navegador (Google Password Manager no Chrome).
+      try {
+        if (window.PasswordCredential) {
+          const cred = new window.PasswordCredential({ id: usuario.email, password: senha, name: usuario.nome });
+          await navigator.credentials.store(cred);
+        }
+      } catch (e) { /* navegador sem suporte, ou usuário recusou — segue normal */ }
+      setOk(true);
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Definir senha</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl">×</button>
+        </div>
+        {ok ? (
+          <>
+            <p style={{ color: C.ink }} className="text-sm">Senha salva! Agora você também pode entrar com email e senha, sem depender do Google.</p>
+            <button onClick={onClose} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5">Fechar</button>
+          </>
+        ) : (
+          <>
+            <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-3">Útil se você entrou com Google — assim consegue entrar mesmo sem ele.</p>
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
+            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus />
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
+            <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+            {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+            <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar senha"}</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1501,6 +1558,14 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
     <AuthWrap>
       <LogoTitulo />
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Criar conta</p>
+      <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
+        <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
+      </a>
+      <div className="flex items-center gap-2 mb-4">
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+      </div>
       <div className="space-y-3">
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nome</label>
@@ -1553,6 +1618,14 @@ function LoginScreen({ onLogado, onIrCadastro }) {
     <AuthWrap>
       <LogoTitulo />
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Entrar</p>
+      <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
+        <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
+      </a>
+      <div className="flex items-center gap-2 mb-4">
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+      </div>
       <div>
         <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
@@ -1664,6 +1737,7 @@ function GestorObras() {
   const [obraDetalheLoading, setObraDetalheLoading] = useState(false);
   const [erroGlobal, setErroGlobal] = useState("");
   const [showConfig, setShowConfig] = useState(false);
+  const [showDefinirSenha, setShowDefinirSenha] = useState(false);
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
   const navRestauradaRef = useRef(false);
@@ -2107,7 +2181,8 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
       </>
     );
   }
