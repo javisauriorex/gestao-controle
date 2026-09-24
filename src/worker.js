@@ -1,4 +1,5 @@
 import { login, signup } from "./lib/auth.js";
+import { googleStart, googleCallback } from "./routes/google.js";
 import documentos from "./routes/documentos.js";
 import equipe from "./routes/equipe.js";
 import etapas from "./routes/etapas.js";
@@ -18,6 +19,8 @@ import arquivoDelete from "./routes/arquivo-delete.js";
 const ROTAS = {
   "/api/auth/login": login,
   "/api/auth/signup": signup,
+  "/api/auth/google": googleStart,
+  "/api/auth/google/callback": googleCallback,
   "/api/documentos": documentos,
   "/api/equipe": equipe,
   "/api/etapas": etapas,
