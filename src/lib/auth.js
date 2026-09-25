@@ -95,16 +95,22 @@ function fromHex(hex) { return new Uint8Array(hex.match(/.{1,2}/g).map((b) => pa
 const MODULOS = ["etapas", "equipe", "documentos", "ferramentas", "materiais", "observacoes"];
 const NIVEL_DEFAULT_POR_RANK = {
   1: "editar", 2: "editar", 3: "editar", 4: "editar", 5: "editar",
-  6: "visualizar",
-  7: "nenhum",
+  7: "visualizar", // Chefe de Turma
+  8: "nenhum", // Profissional (especializado abaixo)
 };
 function nivelDefault(rank, modulo) {
-  if (rank === 7) return modulo === "etapas" || modulo === "documentos" ? "visualizar" : "nenhum";
+  if (rank === 6) {
+    // Almoxarife: forte em materiais/ferramentas, visualiza o resto, sem acesso a equipe.
+    if (modulo === "materiais" || modulo === "ferramentas") return "editar";
+    if (modulo === "equipe") return "nenhum";
+    return "visualizar";
+  }
+  if (rank === 8) return modulo === "etapas" || modulo === "documentos" ? "visualizar" : "nenhum";
   return NIVEL_DEFAULT_POR_RANK[rank] || "nenhum";
 }
 
 async function semearPermissoesDefault(sql, empresaId) {
-  for (let rank = 1; rank <= 7; rank++) {
+  for (let rank = 1; rank <= 8; rank++) {
     for (const modulo of MODULOS) {
       await sql`
         INSERT INTO permissoes (empresa_id, rank, modulo, nivel)
