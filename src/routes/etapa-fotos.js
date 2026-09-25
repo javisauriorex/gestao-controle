@@ -10,7 +10,19 @@ export default async function etapaFotosHandler(req, env) {
 
   if (req.method === "GET") {
     const etapaId = url.searchParams.get("etapa_id");
-    if (!etapaId) return jsonResponse({ ok: false, error: "etapa_id é obrigatório" }, 400);
+    const obraId = url.searchParams.get("obra_id");
+    if (obraId) {
+      // Todas as fotos de todas as etapas da obra de uma vez — usado pelo polling
+      // de notificações, pra não ter que pedir etapa por etapa a cada 15s.
+      const fotos = await sql`
+        SELECT ef.* FROM etapa_fotos ef
+        JOIN etapas e ON e.id = ef.etapa_id
+        WHERE e.obra_id = ${obraId}
+        ORDER BY ef.id DESC
+      `;
+      return jsonResponse({ ok: true, fotos });
+    }
+    if (!etapaId) return jsonResponse({ ok: false, error: "etapa_id ou obra_id é obrigatório" }, 400);
     const fotos = await sql`SELECT * FROM etapa_fotos WHERE etapa_id = ${etapaId} ORDER BY id DESC`;
     return jsonResponse({ ok: true, fotos });
   }
