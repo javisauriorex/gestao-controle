@@ -149,15 +149,16 @@ const REG_CATS = {
 };
 
 const FUNCOES = ["Encarregado", "Oficial", "Ajudante", "Almoxarife", "Frete", "Outro"];
-const RANK_LABELS = { 1: "Dono", 2: "Engenheiro Chefe de Obra", 3: "Engenheiro Estagiário", 4: "Mestre de Obra", 5: "Encarregado", 6: "Chefe de Turma", 7: "Profissional" };
+const RANK_LABELS = { 1: "Dono", 2: "Engenheiro Chefe de Obra", 3: "Engenheiro Estagiário", 4: "Mestre de Obra", 5: "Encarregado", 6: "Almoxarife", 7: "Chefe de Turma", 8: "Profissional" };
 const RANK_DESCRICOES = {
   1: "acesso total a todas as obras da empresa",
   2: "gerencia obras, equipe e conteúdo como o Dono",
   3: "mesmo nível de acesso que o Engenheiro Chefe",
   4: "gerencia etapas, equipe e conteúdo da obra",
   5: "carrega conteúdo, conclui etapas, gerencia equipe",
-  6: "só visualiza — não pode editar nada",
-  7: "só visualiza Etapas e Documentos — sem acesso ao resto",
+  6: "gerencia materiais e ferramentas, visualiza o resto",
+  7: "só visualiza — não pode editar nada",
+  8: "só visualiza Etapas e Documentos — sem acesso ao resto",
 };
 const ESTADOS = {
   ativa: { label: "ATIVA", color: C.blue, selo: "selo_ativa_8.webp" },
@@ -697,7 +698,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
-  const ranksDisponiveis = [1, 2, 3, 4, 5, 6, 7].filter((r) => r >= usuarioRank);
+  const ranksDisponiveis = [1, 2, 3, 4, 5, 6, 7, 8].filter((r) => r >= usuarioRank);
   const funcaoSugerida = `${RANK_LABELS[rank]} ${list.filter((m) => m.rank === rank).length + 1}`;
 
   const submit = async () => {
@@ -919,6 +920,119 @@ function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa,
         </div>
       )}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
+    </div>
+  );
+}
+
+function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
+  const [pedidos, setPedidos] = useState(null);
+  const [mostrarForm, setMostrarForm] = useState(null); // "pedir" | "entregar" | null
+  const [descricao, setDescricao] = useState("");
+  const [quantidade, setQuantidade] = useState("");
+  const [pessoaId, setPessoaId] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const carregar = async () => {
+    try {
+      const r = await apiFetch(`/api/pedidos?obra_id=${obraId}`);
+      setPedidos(r.pedidos.filter((p) => p.tipo === tipo));
+    } catch (e) { setPedidos([]); }
+  };
+  useEffect(() => { carregar(); }, [obraId, tipo]);
+
+  const superiores = equipe.filter((m) => m.rank < usuarioAPI.rank);
+  const subordinados = equipe.filter((m) => m.rank > usuarioAPI.rank);
+
+  const abrirForm = (qual) => {
+    setMostrarForm(qual);
+    setDescricao(""); setQuantidade(""); setPessoaId(""); setErro("");
+  };
+
+  const enviar = async () => {
+    if (!descricao.trim() || !pessoaId) { setErro("Preencha a descrição e escolha a pessoa."); return; }
+    setSalvando(true);
+    setErro("");
+    try {
+      const remetenteId = mostrarForm === "pedir" ? pessoaId : usuarioAPI.id;
+      const destinatarioId = mostrarForm === "pedir" ? usuarioAPI.id : pessoaId;
+      await apiFetch("/api/pedidos", { method: "POST", body: JSON.stringify({ obraId, tipo, descricao: descricao.trim(), quantidade: quantidade.trim(), remetenteId, destinatarioId }) });
+      setMostrarForm(null);
+      await carregar();
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+
+  const responder = async (id, status) => {
+    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); await carregar(); } catch (e) {}
+  };
+
+  const cancelar = async (id) => {
+    if (!window.confirm("Cancelar este pedido?")) return;
+    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "DELETE" }); await carregar(); } catch (e) {}
+  };
+
+  if (pedidos === null) return null;
+
+  const recebidos = pedidos.filter((p) => p.remetente_id === usuarioAPI.id && p.status === "pendente");
+  const historico = pedidos.filter((p) => !(p.remetente_id === usuarioAPI.id && p.status === "pendente")).slice(0, 8);
+
+  return (
+    <div style={{ borderColor: C.border, background: C.surface }} className="border rounded-md p-3 mb-4">
+      <p style={{ color: C.ink }} className="text-xs font-extrabold uppercase tracking-wide mb-2">📋 Pedidos de {tipoLabel}</p>
+
+      {recebidos.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {recebidos.map((p) => (
+            <div key={p.id} style={{ borderColor: C.amber, background: C.bg }} className="border rounded p-2">
+              <p style={{ color: C.ink }} className="text-sm"><b>{p.destinatario_nome}</b> pediu: {p.descricao}{p.quantidade ? ` (${p.quantidade})` : ""}</p>
+              <div className="flex gap-2 mt-1.5">
+                <button onClick={() => responder(p.id, "atendido")} style={{ background: C.green }} className="text-white text-[11px] font-bold uppercase rounded px-2 py-1">✓ Atender</button>
+                <button onClick={() => responder(p.id, "recusado")} style={{ color: C.rust, borderColor: C.rust }} className="border text-[11px] font-bold uppercase rounded px-2 py-1">Recusar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mostrarForm ? (
+        <div style={{ borderColor: C.border }} className="border rounded p-2 mb-2">
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase mb-1.5">{mostrarForm === "pedir" ? "Pedir a alguém acima" : "Entregar a alguém abaixo"}</p>
+          <select value={pessoaId} onChange={(e) => setPessoaId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none bg-white mb-1.5">
+            <option value="">{mostrarForm === "pedir" ? "Pedir a quem?" : "Entregar a quem?"}</option>
+            {(mostrarForm === "pedir" ? superiores : subordinados).map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
+          </select>
+          <input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder={tipo === "material" ? "Ex: cimento" : tipo === "ferramenta" ? "Ex: furadeira" : "Ex: planta baixa"} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none mb-1.5" />
+          {tipo !== "documento" && (
+            <input value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="Quantidade (opcional)" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none mb-1.5" />
+          )}
+          {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mb-1.5">{erro}</p>}
+          <div className="flex gap-2">
+            <button onClick={enviar} disabled={salvando} style={{ background: C.amber }} className="text-white text-xs font-bold uppercase rounded px-3 py-1.5 disabled:opacity-50">{salvando ? "..." : "Confirmar"}</button>
+            <button onClick={() => setMostrarForm(null)} style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2 mb-2">
+          {superiores.length > 0 && <button onClick={() => abrirForm("pedir")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Pedir</button>}
+          {subordinados.length > 0 && <button onClick={() => abrirForm("entregar")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Entregar</button>}
+        </div>
+      )}
+
+      {historico.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {historico.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-2">
+              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">
+                {p.status === "atendido" ? "✓" : p.status === "recusado" ? "✕" : "…"} {p.remetente_nome} → {p.destinatario_nome}: {p.descricao}
+              </p>
+              {p.criado_por === usuarioAPI.id && p.status === "pendente" && (
+                <button onClick={() => cancelar(p.id)} style={{ color: C.rust }} className="text-[11px] shrink-0">cancelar</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1207,7 +1321,7 @@ function PermissoesScreen({ onBack }) {
             </tr>
           </thead>
           <tbody>
-            {[1, 2, 3, 4, 5, 6, 7].map((rank) => (
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((rank) => (
               <tr key={rank}>
                 <td style={{ color: C.ink }} className="p-1 font-mono whitespace-nowrap pr-2 text-[11px]">{RANK_LABELS[rank]}</td>
                 {MODULOS_OBRA.map((m) => {
@@ -1245,7 +1359,7 @@ const MODULOS_OBRA = [
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa, onAddFotoEtapa, onDeleteFotoEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
-  onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, niveis,
+  onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, usuarioAPI, niveis,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
   const [erroObra, setErroObra] = useState("");
   const [transferindo, setTransferindo] = useState(false);
@@ -1294,10 +1408,13 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     return (
       <div>
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}</h2>
+        {modulo === "documentos" && <PedidosPanel obraId={obra.id} tipo="documento" tipoLabel="Documentos" equipe={equipe} usuarioAPI={usuarioAPI} />}
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFotoEtapa} onDeleteFoto={onDeleteFotoEtapa} podeEditar={podeEditar} />}
+        {modulo === "ferramentas" && <PedidosPanel obraId={obra.id} tipo="ferramenta" tipoLabel="Ferramentas" equipe={equipe} usuarioAPI={usuarioAPI} />}
         {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
+        {modulo === "materiais" && <PedidosPanel obraId={obra.id} tipo="material" tipoLabel="Materiais" equipe={equipe} usuarioAPI={usuarioAPI} />}
         {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
         {modulo === "observacoes" && (
           <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-4">
@@ -1734,6 +1851,16 @@ function GestorObras() {
   const [obrasLoading, setObrasLoading] = useState(false);
   const [pendentesPorObra, setPendentesPorObra] = useState({});
   const [obraDetalhe, setObraDetalhe] = useState(null);
+  const [notificacoes, setNotificacoes] = useState([]);
+  const obraDetalheRef = useRef(null);
+  const fotosVistasRef = useRef(new Set());
+  useEffect(() => { obraDetalheRef.current = obraDetalhe; }, [obraDetalhe]);
+
+  const notificar = (mensagens) => {
+    const novas = mensagens.map((texto) => ({ id: uid(), texto }));
+    setNotificacoes((prev) => [...prev, ...novas]);
+    novas.forEach((n) => setTimeout(() => setNotificacoes((prev) => prev.filter((x) => x.id !== n.id)), 6000));
+  };
   const [obraDetalheLoading, setObraDetalheLoading] = useState(false);
   const [erroGlobal, setErroGlobal] = useState("");
   const [showConfig, setShowConfig] = useState(false);
@@ -1773,9 +1900,9 @@ function GestorObras() {
   useEffect(() => {
     try {
       if (view === "dashboard") localStorage.removeItem("gc-nav");
-      else localStorage.setItem("gc-nav", JSON.stringify({ view, selectedId }));
+      else localStorage.setItem("gc-nav", JSON.stringify({ view, selectedId, modulo }));
     } catch (e) {}
-  }, [view, selectedId]);
+  }, [view, selectedId, modulo]);
 
   const carregarPendentes = async (lista) => {
     const mapa = {};
@@ -1793,7 +1920,7 @@ function GestorObras() {
       const saved = JSON.parse(localStorage.getItem("gc-nav") || "null");
       if (!saved) return;
       if (saved.view === "obra" && saved.selectedId && listaObras.some((o) => o.id === saved.selectedId)) {
-        abrirObra(saved.selectedId);
+        abrirObra(saved.selectedId, { pushHistory: false, moduloInicial: saved.modulo || null });
       } else if (["pendientes", "report", "permissoes", "leads"].includes(saved.view)) {
         setView(saved.view);
       }
@@ -1973,26 +2100,29 @@ function GestorObras() {
   };
 
   // --- Abrir una obra: carga todo lo de esa obra en paralelo ---
-  const abrirObra = async (id) => {
+  const abrirObra = async (id, opts = {}) => {
+    const { pushHistory = true, moduloInicial = null } = opts;
     setSelectedId(id);
     setView("obra");
-    setModulo(null);
-    window.history.pushState({ gcObra: true }, "");
+    setModulo(moduloInicial);
+    if (pushHistory) window.history.pushState({ gcObra: true }, "");
     setObraDetalhe(null);
     setObraDetalheLoading(true);
     try {
-      const [et, eq, fe, ma, ob, doc] = await Promise.all([
+      const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
         apiFetch(`/api/etapas?obra_id=${id}`),
         apiFetch(`/api/equipe?obra_id=${id}`),
         apiFetch(`/api/ferramentas?obra_id=${id}`),
         apiFetch(`/api/materiais?obra_id=${id}`),
         apiFetch(`/api/observacoes?obra_id=${id}`),
         apiFetch(`/api/documentos?obra_id=${id}`),
+        apiFetch(`/api/etapa-fotos?obra_id=${id}`),
       ]);
       setObraDetalhe({
         etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
         materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
       });
+      fotosVistasRef.current = new Set(fo.fotos.map((f) => f.id));
     } catch (err) {
       setErroGlobal(err.message);
     }
@@ -2014,6 +2144,69 @@ function GestorObras() {
     setModulo(null);
     if (selectedId) carregarPendentes(obras);
   };
+
+  // --- Refresco automático cada 15s mientras se está viendo uma obra, com aviso de quem fez o quê ---
+  useEffect(() => {
+    if (view !== "obra" || !selectedId) return;
+    const nomeDe = (equipeAtual, userId) => {
+      if (userId === usuarioAPI?.id) return null; // não notifica a própria ação
+      const m = equipeAtual.find((e) => e.usuario_id === userId);
+      return m ? m.nome : "Alguém";
+    };
+
+    const interval = setInterval(async () => {
+      const atual = obraDetalheRef.current;
+      if (!atual) return;
+      try {
+        const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
+          apiFetch(`/api/etapas?obra_id=${selectedId}`),
+          apiFetch(`/api/equipe?obra_id=${selectedId}`),
+          apiFetch(`/api/ferramentas?obra_id=${selectedId}`),
+          apiFetch(`/api/materiais?obra_id=${selectedId}`),
+          apiFetch(`/api/observacoes?obra_id=${selectedId}`),
+          apiFetch(`/api/documentos?obra_id=${selectedId}`),
+          apiFetch(`/api/etapa-fotos?obra_id=${selectedId}`),
+        ]);
+
+        const msgs = [];
+        const idsAntigos = (lista) => new Set(lista.map((x) => x.id));
+
+        et.etapas.filter((x) => !idsAntigos(atual.etapas).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou a etapa "${x.texto}"`);
+        });
+        fe.ferramentas.filter((x) => !idsAntigos(atual.ferramentas).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou a ferramenta "${x.texto}"`);
+        });
+        ma.materiais.filter((x) => !idsAntigos(atual.materiais).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou o material "${x.texto}"`);
+        });
+        ob.observacoes.filter((x) => !idsAntigos(atual.observacoes).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou uma observação: "${x.texto}"`);
+        });
+        doc.documentos.filter((x) => !idsAntigos(atual.documentos).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou o documento "${x.nome}"`);
+        });
+        fo.fotos.filter((x) => !fotosVistasRef.current.has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou uma foto`);
+        });
+        fotosVistasRef.current = new Set(fo.fotos.map((x) => x.id));
+
+        if (msgs.length) notificar(msgs);
+        setObraDetalhe({
+          etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+        });
+      } catch (e) { /* rede falhou nessa rodada, tenta de novo no próximo ciclo */ }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [view, selectedId, usuarioAPI]);
 
   // Único ponto que escuta o botão/gesto nativo de voltar do Android.
   // Fecha primeiro o módulo aberto; se não há módulo, volta pro dashboard a partir de qualquer view.
@@ -2164,7 +2357,7 @@ function GestorObras() {
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
             onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
             onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del}
-            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} onSetExcecao={setExcecao} usuarioRank={usuarioAPI.rank} niveis={meusNiveis}
+            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} onSetExcecao={setExcecao} usuarioRank={usuarioAPI.rank} usuarioAPI={usuarioAPI} niveis={meusNiveis}
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
       )}
@@ -2183,6 +2376,11 @@ function GestorObras() {
         <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
         {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
+        <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
+          {notificacoes.map((n) => (
+            <div key={n.id} style={{ background: C.ink, color: "#fff" }} className="rounded-lg px-4 py-2.5 text-xs font-mono shadow-lg">🔔 {n.texto}</div>
+          ))}
+        </div>
       </>
     );
   }
