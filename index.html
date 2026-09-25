@@ -1898,6 +1898,7 @@ function GestorObras() {
   }, []);
 
   useEffect(() => {
+         if (!navRestauradaRef.current) return;
     try {
       if (view === "dashboard") localStorage.removeItem("gc-nav");
       else localStorage.setItem("gc-nav", JSON.stringify({ view, selectedId, modulo }));
