@@ -9,6 +9,7 @@ import convites from "./routes/convites.js";
 import observacoes from "./routes/observacoes.js";
 import materiais from "./routes/materiais.js";
 import ferramentas from "./routes/ferramentas.js";
+import pedidos from "./routes/pedidos.js";
 import usuariosMe from "./routes/usuarios-me.js";
 import permissoes from "./routes/permissoes.js";
 import leads from "./routes/leads.js";
@@ -30,6 +31,7 @@ const ROTAS = {
   "/api/observacoes": observacoes,
   "/api/materiais": materiais,
   "/api/ferramentas": ferramentas,
+  "/api/pedidos": pedidos,
   "/api/usuarios-me": usuariosMe,
   "/api/permissoes": permissoes,
   "/api/leads": leads,
