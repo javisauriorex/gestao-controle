@@ -1868,6 +1868,21 @@ function GestorObras() {
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
   const navRestauradaRef = useRef(false);
+  const [sairAberto, setSairAberto] = useState(false);
+  const [sairFalhou, setSairFalhou] = useState(false);
+  // Histórico do navegador: cada entrada guarda seu "nivel".
+  //   -1 = base (voltar daqui sai do app)   0 = guarda do dashboard   1+ = obra / módulo / telas
+  // Capturado no primeiro render, antes de qualquer efeito mexer no histórico.
+  const arranqueFrioRef = useRef(typeof window.history.state?.nivel !== "number");
+  const empurrarHistorico = (extra = {}) => {
+    const n = (window.history.state?.nivel ?? 0) + 1;
+    window.history.pushState({ ...extra, nivel: n }, "");
+  };
+  // Volta o histórico até a guarda do dashboard (quando se vai ao dashboard por um botão, não pelo "voltar").
+  const recuarAteDashboard = () => {
+    const n = window.history.state?.nivel ?? 0;
+    if (n > 0) window.history.go(-n);
+  };
 
   const carregarUsuarioAPI = async () => {
     const token = await getValidAccessToken();
@@ -1920,10 +1935,15 @@ function GestorObras() {
     try {
       const saved = JSON.parse(localStorage.getItem("gc-nav") || "null");
       if (!saved) return;
+      // App aberta do zero (não F5): o histórico está vazio e o "voltar" do Android sairia do app.
+      // Nesse caso criamos as entradas que faltam. No F5 o navegador já as conserva.
+      const arranqueFrio = arranqueFrioRef.current;
       if (saved.view === "obra" && saved.selectedId && listaObras.some((o) => o.id === saved.selectedId)) {
-        abrirObra(saved.selectedId, { pushHistory: false, moduloInicial: saved.modulo || null });
+        abrirObra(saved.selectedId, { pushHistory: arranqueFrio, moduloInicial: saved.modulo || null });
+        if (arranqueFrio && saved.modulo) empurrarHistorico({ gcModulo: true });
       } else if (["pendientes", "report", "permissoes", "leads"].includes(saved.view)) {
         setView(saved.view);
+        if (arranqueFrio) empurrarHistorico({ gcView: saved.view });
       }
     } catch (e) {}
   };
@@ -2051,6 +2071,7 @@ function GestorObras() {
     if (!window.confirm("Excluir esta obra? Essa ação não pode ser desfeita.")) return;
     await apiFetch(`/api/obras?id=${obraId}`, { method: "DELETE" });
     setObras((prev) => prev.filter((o) => o.id !== obraId));
+    recuarAteDashboard();
     setView("dashboard");
   };
 
@@ -2106,7 +2127,7 @@ function GestorObras() {
     setSelectedId(id);
     setView("obra");
     setModulo(moduloInicial);
-    if (pushHistory) window.history.pushState({ gcObra: true }, "");
+    if (pushHistory) empurrarHistorico({ gcObra: true });
     setObraDetalhe(null);
     setObraDetalheLoading(true);
     try {
@@ -2132,12 +2153,12 @@ function GestorObras() {
 
   const abrirModulo = (key) => {
     setModulo(key);
-    window.history.pushState({ gcModulo: true }, "");
+    empurrarHistorico({ gcModulo: true });
   };
 
   const irParaView = (v) => {
     setView(v);
-    window.history.pushState({ gcView: v }, "");
+    empurrarHistorico({ gcView: v });
   };
 
   const voltarAoDashboard = () => {
@@ -2209,6 +2230,22 @@ function GestorObras() {
     return () => clearInterval(interval);
   }, [view, selectedId, usuarioAPI]);
 
+  // Prepara o histórico: base (-1) + guarda do dashboard (0), para que o 1º "voltar" no dashboard não saia direto.
+  useEffect(() => {
+    if (typeof window.history.state?.nivel !== "number") window.history.replaceState({ nivel: -1 }, "");
+    if (window.history.state.nivel === -1) window.history.pushState({ nivel: 0 }, "");
+  }, []);
+
+  const ficarNoApp = () => {
+    window.history.pushState({ nivel: 0 }, "");
+    setSairAberto(false);
+  };
+  const sairDoApp = () => {
+    window.close();
+    // Se o sistema não deixar fechar por código, pedimos o 2º "voltar".
+    setTimeout(() => setSairFalhou(true), 300);
+  };
+
   // Único ponto que escuta o botão/gesto nativo de voltar do Android.
   // Fecha primeiro o módulo aberto; se não há módulo, volta pro dashboard a partir de qualquer view.
   useEffect(() => {
@@ -2217,6 +2254,10 @@ function GestorObras() {
         setModulo(null);
       } else if (view !== "dashboard") {
         voltarAoDashboard();
+      } else if (window.history.state?.nivel === -1) {
+        // 1º "voltar" no dashboard: pergunta. Um 2º "voltar" (com o aviso aberto) sai do app.
+        setSairFalhou(false);
+        setSairAberto(true);
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -2357,7 +2398,7 @@ function GestorObras() {
           </div>
         ) : (
           <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
-            onBack={voltarAoDashboard} modulo={modulo} onAbrirModulo={abrirModulo}
+            onBack={() => { recuarAteDashboard(); voltarAoDashboard(); }} modulo={modulo} onAbrirModulo={abrirModulo}
             onChangeEstado={changeEstado} onDeleteObra={deleteObra} onTransferirObra={transferirObra}
             onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa} onAddFotoEtapa={addFotoEtapa} onDeleteFotoEtapa={deleteFotoEtapa}
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
@@ -2367,10 +2408,10 @@ function GestorObras() {
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
       )}
-      {view === "pendientes" && <PendientesView obras={obras} onBack={() => setView("dashboard")} onOpenObra={abrirObra} />}
-      {view === "report" && <ReportView obras={obras} onBack={() => setView("dashboard")} />}
-      {view === "permissoes" && <PermissoesScreen onBack={() => setView("dashboard")} />}
-      {view === "leads" && <LeadsScreen onBack={() => setView("dashboard")} />}
+      {view === "pendientes" && <PendientesView obras={obras} onBack={() => { recuarAteDashboard(); setView("dashboard"); }} onOpenObra={abrirObra} />}
+      {view === "report" && <ReportView obras={obras} onBack={() => { recuarAteDashboard(); setView("dashboard"); }} />}
+      {view === "permissoes" && <PermissoesScreen onBack={() => { recuarAteDashboard(); setView("dashboard"); }} />}
+      {view === "leads" && <LeadsScreen onBack={() => { recuarAteDashboard(); setView("dashboard"); }} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
       {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
@@ -2379,7 +2420,7 @@ function GestorObras() {
     content = (
       <>
         {content}
-        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
+        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { recuarAteDashboard(); setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
         {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
         <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
@@ -2391,7 +2432,25 @@ function GestorObras() {
     );
   }
 
-  return <div style={temaVars}>{content}</div>;
+  return (
+    <div style={temaVars}>
+      {content}
+      {sairAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[200]">
+          <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+            <h2 style={{ color: C.ink }} className="text-lg font-extrabold mb-2">Deseja sair do aplicativo?</h2>
+            <p style={{ color: C.inkMuted }} className="text-sm mb-4">
+              {sairFalhou ? "Toque em voltar mais uma vez para sair." : "Toque em voltar de novo para sair."}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={ficarNoApp} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Não</button>
+              <button onClick={sairDoApp} style={{ background: C.rust }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5">Sim</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
