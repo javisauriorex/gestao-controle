@@ -2347,8 +2347,13 @@ function GestorObras() {
         </>
       )}
       {view === "obra" && selectedObra && (
-        obraDetalheLoading || !obraDetalhe ? (
+        obraDetalheLoading ? (
           <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>
+        ) : !obraDetalhe ? (
+          <div className="text-center py-16">
+            <p style={{ color: C.rust }} className="text-sm font-mono mb-3">{erroGlobal || "Não foi possível carregar a obra."}</p>
+            <button onClick={() => abrirObra(selectedObra.id, { pushHistory: false })} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide rounded px-4 py-2 text-sm">Tentar de novo</button>
+          </div>
         ) : (
           <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
             onBack={voltarAoDashboard} modulo={modulo} onAbrirModulo={abrirModulo}
