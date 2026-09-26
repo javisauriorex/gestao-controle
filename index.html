@@ -2156,12 +2156,17 @@ function GestorObras() {
     empurrarHistorico({ gcModulo: true });
   };
 
+  // Telas "de passagem" (Permissões, Leads, Pendências, Relatório): lembramos de onde se veio
+  // para que o "voltar" devolva ao mesmo lugar (ex.: a gaveta de Equipe), e não ao dashboard.
+  const pilhaViewsRef = useRef([]);
   const irParaView = (v) => {
+    pilhaViewsRef.current.push(view);
     setView(v);
     empurrarHistorico({ gcView: v });
   };
 
   const voltarAoDashboard = () => {
+    pilhaViewsRef.current = [];
     setView("dashboard");
     setModulo(null);
     if (selectedId) carregarPendentes(obras);
@@ -2252,6 +2257,9 @@ function GestorObras() {
     const onPopState = () => {
       if (view === "obra" && modulo) {
         setModulo(null);
+      } else if (view !== "obra" && view !== "dashboard" && pilhaViewsRef.current.length) {
+        // Saindo de uma tela de passagem: volta pra onde estava (obra + gaveta continuam carregadas)
+        setView(pilhaViewsRef.current.pop());
       } else if (view !== "dashboard") {
         voltarAoDashboard();
       } else if (window.history.state?.nivel === -1) {
@@ -2408,10 +2416,10 @@ function GestorObras() {
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
       )}
-      {view === "pendientes" && <PendientesView obras={obras} onBack={() => { recuarAteDashboard(); setView("dashboard"); }} onOpenObra={abrirObra} />}
-      {view === "report" && <ReportView obras={obras} onBack={() => { recuarAteDashboard(); setView("dashboard"); }} />}
-      {view === "permissoes" && <PermissoesScreen onBack={() => { recuarAteDashboard(); setView("dashboard"); }} />}
-      {view === "leads" && <LeadsScreen onBack={() => { recuarAteDashboard(); setView("dashboard"); }} />}
+      {view === "pendientes" && <PendientesView obras={obras} onBack={() => window.history.back()} onOpenObra={abrirObra} />}
+      {view === "report" && <ReportView obras={obras} onBack={() => window.history.back()} />}
+      {view === "permissoes" && <PermissoesScreen onBack={() => window.history.back()} />}
+      {view === "leads" && <LeadsScreen onBack={() => window.history.back()} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
       {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
@@ -2420,7 +2428,7 @@ function GestorObras() {
     content = (
       <>
         {content}
-        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { recuarAteDashboard(); setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
+        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
         {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
         <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
