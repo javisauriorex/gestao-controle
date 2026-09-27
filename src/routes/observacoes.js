@@ -1,5 +1,15 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, podeCrear, podeModificar } from "../lib/auth.js";
+import { getUsuario, jsonResponse, getNivel, nivelEfetivo } from "../lib/auth.js";
+
+// Observações = "livro de obra".
+//  - Criar: todo mundo que tem acesso ao módulo (a empresa pode bloquear em Permissões).
+//  - Editar: só o próprio autor. A versão anterior vai pro histórico.
+//  - Apagar: só quem está ACIMA do autor (o Dono apaga qualquer uma). O autor não apaga.
+//  - Histórico de edições: visível só pro autor e pros superiores dele.
+
+async function podeVerHistoricoOuApagar(usuario, autor) {
+  return usuario.rank === 1 || usuario.rank < autor.rank;
+}
 
 export default async function observacoesHandler(req, env) {
   const usuario = await getUsuario(req, env);
@@ -8,18 +18,64 @@ export default async function observacoesHandler(req, env) {
   const url = new URL(req.url);
 
   if (req.method === "GET") {
+    // Histórico de uma observação
+    const historicoId = url.searchParams.get("historico");
+    if (historicoId) {
+      const obs = await sql`
+        SELECT o.criado_por, u.rank FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${historicoId}
+      `;
+      if (obs.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+      const autor = { id: obs[0].criado_por, rank: obs[0].rank };
+      if (autor.id !== usuario.id && !(await podeVerHistoricoOuApagar(usuario, autor))) {
+        return jsonResponse({ ok: false, error: "só o autor e seus superiores veem o histórico" }, 403);
+      }
+      const versoes = await sql`
+        SELECT texto, substituido_em FROM observacoes_historico WHERE observacao_id = ${historicoId} ORDER BY id ASC
+      `;
+      return jsonResponse({ ok: true, versoes });
+    }
+
     const obraId = url.searchParams.get("obra_id");
     if (!obraId) return jsonResponse({ ok: false, error: "obra_id é obrigatório" }, 400);
-    const itens = await sql`SELECT * FROM observacoes WHERE obra_id = ${obraId} ORDER BY id DESC`;
+    const itens = await sql`
+      SELECT o.*, u.nome AS autor_nome, u.rank AS autor_rank_atual,
+             (SELECT COUNT(*)::int FROM observacoes_historico h WHERE h.observacao_id = o.id) AS n_edicoes
+      FROM observacoes o
+      LEFT JOIN usuarios u ON u.id = o.criado_por
+      WHERE o.obra_id = ${obraId}
+      ORDER BY o.id DESC
+    `;
     return jsonResponse({ ok: true, observacoes: itens });
   }
 
   if (req.method === "POST") {
-    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    const nivel = nivelEfetivo(await getNivel(usuario.empresa_id, usuario.rank, "observacoes", env), usuario.excecao_modulos, "observacoes");
+    if (nivel === "nenhum") return jsonResponse({ ok: false, error: "sem acesso a Observações" }, 403);
     const { obraId, texto } = await req.json();
-    if (!obraId || !texto) return jsonResponse({ ok: false, error: "faltam dados" }, 400);
+    if (!obraId || !String(texto || "").trim()) return jsonResponse({ ok: false, error: "faltam dados" }, 400);
     const rows = await sql`
-      INSERT INTO observacoes (obra_id, texto, criado_por) VALUES (${obraId}, ${texto}, ${usuario.id}) RETURNING *
+      INSERT INTO observacoes (obra_id, texto, criado_por, rank_autor)
+      VALUES (${obraId}, ${String(texto).trim()}, ${usuario.id}, ${usuario.rank})
+      RETURNING *
+    `;
+    return jsonResponse({ ok: true, item: { ...rows[0], autor_nome: usuario.nome, autor_rank_atual: usuario.rank, n_edicoes: 0 } });
+  }
+
+  if (req.method === "PATCH") {
+    const id = url.searchParams.get("id");
+    const { texto } = await req.json();
+    if (!String(texto || "").trim()) return jsonResponse({ ok: false, error: "texto vazio" }, 400);
+    const alvos = await sql`SELECT * FROM observacoes WHERE id = ${id}`;
+    if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    const atual = alvos[0];
+    if (atual.criado_por !== usuario.id) return jsonResponse({ ok: false, error: "só o autor pode editar" }, 403);
+    if (atual.texto === String(texto).trim()) return jsonResponse({ ok: true, item: atual });
+    await sql`INSERT INTO observacoes_historico (observacao_id, texto, editado_por) VALUES (${id}, ${atual.texto}, ${usuario.id})`;
+    await sql`UPDATE observacoes SET texto = ${String(texto).trim()}, editado_em = now() WHERE id = ${id}`;
+    const rows = await sql`
+      SELECT o.*, u.nome AS autor_nome, u.rank AS autor_rank_atual,
+             (SELECT COUNT(*)::int FROM observacoes_historico h WHERE h.observacao_id = o.id) AS n_edicoes
+      FROM observacoes o LEFT JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${id}
     `;
     return jsonResponse({ ok: true, item: rows[0] });
   }
@@ -27,11 +83,12 @@ export default async function observacoesHandler(req, env) {
   if (req.method === "DELETE") {
     const id = url.searchParams.get("id");
     const alvos = await sql`
-      SELECT o.*, u.rank as rank_criador FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${id}
+      SELECT o.*, u.rank AS rank_criador FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${id}
     `;
     if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
-      return jsonResponse({ ok: false, error: "não pode apagar o que um escalão superior criou" }, 403);
+    const autor = { id: alvos[0].criado_por, rank: alvos[0].rank_criador };
+    if (!(await podeVerHistoricoOuApagar(usuario, autor))) {
+      return jsonResponse({ ok: false, error: "só um superior do autor pode apagar esta observação" }, 403);
     }
     await sql`DELETE FROM observacoes WHERE id = ${id}`;
     return jsonResponse({ ok: true });
