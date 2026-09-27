@@ -1,5 +1,6 @@
 import { login, signup } from "./lib/auth.js";
 import { googleStart, googleCallback } from "./routes/google.js";
+import { criarConviteLink, conviteInfo, aceitarConvite, loginCpf } from "./routes/convite-link.js";
 import documentos from "./routes/documentos.js";
 import equipe from "./routes/equipe.js";
 import etapas from "./routes/etapas.js";
@@ -22,6 +23,10 @@ const ROTAS = {
   "/api/auth/signup": signup,
   "/api/auth/google": googleStart,
   "/api/auth/google/callback": googleCallback,
+  "/api/auth/aceitar-convite": aceitarConvite,
+  "/api/auth/login-cpf": loginCpf,
+  "/api/convite-link": criarConviteLink,
+  "/api/convite-info": conviteInfo,
   "/api/documentos": documentos,
   "/api/equipe": equipe,
   "/api/etapas": etapas,
