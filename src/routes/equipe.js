@@ -52,12 +52,17 @@ export default async function equipeHandler(req, env) {
     if (!podeAsignarRank(usuario.rank, rank)) {
       return jsonResponse({ ok: false, error: "não pode atribuir um rank maior que o próprio" }, 403);
     }
+    // Todo convite por email também ganha um link (token), pra poder mandar por WhatsApp.
+    // Sem o link (ou o Google), ninguém consegue reclamar o convite só digitando o email.
+    const tokenBytes = crypto.getRandomValues(new Uint8Array(24));
+    const token = [...tokenBytes].map((x) => x.toString(16).padStart(2, "0")).join("");
+    const expira = new Date(Date.now() + 7 * 86400000).toISOString();
     const rows = await sql`
-      INSERT INTO convites (empresa_id, email, rank, funcao, obra_id, criado_por)
-      VALUES (${usuario.empresa_id}, ${emailNorm}, ${rank}, ${funcao || ""}, ${obraId}, ${usuario.id})
+      INSERT INTO convites (empresa_id, email, nome, rank, funcao, obra_id, criado_por, token, expira_em)
+      VALUES (${usuario.empresa_id}, ${emailNorm}, ${emailNorm.split("@")[0]}, ${rank}, ${funcao || ""}, ${obraId}, ${usuario.id}, ${token}, ${expira})
       RETURNING *
     `;
-    return jsonResponse({ ok: true, convite: rows[0] });
+    return jsonResponse({ ok: true, convite: rows[0], token });
   }
 
   if (req.method === "PATCH") {
