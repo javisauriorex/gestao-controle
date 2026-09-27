@@ -6,7 +6,8 @@ export default async function usuariosMeHandler(req, env) {
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
 
   if (req.method === "GET") {
-    return jsonResponse({ ok: true, usuario });
+    const { senha_hash, pin_hash, ...publico } = usuario; // nunca mandar hashes pro navegador
+    return jsonResponse({ ok: true, usuario: { ...publico, tem_senha: !!senha_hash, tem_pin: !!pin_hash } });
   }
 
   // Define ou troca a senha. Útil sobretudo pra quem entrou via Google e
