@@ -1172,6 +1172,109 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
   );
 }
 
+// --- Observações: "livro de obra" com firma, edição só do autor (com histórico) e apagar só superiores ---
+const fmtFirma = (ts) => (ts ? new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+
+function ObservacoesSection({ items, onAdd, onDelete, onEdit, usuarioAPI, podeEditar = true }) {
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const [textoEdicao, setTextoEdicao] = useState("");
+  const [historico, setHistorico] = useState({}); // { [id]: versoes[] }
+  const eu = usuarioAPI || {};
+
+  const registrar = async () => {
+    if (!texto.trim()) return;
+    setErro(""); setSalvando(true);
+    try { await onAdd(texto.trim()); setTexto(""); } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+  const salvarEdicao = async (item) => {
+    if (!textoEdicao.trim()) return;
+    setErro("");
+    try { await onEdit(item.id, textoEdicao.trim()); setEditandoId(null); setHistorico((h) => { const n = { ...h }; delete n[item.id]; return n; }); }
+    catch (err) { setErro(err.message); }
+  };
+  const apagar = async (item) => {
+    if (!window.confirm("Apagar esta observação? Não pode ser desfeito.")) return;
+    setErro("");
+    try { await onDelete(item.id); } catch (err) { setErro(err.message); }
+  };
+  const alternarHistorico = async (item) => {
+    if (historico[item.id]) { setHistorico((h) => { const n = { ...h }; delete n[item.id]; return n; }); return; }
+    setErro("");
+    try { const r = await apiFetch(`/api/observacoes?historico=${item.id}`); setHistorico((h) => ({ ...h, [item.id]: r.versoes })); }
+    catch (err) { setErro(err.message); }
+  };
+
+  return (
+    <div>
+      {podeEditar && (
+        <div className="mb-4">
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} placeholder="Aviso, sugestão, reclamação... Ex.: Pedreiro, ATENÇÃO às tubulações existentes de água e eletricidade." style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="w-full border rounded px-3 py-2 text-sm outline-none resize-y" />
+          <button onClick={registrar} disabled={!texto.trim() || salvando} style={{ background: C.teal }} className="w-full mt-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2 disabled:opacity-40">{salvando ? "Registrando..." : "📝 Registrar no livro"}</button>
+        </div>
+      )}
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-3">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
+      <div className="space-y-2">
+        {items.map((item) => {
+          const souAutor = item.criado_por === eu.id;
+          const rankAutorAtual = item.autor_rank_atual ?? item.rank_autor;
+          const souSuperior = eu.rank === 1 || (rankAutorAtual != null && eu.rank < rankAutorAtual);
+          const rankNaFirma = item.rank_autor ?? item.autor_rank_atual;
+          return (
+            <div key={item.id} style={{ background: C.surface, borderLeftColor: C.teal }} className="border-l-4 rounded-r-md p-3 shadow-sm">
+              {editandoId === item.id ? (
+                <div>
+                  <textarea value={textoEdicao} onChange={(e) => setTextoEdicao(e.target.value)} rows={3} style={{ borderColor: C.border, color: C.ink, background: C.bg }} className="w-full border rounded px-2 py-1.5 text-sm outline-none resize-y" autoFocus />
+                  <div className="flex gap-2 mt-1">
+                    <button onClick={() => setEditandoId(null)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border rounded py-1.5 text-xs font-bold uppercase">Cancelar</button>
+                    <button onClick={() => salvarEdicao(item)} disabled={!textoEdicao.trim()} style={{ background: C.teal }} className="flex-1 text-white rounded py-1.5 text-xs font-bold uppercase disabled:opacity-40">Salvar</button>
+                  </div>
+                  <p style={{ color: C.inkMuted }} className="text-[10px] font-mono mt-1">A versão anterior fica guardada (visível só pra você e seus superiores).</p>
+                </div>
+              ) : (
+                <p style={{ color: C.ink }} className="text-sm whitespace-pre-wrap">{item.texto}</p>
+              )}
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
+                <p style={{ color: C.inkMuted }} className="text-[11px] font-mono flex-1 min-w-0">
+                  — {item.autor_nome || "?"}{rankNaFirma ? ` · ${RANK_LABELS[rankNaFirma]}` : ""} · {fmtFirma(item.criado_em)}
+                  {item.editado_em && <span className="italic"> · editado {fmtFirma(item.editado_em)}</span>}
+                </p>
+                {item.n_edicoes > 0 && (souAutor || souSuperior) && (
+                  <button onClick={() => alternarHistorico(item)} style={{ color: C.blue }} className="text-[11px] font-mono shrink-0">🕘 {historico[item.id] ? "ocultar" : `versões (${item.n_edicoes})`}</button>
+                )}
+                {souAutor && editandoId !== item.id && (
+                  <button onClick={() => { setEditandoId(item.id); setTextoEdicao(item.texto); }} title="Editar (só o autor)" className="shrink-0">✏️</button>
+                )}
+                {souSuperior && !souAutor && (
+                  <button onClick={() => apagar(item)} title="Apagar (só superiores do autor)" style={{ color: C.rust }} className="shrink-0">🗑</button>
+                )}
+                {souSuperior && souAutor && eu.rank === 1 && (
+                  <button onClick={() => apagar(item)} title="Apagar" style={{ color: C.rust }} className="shrink-0">🗑</button>
+                )}
+              </div>
+              {historico[item.id] && (
+                <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t space-y-1.5">
+                  {historico[item.id].map((v, i) => (
+                    <div key={i}>
+                      <p style={{ color: C.inkMuted }} className="text-xs whitespace-pre-wrap line-through decoration-1">{v.texto}</p>
+                      <p style={{ color: C.inkMuted }} className="text-[10px] font-mono">substituído em {fmtFirma(v.substituido_em)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nada registrado ainda.</p>}
+      </div>
+    </div>
+  );
+}
+
 function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId, podeEditar = true }) {
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
@@ -1493,7 +1596,7 @@ const MODULOS_OBRA = [
 
 function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa, onAddFotoEtapa, onDeleteFotoEtapa,
-  onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao,
+  onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao, onEditObservacao,
   onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, usuarioAPI, niveis,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
   const [erroObra, setErroObra] = useState("");
@@ -1572,7 +1675,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
             {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
           </div>
         )}
-        {modulo === "observacoes" && <ListaSimplesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} placeholder="Anotação livre..." color={C.teal} glyph="📝" datalistId="hist-observacoes" podeEditar={podeEditar} />}
+        {modulo === "observacoes" && <ObservacoesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} onEdit={onEditObservacao} usuarioAPI={usuarioAPI} podeEditar={podeEditar} />}
       </div>
     );
   }
@@ -2600,6 +2703,10 @@ function GestorObras() {
   const ferramentasH = criarListaHandlers("ferramentas", "ferramentas");
   const materiaisH = criarListaHandlers("materiais", "materiais");
   const observacoesH = criarListaHandlers("observacoes", "observacoes");
+  const editarObservacao = async (id, texto) => {
+    const r = await apiFetch(`/api/observacoes?id=${id}`, { method: "PATCH", body: JSON.stringify({ texto }) });
+    setObraDetalhe((d) => ({ ...d, observacoes: d.observacoes.map((o) => (o.id === id ? r.item : o)) }));
+  };
 
   // --- Equipe ---
   const addEquipo = async (payload) => {
@@ -2702,7 +2809,7 @@ function GestorObras() {
             onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa} onAddFotoEtapa={addFotoEtapa} onDeleteFotoEtapa={deleteFotoEtapa}
             onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
             onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
-            onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del}
+            onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del} onEditObservacao={editarObservacao}
             onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} onSetExcecao={setExcecao} usuarioRank={usuarioAPI.rank} usuarioAPI={usuarioAPI} niveis={meusNiveis}
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
