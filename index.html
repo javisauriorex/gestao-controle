@@ -724,6 +724,9 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   const [nomeNovo, setNomeNovo] = useState("");
   const [telNovo, setTelNovo] = useState("");
   const [linkGerado, setLinkGerado] = useState(null); // { link, nome, telefone, novoPin }
+  const [genteEmpresa, setGenteEmpresa] = useState(null); // pra "Da empresa"
+  const [pessoaEscolhida, setPessoaEscolhida] = useState("");
+  const [edicao, setEdicao] = useState({ rank: 8, funcao: "" }); // painel ⚙
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
@@ -788,7 +791,41 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
     const novo = { ...atual };
     if (bloqueado) delete novo[moduloKey];
     else novo[moduloKey] = "nenhum";
-    try { await onSetExcecao(m.id, Object.keys(novo).length > 0 ? novo : null); } catch (err) { setErro(err.message); }
+    try { await onSetExcecao(m.id, { excecaoModulos: Object.keys(novo).length > 0 ? novo : null }); } catch (err) { setErro(err.message); }
+  };
+
+  const abrirPainel = (m) => {
+    if (excecaoAberta === m.id) { setExcecaoAberta(null); return; }
+    setEdicao({ rank: m.rank, funcao: m.funcao || "" });
+    setExcecaoAberta(m.id);
+  };
+
+  const salvarMembro = async (m) => {
+    setErro(""); setMsg("");
+    const campos = { funcao: edicao.funcao };
+    if (Number(edicao.rank) !== m.rank) campos.rank = Number(edicao.rank);
+    try { await onSetExcecao(m.id, campos); setMsg(`${m.nome} atualizado.`); setExcecaoAberta(null); }
+    catch (err) { setErro(err.message); }
+  };
+
+  const escolherModo = async (modo) => {
+    setModoAdd(modo);
+    if (modo === "empresa") {
+      try { const r = await apiFetch("/api/equipe"); setGenteEmpresa(r.equipe); }
+      catch (err) { setErro(err.message); }
+    }
+  };
+
+  const adicionarDaEmpresa = async () => {
+    if (!pessoaEscolhida) return;
+    const p = (genteEmpresa || []).find((x) => String(x.usuario_id) === String(pessoaEscolhida));
+    setErro(""); setMsg(""); setSalvando(true);
+    try {
+      await onAdd({ obraId, usuarioId: Number(pessoaEscolhida), funcao: funcao.trim() || (p ? RANK_LABELS[p.rank] : "") });
+      setMsg(`${p ? p.nome : "Pessoa"} adicionado à obra.`);
+      setPessoaEscolhida(""); setFuncao("");
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
   };
 
   return (
@@ -808,12 +845,26 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                   <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email || "entra com CPF"} · {RANK_LABELS[m.rank]}{temExcecao ? " · acesso personalizado" : ""}</div>
                 </div>
                 <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
-                {podeEditar && <button onClick={() => setExcecaoAberta(excecaoAberta === m.id ? null : m.id)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Personalizar acesso" className="shrink-0">⚙</button>}
+                {podeEditar && <button onClick={() => abrirPainel(m)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Editar rank, função e acesso" className="shrink-0">⚙</button>}
                 {podeEditar && usuarioRank <= 2 && m.rank > usuarioRank && <button onClick={() => gerarNovoPin(m)} title="Novo PIN (manda link por WhatsApp)" style={{ color: C.inkMuted }} className="shrink-0">🔑</button>}
                 {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
               </div>
               {excecaoAberta === m.id && (
                 <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t">
+                  {usuarioRank <= 2 && m.rank > usuarioRank ? (
+                    <div className="mb-3">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <select value={edicao.rank} onChange={(e) => setEdicao({ ...edicao, rank: Number(e.target.value) })} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white">
+                          {[2, 3, 4, 5, 6, 7, 8].filter((r) => r > usuarioRank).map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+                        </select>
+                        <input value={edicao.funcao} onChange={(e) => setEdicao({ ...edicao, funcao: e.target.value })} placeholder="Função nesta obra" list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[7rem] border rounded px-2 py-1.5 text-xs outline-none" />
+                        <button onClick={() => salvarMembro(m)} style={{ background: C.teal }} className="text-white rounded px-3 py-1.5 text-xs font-bold uppercase">Salvar</button>
+                      </div>
+                      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">O rank vale para todas as obras; a função, só para esta.</p>
+                    </div>
+                  ) : (
+                    <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">Só Dono e Engenheiro Chefe podem mudar o rank de quem está abaixo deles.</p>
+                  )}
                   <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-1.5">Bloquear acesso a (independente do rank):</p>
                   <div className="flex flex-wrap gap-2">
                     {MODULOS_OBRA.map((mod) => {
@@ -836,8 +887,9 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
       {podeEditar && (
         <>
           <div className="flex mb-2">
-            <button onClick={() => setModoAdd("link")} style={{ background: modoAdd === "link" ? C.teal : "transparent", color: modoAdd === "link" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-l py-1.5 text-[11px] font-bold uppercase">📲 Novo por link</button>
-            <button onClick={() => setModoAdd("email")} style={{ background: modoAdd === "email" ? C.teal : "transparent", color: modoAdd === "email" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-r py-1.5 text-[11px] font-bold uppercase">✉ Por email</button>
+            <button onClick={() => escolherModo("link")} style={{ background: modoAdd === "link" ? C.teal : "transparent", color: modoAdd === "link" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-l py-1.5 text-[11px] font-bold uppercase">📲 Novo por link</button>
+            <button onClick={() => escolherModo("empresa")} style={{ background: modoAdd === "empresa" ? C.teal : "transparent", color: modoAdd === "empresa" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border-y py-1.5 text-[11px] font-bold uppercase">👥 Da empresa</button>
+            <button onClick={() => escolherModo("email")} style={{ background: modoAdd === "email" ? C.teal : "transparent", color: modoAdd === "email" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-r py-1.5 text-[11px] font-bold uppercase">✉ Por email</button>
           </div>
           {modoAdd === "link" && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -845,7 +897,19 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
               <input value={telNovo} onChange={(e) => setTelNovo(e.target.value)} placeholder="WhatsApp (opcional)" inputMode="tel" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[8rem] border rounded px-3 py-1.5 text-sm outline-none" />
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
+          {modoAdd === "empresa" && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              <select value={pessoaEscolhida} onChange={(e) => setPessoaEscolhida(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-sm outline-none bg-white">
+                <option value="">{genteEmpresa ? "Escolha a pessoa..." : "Carregando..."}</option>
+                {(genteEmpresa || []).filter((p) => !list.some((m) => m.usuario_id === p.usuario_id)).map((p) => (
+                  <option key={p.usuario_id} value={p.usuario_id}>{p.nome} · {RANK_LABELS[p.rank]}</option>
+                ))}
+              </select>
+              <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder="Função" list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
+              <button onClick={adicionarDaEmpresa} disabled={!pessoaEscolhida || salvando} style={{ background: C.teal }} className="text-white rounded px-3 text-xs font-bold uppercase disabled:opacity-40 shrink-0">Adicionar</button>
+            </div>
+          )}
+          {modoAdd !== "empresa" && <div className="flex flex-wrap gap-2">
             {modoAdd === "email" && <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />}
             <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={funcaoSugerida} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
             <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
@@ -855,9 +919,9 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
             {modoAdd === "email"
               ? <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
               : <button onClick={convidarPorLink} disabled={!nomeNovo.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 text-xs font-bold uppercase disabled:opacity-40 shrink-0">{salvando ? "..." : "Gerar link"}</button>}
-          </div>
-          <p style={{ color: C.amber }} className="text-[11px] font-mono mt-1.5">→ {RANK_LABELS[rank]} · {RANK_DESCRICOES[rank]}</p>
-          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">{modoAdd === "link" ? "Gera um link para mandar por WhatsApp. A pessoa entra com CPF + PIN, sem precisar de email." : "Se o email ainda não tem conta, gera um link de convite."} Sugestão de função: "{funcaoSugerida}".</p>
+          </div>}
+          {modoAdd !== "empresa" && <p style={{ color: C.amber }} className="text-[11px] font-mono mt-1.5">→ {RANK_LABELS[rank]} · {RANK_DESCRICOES[rank]}</p>}
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">{modoAdd === "link" ? "Gera um link para mandar por WhatsApp. A pessoa entra com CPF + PIN, sem precisar de email." : modoAdd === "empresa" ? "Quem já tem conta na empresa (inclusive com CPF). Mantém o rank que já tem." : "Se o email ainda não tem conta, gera um link de convite."} Sugestão de função: "{funcaoSugerida}".</p>
           {linkGerado && <LinkConviteCard {...linkGerado} onFechar={() => setLinkGerado(null)} />}
         </>
       )}
@@ -2551,9 +2615,10 @@ function GestorObras() {
     const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ data: hoje }) });
     setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? r.equipe : m)) }));
   };
-  const setExcecao = async (id, excecaoModulos) => {
-    const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ excecaoModulos }) });
-    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? { ...m, excecao_modulos: r.usuario.excecao_modulos } : m)) }));
+  // Edita integrante: { rank }, { funcao } e/ou { excecaoModulos }
+  const setExcecao = async (id, campos) => {
+    const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify(campos) });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? { ...m, ...r.membro } : m)) }));
   };
 
   // --- Documentos ---
