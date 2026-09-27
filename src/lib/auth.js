@@ -99,6 +99,7 @@ const NIVEL_DEFAULT_POR_RANK = {
   8: "nenhum", // Profissional (especializado abaixo)
 };
 function nivelDefault(rank, modulo) {
+       if (modulo === "observacoes") return "editar"; // "livro de obra": aberto a todos por padrão
   if (rank === 6) {
     // Almoxarife: forte em materiais/ferramentas, visualiza o resto, sem acesso a equipe.
     if (modulo === "materiais" || modulo === "ferramentas") return "editar";
