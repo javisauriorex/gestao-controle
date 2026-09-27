@@ -70,7 +70,7 @@ export async function hashSenha(senha) {
   const hash = await pbkdf2(senha, salt);
   return `${toHex(salt)}:${toHex(hash)}`;
 }
-async function verificarSenha(senha, senhaHash) {
+export async function verificarSenha(senha, senhaHash) {
   const [saltHex, hashHex] = senhaHash.split(":");
   const salt = fromHex(saltHex);
   const hash = await pbkdf2(senha, salt);
@@ -142,6 +142,11 @@ export async function signup(req, env) {
   const convites = await sql`
     SELECT * FROM convites WHERE email = ${email} AND aceito = false ORDER BY id DESC LIMIT 1
   `;
+       // Segurança: um convite por email NÃO pode ser reclamado só digitando o email.
+     // Tem que usar o link do convite (WhatsApp) ou "Continuar com Google".
+     if (convites.length > 0) {
+       return jsonResponse({ ok: false, error: "Este email tem um convite pendente. Use o link do convite que você recebeu, ou entre com o Google." }, 409);
+     }
 
   let novoUsuario;
   if (convites.length > 0) {
