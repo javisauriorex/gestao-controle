@@ -231,6 +231,31 @@ async function apiLogin(email, password) {
   return data;
 }
 
+// --- CPF + PIN e convite por link (WhatsApp) ---
+function limparCpf(v) { return String(v || "").replace(/\D/g, "").slice(0, 11); }
+function formatarCpf(v) {
+  const c = limparCpf(v);
+  return c.replace(/^(\d{3})(\d)/, "$1.$2").replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d{1,2})$/, ".$1-$2");
+}
+function cpfValido(v) {
+  const c = limparCpf(v);
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false;
+  const dig = (n) => { let s = 0; for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+  return dig(9) === Number(c[9]) && dig(10) === Number(c[10]);
+}
+function linkDoConvite(token) { return `${window.location.origin}/?convite=${token}`; }
+function urlWhatsApp(telefone, texto) {
+  let t = String(telefone || "").replace(/\D/g, "");
+  if (t.length === 10 || t.length === 11) t = "55" + t;
+  return `https://wa.me/${t}?text=${encodeURIComponent(texto)}`;
+}
+async function apiPublica(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || "Algo deu errado. Tente de novo.");
+  return data;
+}
+
 function saveSession(authData) {
   const session = { token: authData.token, usuario: authData.usuario };
   localStorage.setItem("gc-session", JSON.stringify(session));
@@ -695,6 +720,10 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   const [msg, setMsg] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [excecaoAberta, setExcecaoAberta] = useState(null);
+  const [modoAdd, setModoAdd] = useState("link"); // "link" (WhatsApp) | "email"
+  const [nomeNovo, setNomeNovo] = useState("");
+  const [telNovo, setTelNovo] = useState("");
+  const [linkGerado, setLinkGerado] = useState(null); // { link, nome, telefone, novoPin }
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
@@ -706,12 +735,40 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
     setErro(""); setMsg(""); setSalvando(true);
     try {
       const r = await onAdd({ obraId, email: email.trim(), rank, funcao: (funcao || funcaoSugerida).trim() });
-      setMsg(r.convite ? `Convite enviado para ${email.trim()} — vai entrar assim que criar a conta.` : "Adicionado.");
+      if (r.convite && r.token) {
+        setLinkGerado({ link: linkDoConvite(r.token), nome: email.trim().split("@")[0], telefone: "", novoPin: false });
+        setMsg("Ainda não tem conta: mande o link abaixo (ou ele entra com o Google usando esse email).");
+      } else {
+        setMsg(r.convite ? `Convite criado para ${email.trim()}.` : "Adicionado.");
+      }
       setEmail(""); setFuncao("");
     } catch (err) {
       setErro(err.message);
     }
     setSalvando(false);
+  };
+
+  const convidarPorLink = async () => {
+    if (!nomeNovo.trim()) return;
+    setErro(""); setMsg(""); setSalvando(true);
+    try {
+      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ obraId, nome: nomeNovo.trim(), telefone: telNovo, rank, funcao: (funcao || funcaoSugerida).trim() }) });
+      setLinkGerado({ link: linkDoConvite(r.token), nome: nomeNovo.trim(), telefone: telNovo, novoPin: false });
+      setNomeNovo(""); setTelNovo(""); setFuncao("");
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  const gerarNovoPin = async (m) => {
+    setErro(""); setMsg("");
+    try {
+      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ usuarioId: m.usuario_id }) });
+      setLinkGerado({ link: linkDoConvite(r.token), nome: m.nome, telefone: r.convite.telefone || "", novoPin: true });
+    } catch (err) {
+      setErro(err.message);
+    }
   };
 
   const remover = async (m) => {
@@ -748,10 +805,11 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                 </button>
                 <div className="flex-1 min-w-0 truncate">
                   <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.funcao || RANK_LABELS[m.rank]}</span>
-                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email} · {RANK_LABELS[m.rank]}{temExcecao ? " · acesso personalizado" : ""}</div>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email || "entra com CPF"} · {RANK_LABELS[m.rank]}{temExcecao ? " · acesso personalizado" : ""}</div>
                 </div>
                 <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
                 {podeEditar && <button onClick={() => setExcecaoAberta(excecaoAberta === m.id ? null : m.id)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Personalizar acesso" className="shrink-0">⚙</button>}
+                {podeEditar && usuarioRank <= 2 && m.rank > usuarioRank && <button onClick={() => gerarNovoPin(m)} title="Novo PIN (manda link por WhatsApp)" style={{ color: C.inkMuted }} className="shrink-0">🔑</button>}
                 {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
               </div>
               {excecaoAberta === m.id && (
@@ -777,17 +835,30 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
       {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
       {podeEditar && (
         <>
+          <div className="flex mb-2">
+            <button onClick={() => setModoAdd("link")} style={{ background: modoAdd === "link" ? C.teal : "transparent", color: modoAdd === "link" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-l py-1.5 text-[11px] font-bold uppercase">📲 Novo por link</button>
+            <button onClick={() => setModoAdd("email")} style={{ background: modoAdd === "email" ? C.teal : "transparent", color: modoAdd === "email" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-r py-1.5 text-[11px] font-bold uppercase">✉ Por email</button>
+          </div>
+          {modoAdd === "link" && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              <input value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} placeholder="Nome" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[8rem] border rounded px-3 py-1.5 text-sm outline-none" />
+              <input value={telNovo} onChange={(e) => setTelNovo(e.target.value)} placeholder="WhatsApp (opcional)" inputMode="tel" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[8rem] border rounded px-3 py-1.5 text-sm outline-none" />
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+            {modoAdd === "email" && <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />}
             <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={funcaoSugerida} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
             <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
               {ranksDisponiveis.map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
             </select>
             <datalist id="funcoes-equipe">{funcoesHistoricas.map((f) => <option key={f} value={f} />)}</datalist>
-            <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+            {modoAdd === "email"
+              ? <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+              : <button onClick={convidarPorLink} disabled={!nomeNovo.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 text-xs font-bold uppercase disabled:opacity-40 shrink-0">{salvando ? "..." : "Gerar link"}</button>}
           </div>
           <p style={{ color: C.amber }} className="text-[11px] font-mono mt-1.5">→ {RANK_LABELS[rank]} · {RANK_DESCRICOES[rank]}</p>
-          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Se o email ainda não tem conta, fica um convite pendente. Sugestão de função: "{funcaoSugerida}".</p>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">{modoAdd === "link" ? "Gera um link para mandar por WhatsApp. A pessoa entra com CPF + PIN, sem precisar de email." : "Se o email ainda não tem conta, gera um link de convite."} Sugestão de função: "{funcaoSugerida}".</p>
+          {linkGerado && <LinkConviteCard {...linkGerado} onFechar={() => setLinkGerado(null)} />}
         </>
       )}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
@@ -1713,10 +1784,15 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
 }
 
 function LoginScreen({ onLogado, onIrCadastro }) {
+  const [modo, setModo] = useState(() => { try { return localStorage.getItem("gc-login-modo") || "email"; } catch (e) { return "email"; } });
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [pin, setPin] = useState("");
   const [erro, setErro] = useState("");
   const [entrando, setEntrando] = useState(false);
+
+  const trocarModo = (m) => { setModo(m); setErro(""); try { localStorage.setItem("gc-login-modo", m); } catch (e) {} };
 
   const entrar = async () => {
     setErro("");
@@ -1731,10 +1807,55 @@ function LoginScreen({ onLogado, onIrCadastro }) {
     setEntrando(false);
   };
 
+  const entrarCpf = async () => {
+    setErro("");
+    if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!/^\d{4}$/.test(pin)) { setErro("O PIN tem 4 números."); return; }
+    setEntrando(true);
+    try {
+      const authData = await apiPublica("/api/auth/login-cpf", { cpf: limparCpf(cpf), pin });
+      saveSession(authData);
+      onLogado();
+    } catch (err) {
+      setErro(err.message);
+    }
+    setEntrando(false);
+  };
+
+  const abaEstilo = (ativa) => ({ background: ativa ? C.ink : "transparent", color: ativa ? "#fff" : C.inkMuted, borderColor: C.ink });
+
+  if (modo === "cpf") {
+    return (
+      <AuthWrap>
+        <LogoTitulo />
+        <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-4">Entrar</p>
+        <div className="flex mb-4">
+          <button onClick={() => trocarModo("cpf")} style={abaEstilo(true)} className="flex-1 border rounded-l py-2 text-xs font-bold uppercase">CPF + PIN</button>
+          <button onClick={() => trocarModo("email")} style={abaEstilo(false)} className="flex-1 border rounded-r py-2 text-xs font-bold uppercase">Email / Google</button>
+        </div>
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">CPF</label>
+          <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-lg tracking-wider" autoFocus />
+        </div>
+        <div className="mt-3">
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
+          <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && entrarCpf()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+        </div>
+        {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+        <button onClick={entrarCpf} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-3 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-3">Esqueceu o PIN? Peça um "Novo PIN" ao seu chefe.</p>
+      </AuthWrap>
+    );
+  }
+
   return (
     <AuthWrap>
       <LogoTitulo />
-      <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Entrar</p>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-4">Entrar</p>
+      <div className="flex mb-4">
+        <button onClick={() => trocarModo("cpf")} style={abaEstilo(false)} className="flex-1 border rounded-l py-2 text-xs font-bold uppercase">CPF + PIN</button>
+        <button onClick={() => trocarModo("email")} style={abaEstilo(true)} className="flex-1 border rounded-r py-2 text-xs font-bold uppercase">Email / Google</button>
+      </div>
       <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
         <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
       </a>
@@ -1755,6 +1876,104 @@ function LoginScreen({ onLogado, onIrCadastro }) {
       <button onClick={entrar} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
       <button onClick={onIrCadastro} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">Não tenho conta — criar</button>
     </AuthWrap>
+  );
+}
+
+function ConviteScreen({ token, onEntrou, onCancelar }) {
+  const [info, setInfo] = useState(null);
+  const [erroLink, setErroLink] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    apiPublica(`/api/convite-info?token=${encodeURIComponent(token)}`)
+      .then(setInfo)
+      .catch((e) => setErroLink(e.message));
+  }, [token]);
+
+  const confirmar = async () => {
+    setErro("");
+    if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
+    if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
+    setSalvando(true);
+    try {
+      const authData = await apiPublica("/api/auth/aceitar-convite", { token, cpf: limparCpf(cpf), pin });
+      saveSession(authData);
+      try { localStorage.setItem("gc-login-modo", "cpf"); } catch (e) {}
+      onEntrou();
+    } catch (err) {
+      setErro(err.message);
+      setSalvando(false);
+    }
+  };
+
+  if (erroLink) {
+    return (
+      <AuthWrap>
+        <LogoTitulo />
+        <p style={{ color: C.rust }} className="text-sm text-center my-4">{erroLink}</p>
+        <button onClick={onCancelar} style={{ background: C.ink }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">Ir para o login</button>
+      </AuthWrap>
+    );
+  }
+  if (!info) return <SplashScreen />;
+
+  const novoPin = info.tipo === "novo-pin";
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold text-center mt-3">Olá, {info.nome}!</h2>
+      {novoPin ? (
+        <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">Crie seu novo PIN de 4 números.</p>
+      ) : (
+        <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">
+          Você foi convidado{info.obra ? <> para a obra <b style={{ color: C.ink }}>{info.obra.cliente}</b></> : null} como <b style={{ color: C.ink }}>{RANK_LABELS[info.rank]}</b>{info.funcao ? ` (${info.funcao})` : ""}.
+        </p>
+      )}
+      <div>
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Seu CPF</label>
+        <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-lg tracking-wider" />
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">É o que você vai usar para entrar.</p>
+      </div>
+      <div className="mt-3">
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Crie um PIN (4 números)</label>
+        <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+      </div>
+      <div className="mt-3">
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
+        <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && confirmar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF. Não conte o PIN para ninguém.</p>
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={confirmar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-3 disabled:opacity-50">{salvando ? "Entrando..." : "Entrar"}</button>
+    </AuthWrap>
+  );
+}
+
+// Cartão com o link gerado: botão WhatsApp + copiar.
+function LinkConviteCard({ link, nome, telefone, novoPin, onFechar }) {
+  const [copiado, setCopiado] = useState(false);
+  const texto = novoPin
+    ? `Olá ${nome}! Este é seu link para criar um novo PIN no Gestão & Controle (vale 7 dias, uso único):\n${link}`
+    : `Olá ${nome}! Você foi convidado para a equipe da obra no Gestão & Controle. Toque no link para entrar (vale 7 dias, uso único):\n${link}`;
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(link); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }
+    catch (e) { window.prompt("Copie o link:", link); }
+  };
+  return (
+    <div style={{ background: C.bg, borderColor: C.green }} className="border-2 rounded p-3 mt-2">
+      <p style={{ color: C.ink }} className="text-sm font-bold mb-1">{novoPin ? `Link de Novo PIN para ${nome}` : `Convite criado para ${nome}`}</p>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2 break-all">{link}</p>
+      <div className="flex gap-2">
+        <a href={urlWhatsApp(telefone, texto)} target="_blank" rel="noopener" style={{ background: "#25D366" }} className="flex-1 text-white font-bold text-sm rounded py-2 text-center no-underline">📲 WhatsApp</a>
+        <button onClick={copiar} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold text-sm rounded py-2">{copiado ? "✓ Copiado" : "📋 Copiar link"}</button>
+      </div>
+      <button onClick={onFechar} style={{ color: C.inkMuted }} className="w-full text-[11px] font-mono uppercase mt-2">Fechar</button>
+    </div>
   );
 }
 
@@ -1843,6 +2062,11 @@ function GestorObras() {
   const [temSessao, setTemSessao] = useState(false);
   const [usuarioAPI, setUsuarioAPI] = useState(null);
   const [authView, setAuthView] = useState("login");
+  const [conviteToken, setConviteToken] = useState(() => { try { return new URLSearchParams(window.location.search).get("convite"); } catch (e) { return null; } });
+  const sairDoConvite = () => {
+    window.history.replaceState(window.history.state, "", "/"); // tira o ?convite= da URL
+    setConviteToken(null);
+  };
   const [biometriaConfigurada, setBiometriaConfigurada] = useState(false);
   const [biometriaPassada, setBiometriaPassada] = useState(false);
   const [configurandoBiometria, setConfigurandoBiometria] = useState(false);
@@ -2347,7 +2571,9 @@ function GestorObras() {
   const totalPendientes = Object.values(pendentesPorObra).reduce((a, b) => a + b, 0);
 
   let content;
-  if (sessionLoading) {
+  if (conviteToken) {
+    content = <ConviteScreen token={conviteToken} onEntrou={() => { sairDoConvite(); aoLogar(); }} onCancelar={sairDoConvite} />;
+  } else if (sessionLoading) {
     content = <SplashScreen />;
   } else if (!temSessao) {
     content =
