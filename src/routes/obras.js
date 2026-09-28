@@ -7,8 +7,10 @@ export default async function obrasHandler(req, env) {
   const sql = getSql(env);
 
   if (req.method === "GET") {
+    // Dono e Eng. Chefe (rank 1-2) veem todas as obras da empresa; os demais, só as obras em que estão na equipe.
+    // (Estava invertido — resto da época em que o Dono era rank 8.)
     const obras =
-      usuario.rank >= 5
+      usuario.rank <= 2
         ? await sql`SELECT * FROM obras WHERE empresa_id = ${usuario.empresa_id} ORDER BY id DESC`
         : await sql`
             SELECT o.* FROM obras o
@@ -23,12 +25,24 @@ export default async function obrasHandler(req, env) {
     if (!podeCrear(4, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const { cliente, endereco, tipo, dataInicio, responsavelId } = await req.json();
     if (!cliente) return jsonResponse({ ok: false, error: "cliente é obrigatório" }, 400);
+    if (responsavelId && !(await ativoNaEmpresa(sql, responsavelId, usuario.empresa_id))) {
+      return jsonResponse({ ok: false, error: "responsável inválido" }, 400);
+    }
     const rows = await sql`
       INSERT INTO obras (empresa_id, cliente, endereco, tipo, data_inicio, estado, criado_por, responsavel_id)
       VALUES (${usuario.empresa_id}, ${cliente}, ${endereco || ""}, ${tipo || ""}, ${dataInicio || null}, 'ativa', ${usuario.id}, ${responsavelId || usuario.id})
       RETURNING *
     `;
-    return jsonResponse({ ok: true, obra: rows[0] });
+    // Quem cria e o responsável entram na equipe automaticamente (senão deixariam de ver a obra).
+    const obra = rows[0];
+    for (const uid of new Set([usuario.id, obra.responsavel_id])) {
+      await sql`
+        INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
+        VALUES (${obra.id}, ${uid}, ${""}, ${usuario.id})
+        ON CONFLICT (obra_id, usuario_id) DO NOTHING
+      `;
+    }
+    return jsonResponse({ ok: true, obra });
   }
 
   if (req.method === "PATCH") {
@@ -41,6 +55,9 @@ export default async function obrasHandler(req, env) {
       endereco = null,
       tipo = null,
     } = await req.json();
+    if (novoResponsavelId && !(await ativoNaEmpresa(sql, novoResponsavelId, usuario.empresa_id))) {
+      return jsonResponse({ ok: false, error: "responsável inválido" }, 400);
+    }
     // COALESCE: só atualiza os campos que vieram preenchidos, deixa o resto como estava.
     const rows = await sql`
       UPDATE obras SET
@@ -53,11 +70,20 @@ export default async function obrasHandler(req, env) {
       RETURNING *
     `;
     if (rows.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    if (novoResponsavelId) {
+      // O novo responsável entra na equipe da obra, se ainda não estiver.
+      await sql`
+        INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
+        VALUES (${rows[0].id}, ${novoResponsavelId}, ${""}, ${usuario.id})
+        ON CONFLICT (obra_id, usuario_id) DO NOTHING
+      `;
+    }
     return jsonResponse({ ok: true, obra: rows[0] });
   }
 
   if (req.method === "DELETE") {
-    if (!podeCrear(4, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    // Apagar uma obra inteira (etapas, fotos, documentos...) é só para Dono e Eng. Chefe.
+    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return jsonResponse({ ok: false, error: "id é obrigatório" }, 400);
     await sql`DELETE FROM obras WHERE id = ${id} AND empresa_id = ${usuario.empresa_id}`;
@@ -65,4 +91,9 @@ export default async function obrasHandler(req, env) {
   }
 
   return jsonResponse({ ok: false, error: "method not allowed" }, 405);
+}
+
+async function ativoNaEmpresa(sql, usuarioId, empresaId) {
+  const r = await sql`SELECT id FROM usuarios WHERE id = ${usuarioId} AND empresa_id = ${empresaId} AND removido_em IS NULL`;
+  return r.length > 0;
 }

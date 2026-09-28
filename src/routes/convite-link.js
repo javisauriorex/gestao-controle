@@ -58,9 +58,11 @@ export async function criarConviteLink(req, env) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   if (req.method !== "POST") return jsonResponse({ ok: false, error: "method not allowed" }, 405);
-  if (usuario.rank > 2) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+  // Convidar: Dono até Encarregado (rank 1-5). Novo PIN: só Dono e Eng. Chefe.
+  if (usuario.rank > 5) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
   const sql = getSql(env);
   const body = await req.json();
+  if (body.usuarioId && usuario.rank > 2) return jsonResponse({ ok: false, error: "só Dono e Eng. Chefe geram Novo PIN" }, 403);
   const token = gerarToken();
   const expira = new Date(Date.now() + VALIDADE_DIAS * 86400000).toISOString();
 
@@ -83,9 +85,13 @@ export async function criarConviteLink(req, env) {
 
   const { obraId, nome, telefone, email, rank, funcao } = body;
   if (!obraId || !String(nome || "").trim() || !rank) return jsonResponse({ ok: false, error: "faltam dados (nome e rank)" }, 400);
-  if (Number(rank) < usuario.rank) return jsonResponse({ ok: false, error: "não pode atribuir um rank maior que o próprio" }, 403);
+  if (Number(rank) <= usuario.rank) return jsonResponse({ ok: false, error: "só pode convidar para um rank abaixo do seu" }, 403);
   const obras = await sql`SELECT id FROM obras WHERE id = ${obraId} AND empresa_id = ${usuario.empresa_id}`;
   if (obras.length === 0) return jsonResponse({ ok: false, error: "obra não encontrada" }, 404);
+  if (usuario.rank > 2) {
+    const m = await sql`SELECT 1 FROM equipe WHERE obra_id = ${obraId} AND usuario_id = ${usuario.id}`;
+    if (m.length === 0) return jsonResponse({ ok: false, error: "você não está na equipe desta obra" }, 403);
+  }
   const tel = String(telefone || "").replace(/\D/g, "") || null;
   const emailNorm = email ? String(email).trim().toLowerCase() : null;
   const rows = await sql`

@@ -266,7 +266,7 @@ export async function getUsuario(req, env) {
   if (!payload || !payload.usuarioId) return null;
 
   const sql = getSql(env);
-  const rows = await sql`SELECT * FROM usuarios WHERE id = ${payload.usuarioId}`;
+  const rows = await sql`SELECT * FROM usuarios WHERE id = ${payload.usuarioId} AND removido_em IS NULL`;
   return rows.length > 0 ? rows[0] : null;
 }
 
@@ -291,13 +291,14 @@ export function podeCrear(rankMaximoPermitido, rankAtor) {
   return rankAtor <= rankMaximoPermitido;
 }
 
+// Modificar/apagar o que outro criou: só o próprio autor ou alguém de rank ESTRITAMENTE acima.
+// (Antes, entre pares de mesmo rank ganhava o usuário mais antigo — resto da escala invertida.)
 export function podeModificar(ator, rankCriador, idCriador) {
   if (ator.id === idCriador) return true;
-  if (ator.rank < rankCriador) return true;
-  if (ator.rank > rankCriador) return false;
-  return ator.id < idCriador;
+  return ator.rank < rankCriador;
 }
 
+// Só se atribui rank ABAIXO do próprio (ninguém cria outro Dono nem um par).
 export function podeAsignarRank(rankAtor, rankAAsignar) {
-  return rankAAsignar >= rankAtor;
+  return Number(rankAAsignar) > rankAtor;
 }

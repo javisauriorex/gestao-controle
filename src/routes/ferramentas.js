@@ -1,6 +1,9 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, podeCrear, podeModificar } from "../lib/auth.js";
+import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
+import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 
+// Permissões: vale o que a tela de Permissões define para o rank (+ bloqueio por obra).
+// Apagar: além de "editar", tem que ser o autor ou alguém de rank acima dele.
 export default async function ferramentasHandler(req, env) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
@@ -10,14 +13,19 @@ export default async function ferramentasHandler(req, env) {
   if (req.method === "GET") {
     const obraId = url.searchParams.get("obra_id");
     if (!obraId) return jsonResponse({ ok: false, error: "obra_id é obrigatório" }, 400);
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "ferramentas", env);
+    if (!obra) return semAcesso();
+    if (!podeVer(nivel)) return jsonResponse({ ok: true, ferramentas: [] }); // sem acesso ao módulo: lista vazia (não quebra a abertura da obra)
     const itens = await sql`SELECT * FROM ferramentas WHERE obra_id = ${obraId} ORDER BY id DESC`;
     return jsonResponse({ ok: true, ferramentas: itens });
   }
 
   if (req.method === "POST") {
-    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const { obraId, texto } = await req.json();
     if (!obraId || !texto) return jsonResponse({ ok: false, error: "faltam dados" }, 400);
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "ferramentas", env);
+    if (!obra) return semAcesso();
+    if (!podeEditar(nivel)) return soVisualizar();
     const rows = await sql`
       INSERT INTO ferramentas (obra_id, texto, criado_por) VALUES (${obraId}, ${texto}, ${usuario.id}) RETURNING *
     `;
@@ -25,14 +33,17 @@ export default async function ferramentasHandler(req, env) {
   }
 
   if (req.method === "DELETE") {
-    if (!podeCrear(3, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = url.searchParams.get("id");
+    const obraId = await obraDoRegistro(sql, "ferramentas", id);
+    if (!obraId) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "ferramentas", env);
+    if (!obra) return semAcesso();
+    if (!podeEditar(nivel)) return soVisualizar();
     const alvos = await sql`
       SELECT f.*, u.rank as rank_criador FROM ferramentas f JOIN usuarios u ON u.id = f.criado_por WHERE f.id = ${id}
     `;
-    if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
-      return jsonResponse({ ok: false, error: "não pode apagar o que um escalão superior criou" }, 403);
+      return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM ferramentas WHERE id = ${id}`;
     return jsonResponse({ ok: true });

@@ -712,10 +712,11 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
   );
 }
 
-function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExcecao, usuarioRank, podeEditar = true }) {
+function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExcecao, usuarioRank, usuarioId, responsavelId, podeEditar = true }) {
+  const souResponsavel = usuarioId != null && usuarioId === responsavelId;
   const [email, setEmail] = useState("");
   const [funcao, setFuncao] = useState("");
-  const [rank, setRank] = useState(usuarioRank + 1 <= 7 ? usuarioRank + 1 : 7);
+  const [rank, setRank] = useState(usuarioRank + 1 <= 8 ? usuarioRank + 1 : 8);
   const [erro, setErro] = useState("");
   const [msg, setMsg] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -730,14 +731,13 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
-  const ranksDisponiveis = [1, 2, 3, 4, 5, 6, 7, 8].filter((r) => r >= usuarioRank);
-  const funcaoSugerida = `${RANK_LABELS[rank]} ${list.filter((m) => m.rank === rank).length + 1}`;
+  const ranksDisponiveis = [2, 3, 4, 5, 6, 7, 8].filter((r) => r > usuarioRank);
 
   const submit = async () => {
     if (!email.trim()) return;
     setErro(""); setMsg(""); setSalvando(true);
     try {
-      const r = await onAdd({ obraId, email: email.trim(), rank, funcao: (funcao || funcaoSugerida).trim() });
+      const r = await onAdd({ obraId, email: email.trim(), rank, funcao: funcao.trim() });
       if (r.convite && r.token) {
         setLinkGerado({ link: linkDoConvite(r.token), nome: email.trim().split("@")[0], telefone: "", novoPin: false });
         setMsg("Ainda não tem conta: mande o link abaixo (ou ele entra com o Google usando esse email).");
@@ -755,7 +755,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
     if (!nomeNovo.trim()) return;
     setErro(""); setMsg(""); setSalvando(true);
     try {
-      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ obraId, nome: nomeNovo.trim(), telefone: telNovo, rank, funcao: (funcao || funcaoSugerida).trim() }) });
+      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ obraId, nome: nomeNovo.trim(), telefone: telNovo, rank, funcao: funcao.trim() }) });
       setLinkGerado({ link: linkDoConvite(r.token), nome: nomeNovo.trim(), telefone: telNovo, novoPin: false });
       setNomeNovo(""); setTelNovo(""); setFuncao("");
     } catch (err) {
@@ -800,10 +800,21 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
     setExcecaoAberta(m.id);
   };
 
+  const excluirConta = async (m) => {
+    if (window.prompt(`Excluir a conta de ${m.nome}? Ele não vai mais conseguir entrar e aparecerá como AUSENTE. Digite EXCLUIR para confirmar.`) !== "EXCLUIR") return;
+    setErro(""); setMsg("");
+    try {
+      await apiFetch(`/api/usuarios-me?id=${m.usuario_id}`, { method: "DELETE" });
+      await onSetExcecao(m.id, {}); // PATCH vazio: só recarrega o integrante (agora com removido_em)
+      setExcecaoAberta(null);
+      setMsg(`Conta de ${m.nome} excluída.`);
+    } catch (err) { setErro(err.message); }
+  };
+
   const salvarMembro = async (m) => {
     setErro(""); setMsg("");
     const campos = { funcao: edicao.funcao };
-    if (Number(edicao.rank) !== m.rank) campos.rank = Number(edicao.rank);
+    if (usuarioRank <= 2 && Number(edicao.rank) !== m.rank) campos.rank = Number(edicao.rank);
     try { await onSetExcecao(m.id, campos); setMsg(`${m.nome} atualizado.`); setExcecaoAberta(null); }
     catch (err) { setErro(err.message); }
   };
@@ -821,7 +832,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
     const p = (genteEmpresa || []).find((x) => String(x.usuario_id) === String(pessoaEscolhida));
     setErro(""); setMsg(""); setSalvando(true);
     try {
-      await onAdd({ obraId, usuarioId: Number(pessoaEscolhida), funcao: funcao.trim() || (p ? RANK_LABELS[p.rank] : "") });
+      await onAdd({ obraId, usuarioId: Number(pessoaEscolhida), funcao: funcao.trim() });
       setMsg(`${p ? p.nome : "Pessoa"} adicionado à obra.`);
       setPessoaEscolhida(""); setFuncao("");
     } catch (err) { setErro(err.message); }
@@ -834,6 +845,19 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
         {list.map((m) => {
           const presenteHoje = m.asistencias?.includes(hoje);
           const temExcecao = m.excecao_modulos && Object.keys(m.excecao_modulos).length > 0;
+          const ausente = !!m.removido_em;
+          if (ausente) {
+            return (
+              <div key={m.id} style={{ background: C.bg, borderColor: C.border, opacity: 0.6 }} className="border rounded px-3 py-2 flex items-center gap-2">
+                <div className="flex-1 min-w-0 truncate">
+                  <span style={{ color: C.inkMuted }} className="font-semibold text-sm line-through">{m.nome}</span> <span style={{ color: C.rust }} className="text-[10px] font-mono uppercase border rounded px-1 ml-1">Ausente</span>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">conta excluída · {RANK_LABELS[m.rank]}</div>
+                </div>
+                <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
+                {podeEditar && <button onClick={() => remover(m)} title="Tirar da lista desta obra" style={{ color: C.inkMuted }} className="shrink-0">×</button>}
+              </div>
+            );
+          }
           return (
             <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2">
               <div className="flex items-center gap-2">
@@ -841,8 +865,9 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                   {presenteHoje ? "✓" : ""}
                 </button>
                 <div className="flex-1 min-w-0 truncate">
-                  <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.funcao || RANK_LABELS[m.rank]}</span>
-                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.email || "entra com CPF"} · {RANK_LABELS[m.rank]}{temExcecao ? " · acesso personalizado" : ""}</div>
+                  {/* Título: o rank. Para Profissional, o ofício (Pedreiro, Pintor...) quando informado. */}
+                  <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.rank === 8 && m.funcao ? m.funcao : RANK_LABELS[m.rank]}</span>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.rank === 8 ? (m.funcao ? `${RANK_LABELS[8]} · ` : "") : (m.funcao ? `${m.funcao} · ` : "")}{m.email || "entra com CPF"}{temExcecao ? " · acesso personalizado" : ""}</div>
                 </div>
                 <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
                 {podeEditar && <button onClick={() => abrirPainel(m)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Editar rank, função e acesso" className="shrink-0">⚙</button>}
@@ -851,13 +876,13 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
               </div>
               {excecaoAberta === m.id && (
                 <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t">
-                  {usuarioRank <= 2 && m.rank > usuarioRank ? (
+                  {(usuarioRank <= 2 && m.usuario_id !== usuarioId && (m.rank > usuarioRank || (usuarioRank === 2 && m.rank === 2))) || (souResponsavel && m.rank > usuarioRank) ? (
                     <div className="mb-3">
                       <div className="flex flex-wrap gap-2 items-center">
-                        <select value={edicao.rank} onChange={(e) => setEdicao({ ...edicao, rank: Number(e.target.value) })} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white">
-                          {[2, 3, 4, 5, 6, 7, 8].filter((r) => r > usuarioRank).map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+                        <select value={edicao.rank} disabled={usuarioRank > 2} onChange={(e) => setEdicao({ ...edicao, rank: Number(e.target.value) })} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white">
+                          {[2, 3, 4, 5, 6, 7, 8].filter((r) => (usuarioRank === 2 && m.rank === 2 ? r >= 2 : r > usuarioRank)).map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
                         </select>
-                        <input value={edicao.funcao} onChange={(e) => setEdicao({ ...edicao, funcao: e.target.value })} placeholder="Função nesta obra" list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[7rem] border rounded px-2 py-1.5 text-xs outline-none" />
+                        <input value={edicao.funcao} onChange={(e) => setEdicao({ ...edicao, funcao: e.target.value })} placeholder={edicao.rank === 8 ? "Ofício (ex.: Pedreiro)" : "Função nesta obra"} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[7rem] border rounded px-2 py-1.5 text-xs outline-none" />
                         <button onClick={() => salvarMembro(m)} style={{ background: C.teal }} className="text-white rounded px-3 py-1.5 text-xs font-bold uppercase">Salvar</button>
                       </div>
                       <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">O rank vale para todas as obras; a função, só para esta.</p>
@@ -865,7 +890,8 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                   ) : (
                     <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">Só Dono e Engenheiro Chefe podem mudar o rank de quem está abaixo deles.</p>
                   )}
-                  <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-1.5">Bloquear acesso a (independente do rank):</p>
+                  {souResponsavel && m.rank > usuarioRank ? (<>
+                  <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-1.5">Bloquear acesso NESTA obra a (você é o responsável):</p>
                   <div className="flex flex-wrap gap-2">
                     {MODULOS_OBRA.map((mod) => {
                       const bloqueado = m.excecao_modulos?.[mod.key] === "nenhum";
@@ -876,6 +902,12 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                       );
                     })}
                   </div>
+                  </>) : (
+                    <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Só o responsável da obra bloqueia módulos nesta obra.</p>
+                  )}
+                  {usuarioRank < m.rank && m.usuario_id !== usuarioId && (
+                    <button onClick={() => excluirConta(m)} style={{ color: C.rust }} className="mt-3 text-[11px] font-mono uppercase">🚫 Excluir conta (fica como ausente)</button>
+                  )}
                 </div>
               )}
             </div>
@@ -901,7 +933,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
             <div className="flex flex-wrap gap-2 mb-2">
               <select value={pessoaEscolhida} onChange={(e) => setPessoaEscolhida(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-sm outline-none bg-white">
                 <option value="">{genteEmpresa ? "Escolha a pessoa..." : "Carregando..."}</option>
-                {(genteEmpresa || []).filter((p) => !list.some((m) => m.usuario_id === p.usuario_id)).map((p) => (
+                {(genteEmpresa || []).filter((p) => !list.some((m) => m.usuario_id === p.usuario_id) && (usuarioRank <= 2 || p.rank > usuarioRank)).map((p) => (
                   <option key={p.usuario_id} value={p.usuario_id}>{p.nome} · {RANK_LABELS[p.rank]}</option>
                 ))}
               </select>
@@ -911,7 +943,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
           )}
           {modoAdd !== "empresa" && <div className="flex flex-wrap gap-2">
             {modoAdd === "email" && <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />}
-            <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={funcaoSugerida} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
+            <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={rank === 8 ? "Ofício (ex.: Pedreiro)" : "Função (opcional)"} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
             <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
               {ranksDisponiveis.map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
             </select>
@@ -921,7 +953,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
               : <button onClick={convidarPorLink} disabled={!nomeNovo.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 text-xs font-bold uppercase disabled:opacity-40 shrink-0">{salvando ? "..." : "Gerar link"}</button>}
           </div>}
           {modoAdd !== "empresa" && <p style={{ color: C.amber }} className="text-[11px] font-mono mt-1.5">→ {RANK_LABELS[rank]} · {RANK_DESCRICOES[rank]}</p>}
-          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">{modoAdd === "link" ? "Gera um link para mandar por WhatsApp. A pessoa entra com CPF + PIN, sem precisar de email." : modoAdd === "empresa" ? "Quem já tem conta na empresa (inclusive com CPF). Mantém o rank que já tem." : "Se o email ainda não tem conta, gera um link de convite."} Sugestão de função: "{funcaoSugerida}".</p>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">{modoAdd === "link" ? "Gera um link para mandar por WhatsApp. A pessoa entra com CPF + PIN, sem precisar de email." : modoAdd === "empresa" ? "Quem já tem conta na empresa (inclusive com CPF). Mantém o rank que já tem." : "Se o email ainda não tem conta, gera um link de convite."}</p>
           {linkGerado && <LinkConviteCard {...linkGerado} onFechar={() => setLinkGerado(null)} />}
         </>
       )}
@@ -1002,7 +1034,7 @@ function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEd
           {podeEditar && <button onClick={removerEtapa} style={{ color: C.rust }} className="shrink-0">🗑</button>}
         </div>
         {etapa.concluida && etapa.concluida_em && (
-          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Concluída em {fmtTs(etapa.concluida_em)}</p>
+          <p style={{ color: C.green }} className="text-[11px] font-mono mt-1">✓ {etapa.concluida_por_nome ? `por ${etapa.concluida_por_nome} · ` : ""}{fmtFirma(etapa.concluida_em)}</p>
         )}
         <EtapaFotosGaleria etapaId={etapa.id} fileCache={fileCache} loadFile={loadFile} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} podeEditar={podeEditar} saveArquivo={saveArquivo} />
         {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{erro}</p>}
@@ -1076,8 +1108,8 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
   };
   useEffect(() => { carregar(); }, [obraId, tipo]);
 
-  const superiores = equipe.filter((m) => m.rank < usuarioAPI.rank);
-  const subordinados = equipe.filter((m) => m.rank > usuarioAPI.rank);
+  const superiores = equipe.filter((m) => !m.removido_em && m.rank < usuarioAPI.rank);
+  const subordinados = equipe.filter((m) => !m.removido_em && m.rank > usuarioAPI.rank);
 
   const abrirForm = (qual) => {
     setMostrarForm(qual);
@@ -1240,7 +1272,7 @@ function ObservacoesSection({ items, onAdd, onDelete, onEdit, usuarioAPI, podeEd
               )}
               <div className="flex items-center gap-3 mt-2 flex-wrap">
                 <p style={{ color: C.inkMuted }} className="text-[11px] font-mono flex-1 min-w-0">
-                  — {item.autor_nome || "?"}{rankNaFirma ? ` · ${RANK_LABELS[rankNaFirma]}` : ""} · {fmtFirma(item.criado_em)}
+                  — {item.autor_nome || "?"}{item.autor_removido ? " (ausente)" : ""}{rankNaFirma ? ` · ${RANK_LABELS[rankNaFirma]}` : ""} · {fmtFirma(item.criado_em)}
                   {item.editado_em && <span className="italic"> · editado {fmtFirma(item.editado_em)}</span>}
                 </p>
                 {item.n_edicoes > 0 && (souAutor || souSuperior) && (
@@ -1333,7 +1365,7 @@ function BottomNav({ onInicio, onConfig, active }) {
   );
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div onClick={onClose} className="absolute inset-0 bg-black/40" />
@@ -1347,13 +1379,17 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
           </div>
         </div>
         <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
-        {usuario.rank <= 4 && (
+        {usuario.rank <= 3 && (
           <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono flex items-center justify-center gap-2"><img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" /> Permissões</button>
         )}
         {usuario.email === "marcelojavierbonet@gmail.com" && (
           <button onClick={onAbrirLeads} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📋 Leads (expo)</button>
         )}
         <button onClick={onAbrirDefinirSenha} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Definir senha</button>
+        {onAbrirMeuPin && <button onClick={onAbrirMeuPin} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</button>}
+        {usuario.rank !== 1 && onExcluirConta && (
+          <button onClick={onExcluirConta} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir minha conta</button>
+        )}
         <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
         {usuario.rank === 1 && (
           <button onClick={onBackupForcado} disabled={fazendoBackup} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono disabled:opacity-50">
@@ -1362,6 +1398,63 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         )}
         <button onClick={onSair} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 text-sm font-mono">🔒 Sair</button>
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-auto pt-4">© 2026 Gestão & Controle</p>
+      </div>
+    </div>
+  );
+}
+
+function MeuPinModal({ usuario, onClose }) {
+  const [cpf, setCpf] = useState("");
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [erro, setErro] = useState("");
+  const [ok, setOk] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const jaTemCpf = !!usuario.cpf_mascarado;
+  const salvar = async () => {
+    setErro("");
+    if (!jaTemCpf && !cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
+    if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
+    setSalvando(true);
+    try {
+      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ cpf: limparCpf(cpf), pin }) });
+      setOk(true);
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</h2>
+        {ok ? (
+          <>
+            <p style={{ color: C.green }} className="text-sm my-4">Pronto! Agora você também pode entrar com CPF + PIN.</p>
+            <button onClick={onClose} style={{ background: C.teal }} className="w-full text-white font-bold uppercase tracking-wide text-sm rounded py-2.5">Fechar</button>
+          </>
+        ) : (
+          <>
+            <p style={{ color: C.inkMuted }} className="text-xs mb-3">Para entrar com CPF + PIN, sem precisar de email nem Google.</p>
+            {jaTemCpf ? (
+              <p style={{ color: C.ink }} className="text-sm font-mono mb-3">CPF: {usuario.cpf_mascarado}</p>
+            ) : (
+              <>
+                <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Seu CPF</label>
+                <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none tracking-wider" />
+              </>
+            )}
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none text-xl tracking-[0.5em] text-center" />
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
+            <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && salvar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none text-xl tracking-[0.5em] text-center" />
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF.</p>
+            {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+            <div className="flex gap-2 mt-4">
+              <button onClick={onClose} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Cancelar</button>
+              <button onClick={salvar} disabled={salvando} style={{ background: C.teal }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5 disabled:opacity-50">{salvando ? "..." : "Salvar"}</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1439,8 +1532,8 @@ function TicketCard({ obra, pendCount, lastDate, onOpen, onEdit, onDelete }) {
       <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: `1px dashed ${C.border}` }}>
         <span style={{ color: C.inkMuted }} className="text-xs font-mono">🕐 {lastDate ? `há ${daysAgo(lastDate)}d` : "sem atividade"}</span>
         <div className="flex items-center gap-3">
-          <button onClick={(ev) => { ev.stopPropagation(); onEdit(); }} style={{ color: C.blue }} className="text-xs font-mono uppercase">✏️ Editar</button>
-          <button onClick={(ev) => { ev.stopPropagation(); onDelete(); }} style={{ color: C.rust }} className="text-xs font-mono uppercase">🗑️ Eliminar</button>
+          {onEdit && <button onClick={(ev) => { ev.stopPropagation(); onEdit(); }} style={{ color: C.blue }} className="text-xs font-mono uppercase">✏️ Editar</button>}
+          {onDelete && <button onClick={(ev) => { ev.stopPropagation(); onDelete(); }} style={{ color: C.rust }} className="text-xs font-mono uppercase">🗑️ Eliminar</button>}
         </div>
       </div>
     </div>
@@ -1505,7 +1598,7 @@ function LeadsScreen({ onBack }) {
   );
 }
 
-function PermissoesScreen({ onBack }) {
+function PermissoesScreen({ onBack, usuarioRank = 8 }) {
   const [permissoes, setPermissoes] = useState(null);
   const [erro, setErro] = useState("");
   const [salvandoCelda, setSalvandoCelda] = useState(null);
@@ -1549,7 +1642,7 @@ function PermissoesScreen({ onBack }) {
   return (
     <div>
       <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">🔑 Permissões</h2>
-      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Toque numa célula para alternar: Nenhum → Ver → Editar</p>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Toque numa célula para alternar: Nenhum → Ver → Editar. Você só altera os ranks abaixo do seu (as linhas apagadas estão travadas).</p>
       <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-xs border-collapse">
           <thead>
@@ -1567,7 +1660,7 @@ function PermissoesScreen({ onBack }) {
                   const key = `${rank}-${m.key}`;
                   return (
                     <td key={m.key} className="p-1 text-center">
-                      <button onClick={() => toggle(rank, m.key)} disabled={salvandoCelda === key}
+                      <button onClick={() => toggle(rank, m.key)} disabled={salvandoCelda === key || rank <= usuarioRank || usuarioRank > 3}
                         style={{ borderColor: corDe[nivel], color: corDe[nivel] }}
                         className="border rounded w-14 py-1 text-[10px] font-mono uppercase disabled:opacity-50">
                         {salvandoCelda === key ? "..." : labelNivel[nivel]}
@@ -1606,7 +1699,17 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   const etapasObraCount = etapas.length;
   const etapasObraDone = etapas.filter((e) => e.concluida).length;
   const responsavelAtual = equipe.find((m) => m.usuario_id === obra.responsavel_id);
-  const modulosVisiveis = MODULOS_OBRA.filter((m) => (niveis?.[m.key] || "nenhum") !== "nenhum");
+  // Nível efetivo NESTA obra: o da tela de Permissões, recortado pelo bloqueio que o responsável da obra definiu.
+  const meuMembro = equipe.find((m) => m.usuario_id === usuarioAPI?.id);
+  const nivelDoModulo = (key) => {
+    const base = niveis?.[key] || "nenhum";
+    const exc = meuMembro?.excecao_modulos?.[key];
+    if (exc === "nenhum") return "nenhum";
+    if (exc === "visualizar" && base === "editar") return "visualizar";
+    return base;
+  };
+  const modulosVisiveis = MODULOS_OBRA.filter((m) => nivelDoModulo(m.key) !== "nenhum");
+  const souChefe = usuarioRank <= 2;
 
   const cycleEstado = async () => {
     setErroObra("");
@@ -1642,13 +1745,13 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
 
   if (modulo) {
     const mod = MODULOS_OBRA.find((m) => m.key === modulo);
-    const podeEditar = (niveis?.[modulo] || "nenhum") === "editar";
+    const podeEditar = nivelDoModulo(modulo) === "editar";
     return (
       <div>
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}</h2>
         {modulo === "documentos" && <PedidosPanel obraId={obra.id} tipo="documento" tipoLabel="Documentos" equipe={equipe} usuarioAPI={usuarioAPI} />}
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
-        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} podeEditar={podeEditar} />}
+        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} usuarioId={usuarioAPI?.id} responsavelId={obra.responsavel_id} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFotoEtapa} onDeleteFoto={onDeleteFotoEtapa} podeEditar={podeEditar} />}
         {modulo === "ferramentas" && <PedidosPanel obraId={obra.id} tipo="ferramenta" tipoLabel="Ferramentas" equipe={equipe} usuarioAPI={usuarioAPI} />}
         {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
@@ -1660,18 +1763,18 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
               <p style={{ color: C.inkMuted }} className="text-xs font-mono">
                 👤 Responsável: <span style={{ color: C.ink }}>{responsavelAtual ? `${responsavelAtual.nome} (${RANK_LABELS[responsavelAtual.rank]})` : "—"}</span>
               </p>
-              <button onClick={() => setTransferindo(!transferindo)} style={{ color: C.blue }} className="text-xs font-mono uppercase">🔄 Transferir</button>
+              {souChefe && <button onClick={() => setTransferindo(!transferindo)} style={{ color: C.blue }} className="text-xs font-mono uppercase">🔄 Transferir</button>}
             </div>
             {transferindo && (
               <div className="flex gap-2 mt-2">
                 <select value={novoResponsavel} onChange={(e) => setNovoResponsavel(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs outline-none bg-white">
                   <option value="">Escolha o novo responsável...</option>
-                  {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
+                  {equipe.filter((m) => !m.removido_em).map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
                 </select>
                 <button onClick={transferir} disabled={!novoResponsavel} style={{ background: C.blue }} className="text-white text-xs font-bold uppercase rounded px-3 disabled:opacity-40 shrink-0">Confirmar</button>
               </div>
             )}
-            <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>
+            {souChefe && <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>}
             {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
           </div>
         )}
@@ -2256,6 +2359,7 @@ function GestorObras() {
   const [erroGlobal, setErroGlobal] = useState("");
   const [showConfig, setShowConfig] = useState(false);
   const [showDefinirSenha, setShowDefinirSenha] = useState(false);
+  const [showMeuPin, setShowMeuPin] = useState(false);
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
   const navRestauradaRef = useRef(false);
@@ -2375,6 +2479,16 @@ function GestorObras() {
     if (!localStorage.getItem("biometria-credential-id") && biometriaSuportada()) {
       setConfigurandoBiometria(true);
     }
+  };
+
+  const excluirMinhaConta = async () => {
+    const r = window.prompt("Excluir sua conta? Você não vai mais conseguir entrar; seus registros ficam e você aparece como AUSENTE. Digite EXCLUIR para confirmar.");
+    if (r !== "EXCLUIR") return;
+    try {
+      await apiFetch("/api/usuarios-me", { method: "DELETE" });
+      setShowConfig(false);
+      sair();
+    } catch (err) { window.alert(err.message); }
   };
 
   const sair = () => {
@@ -2776,7 +2890,7 @@ function GestorObras() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
-            <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>
+            {usuarioAPI.rank <= 4 && <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>}
             <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
             <button onClick={() => irParaView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
           </div>
@@ -2788,7 +2902,7 @@ function GestorObras() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {obras.map((obra) => (
-                <TicketCard key={obra.id} obra={obra} pendCount={pendentesPorObra[obra.id] || 0} lastDate={null} onOpen={() => abrirObra(obra.id)} onEdit={() => abrirEdicaoObra(obra)} onDelete={() => deleteObra(obra.id)} />
+                <TicketCard key={obra.id} obra={obra} pendCount={pendentesPorObra[obra.id] || 0} lastDate={null} onOpen={() => abrirObra(obra.id)} onEdit={usuarioAPI.rank <= 2 ? () => abrirEdicaoObra(obra) : null} onDelete={usuarioAPI.rank <= 2 ? () => deleteObra(obra.id) : null} />
               ))}
             </div>
           )}
@@ -2816,7 +2930,7 @@ function GestorObras() {
       )}
       {view === "pendientes" && <PendientesView obras={obras} onBack={() => window.history.back()} onOpenObra={abrirObra} />}
       {view === "report" && <ReportView obras={obras} onBack={() => window.history.back()} />}
-      {view === "permissoes" && <PermissoesScreen onBack={() => window.history.back()} />}
+      {view === "permissoes" && <PermissoesScreen onBack={() => window.history.back()} usuarioRank={usuarioAPI.rank} />}
       {view === "leads" && <LeadsScreen onBack={() => window.history.back()} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
       {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
@@ -2827,8 +2941,9 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
+        {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
         <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
           {notificacoes.map((n) => (
             <div key={n.id} style={{ background: C.ink, color: "#fff" }} className="rounded-lg px-4 py-2.5 text-xs font-mono shadow-lg">🔔 {n.texto}</div>

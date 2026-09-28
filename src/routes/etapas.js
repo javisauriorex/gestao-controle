@@ -1,6 +1,11 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, podeCrear, podeModificar } from "../lib/auth.js";
+import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
+import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 
+// Etapas:
+//  - Ver / criar / marcar concluída: nível do módulo (tela de Permissões + bloqueio por obra).
+//  - Marcar concluída NÃO exige ser o autor: quem executa a etapa costuma ser de rank abaixo de quem a criou.
+//  - Mudar o texto ou apagar: só o autor ou um superior dele.
 export default async function etapasHandler(req, env) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
@@ -10,14 +15,23 @@ export default async function etapasHandler(req, env) {
   if (req.method === "GET") {
     const obraId = url.searchParams.get("obra_id");
     if (!obraId) return jsonResponse({ ok: false, error: "obra_id é obrigatório" }, 400);
-    const etapas = await sql`SELECT * FROM etapas WHERE obra_id = ${obraId} ORDER BY id`;
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
+    if (!obra) return semAcesso();
+    if (!podeVer(nivel)) return jsonResponse({ ok: true, etapas: [] });
+    const etapas = await sql`
+      SELECT e.*, u.nome AS concluida_por_nome FROM etapas e
+      LEFT JOIN usuarios u ON u.id = e.concluida_por
+      WHERE e.obra_id = ${obraId} ORDER BY e.id
+    `;
     return jsonResponse({ ok: true, etapas });
   }
 
   if (req.method === "POST") {
-    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const { obraId, parentId, texto } = await req.json();
     if (!obraId || !texto) return jsonResponse({ ok: false, error: "faltam dados" }, 400);
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
+    if (!obra) return semAcesso();
+    if (!podeEditar(nivel)) return soVisualizar();
     const rows = await sql`
       INSERT INTO etapas (obra_id, parent_id, texto, criado_por)
       VALUES (${obraId}, ${parentId || null}, ${texto}, ${usuario.id})
@@ -27,23 +41,26 @@ export default async function etapasHandler(req, env) {
   }
 
   if (req.method === "PATCH") {
-    if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = url.searchParams.get("id");
     const body = await req.json();
+    const obraId = await obraDoRegistro(sql, "etapas", id);
+    if (!obraId) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
+    if (!obra) return semAcesso();
+    if (!podeEditar(nivel)) return soVisualizar();
     const atuais = await sql`
       SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
-    if (atuais.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (!podeModificar(usuario, atuais[0].rank_criador, atuais[0].criado_por)) {
-      return jsonResponse({ ok: false, error: "não pode modificar o que um escalão superior criou" }, 403);
-    }
 
     if (body.texto !== undefined) {
+      if (!podeModificar(usuario, atuais[0].rank_criador, atuais[0].criado_por)) {
+        return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode mudar o texto" }, 403);
+      }
       const rows = await sql`UPDATE etapas SET texto = ${body.texto} WHERE id = ${id} RETURNING *`;
       return jsonResponse({ ok: true, etapa: rows[0] });
     }
 
-    // Concluída agora é um check simples, independente das fotos (que vivem em etapa_fotos).
+    // Concluída é um check simples, independente das fotos (que vivem em etapa_fotos).
     const rows = await sql`
       UPDATE etapas SET
         concluida = ${!!body.concluida},
@@ -52,18 +69,21 @@ export default async function etapasHandler(req, env) {
       WHERE id = ${id}
       RETURNING *
     `;
-    return jsonResponse({ ok: true, etapa: rows[0] });
+    return jsonResponse({ ok: true, etapa: { ...rows[0], concluida_por_nome: body.concluida ? usuario.nome : null } });
   }
 
   if (req.method === "DELETE") {
-    if (!podeCrear(3, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = url.searchParams.get("id");
+    const obraId = await obraDoRegistro(sql, "etapas", id);
+    if (!obraId) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
+    if (!obra) return semAcesso();
+    if (!podeEditar(nivel)) return soVisualizar();
     const alvos = await sql`
       SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
-    if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
-      return jsonResponse({ ok: false, error: "não pode apagar o que um escalão superior criou" }, 403);
+      return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM etapas WHERE id = ${id}`;
     return jsonResponse({ ok: true });
