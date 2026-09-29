@@ -209,11 +209,11 @@ const biometriaSuportada = () => typeof window !== "undefined" && !!window.Publi
 
 // --- Login propio (JWT contra /api/auth/*), reemplaza a Netlify Identity ---
 
-async function apiSignup(email, password, nome) {
+async function apiSignup(email, password, nome, aceitouTermos) {
   const res = await fetch("/api/auth/signup", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, senha: password, nome }),
+    body: JSON.stringify({ email, senha: password, nome, aceitouTermos }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || "Não foi possível criar a conta.");
@@ -799,7 +799,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   };
 
   const excluirConta = async (m) => {
-    if (window.prompt(`Excluir a conta de ${m.nome}? Ele não vai mais conseguir entrar e aparecerá como AUSENTE. Digite EXCLUIR para confirmar.`) !== "EXCLUIR") return;
+    if (window.prompt(`Excluir a conta de ${m.nome}? Ele não vai mais conseguir entrar, os dados pessoais dele são apagados e os registros dele ficam como "Usuário removido". Digite EXCLUIR para confirmar.`) !== "EXCLUIR") return;
     setErro(""); setMsg("");
     try {
       await apiFetch(`/api/usuarios-me?id=${m.usuario_id}`, { method: "DELETE" });
@@ -848,7 +848,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
             return (
               <div key={m.id} style={{ background: C.bg, borderColor: C.border, opacity: 0.6 }} className="border rounded px-3 py-2 flex items-center gap-2">
                 <div className="flex-1 min-w-0 truncate">
-                  <span style={{ color: C.inkMuted }} className="font-semibold text-sm line-through">{m.nome}</span> <span style={{ color: C.rust }} className="text-[10px] font-mono uppercase border rounded px-1 ml-1">Ausente</span>
+                  <span style={{ color: C.inkMuted }} className="font-semibold text-sm italic">Usuário removido</span>
                   <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">conta excluída · {RANK_LABELS[m.rank]}</div>
                 </div>
                 <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
@@ -904,7 +904,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                     <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Só o responsável da obra bloqueia módulos nesta obra.</p>
                   )}
                   {usuarioRank < m.rank && m.usuario_id !== usuarioId && (
-                    <button onClick={() => excluirConta(m)} style={{ color: C.rust }} className="mt-3 text-[11px] font-mono uppercase">🚫 Excluir conta (fica como ausente)</button>
+                    <button onClick={() => excluirConta(m)} style={{ color: C.rust }} className="mt-3 text-[11px] font-mono uppercase">🚫 Excluir conta (os registros ficam como "Usuário removido")</button>
                   )}
                 </div>
               )}
@@ -1270,7 +1270,7 @@ function ObservacoesSection({ items, onAdd, onDelete, onEdit, usuarioAPI, podeEd
               )}
               <div className="flex items-center gap-3 mt-2 flex-wrap">
                 <p style={{ color: C.inkMuted }} className="text-[11px] font-mono flex-1 min-w-0">
-                  — {item.autor_nome || "?"}{item.autor_removido ? " (ausente)" : ""}{rankNaFirma ? ` · ${RANK_LABELS[rankNaFirma]}` : ""} · {fmtFirma(item.criado_em)}
+                  — {item.autor_removido ? "Usuário removido" : (item.autor_nome || "?")}{rankNaFirma ? ` · ${RANK_LABELS[rankNaFirma]}` : ""} · {fmtFirma(item.criado_em)}
                   {item.editado_em && <span className="italic"> · editado {fmtFirma(item.editado_em)}</span>}
                 </p>
                 {item.n_edicoes > 0 && (souAutor || souSuperior) && (
@@ -1385,6 +1385,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         )}
         <button onClick={onAbrirDefinirSenha} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Definir senha</button>
         {onAbrirMeuPin && <button onClick={onAbrirMeuPin} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</button>}
+        <p className="text-[11px] font-mono text-center my-2"><a href="/termos" target="_blank" rel="noopener" style={{ color: C.inkMuted }} className="underline">Termos de Uso</a> · <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.inkMuted }} className="underline">Privacidade</a></p>
         {usuario.rank !== 1 && onExcluirConta && (
           <button onClick={onExcluirConta} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir minha conta</button>
         )}
@@ -1467,7 +1468,7 @@ function DefinirSenhaModal({ usuario, onClose }) {
 
   const salvar = async () => {
     setErro("");
-    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
+    if (senha.length < 8) { setErro("A senha precisa ter ao menos 8 caracteres."); return; }
     if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
     setSalvando(true);
     try {
@@ -1970,7 +1971,7 @@ function AuthWrap({ children }) {
   return (
     <div style={{ background: C.bg, minHeight: "100vh" }} className="flex flex-col items-center justify-center p-6">
       <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">{children}</div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">© 2026 Gestão & Controle</p>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">© 2026 Gestão & Controle · <a href="/termos" style={{ color: C.inkMuted }} className="underline">Termos</a> · <a href="/privacidade" style={{ color: C.inkMuted }} className="underline">Privacidade</a></p>
     </div>
   );
 }
@@ -1996,12 +1997,12 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
   const cadastrar = async () => {
     setErro("");
     if (!email.trim() || !nome.trim()) { setErro("Preencha nome e email."); return; }
-    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
+    if (senha.length < 8) { setErro("A senha precisa ter ao menos 8 caracteres."); return; }
     if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
     if (!aceito) { setErro("Você precisa aceitar os Termos de Uso."); return; }
     setSalvando(true);
     try {
-      const authData = await apiSignup(email.trim(), senha, nome.trim());
+      const authData = await apiSignup(email.trim(), senha, nome.trim(), aceito);
       saveSession(authData);
       onCadastrado();
     } catch (err) {
@@ -2033,7 +2034,7 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
         </div>
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
-          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Mínimo 6 caracteres" />
+          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Mínimo 8 caracteres" />
         </div>
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
@@ -2041,7 +2042,7 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
         </div>
         <label className="flex items-start gap-2 text-xs" style={{ color: C.inkMuted }}>
           <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
-          <span>Li e aceito os Termos de Uso e a Política de Privacidade <span className="italic">(em elaboração)</span>.</span>
+          <span>Tenho 18 anos ou mais, li e aceito os <a href="/termos" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Termos de Uso</a> e a <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Política de Privacidade</a>.</span>
         </label>
         {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
       </div>
@@ -2149,6 +2150,7 @@ function LoginScreen({ onLogado, onIrCadastro }) {
 
 function ConviteScreen({ token, onEntrou, onCancelar }) {
   const [info, setInfo] = useState(null);
+  const [aceito, setAceito] = useState(false);
   const [erroLink, setErroLink] = useState("");
   const [cpf, setCpf] = useState("");
   const [pin, setPin] = useState("");
@@ -2167,9 +2169,10 @@ function ConviteScreen({ token, onEntrou, onCancelar }) {
     if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
     if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
     if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
+    if (!aceito) { setErro("Para entrar, aceite os Termos de Uso e a Política de Privacidade."); return; }
     setSalvando(true);
     try {
-      const authData = await apiPublica("/api/auth/aceitar-convite", { token, cpf: limparCpf(cpf), pin });
+      const authData = await apiPublica("/api/auth/aceitar-convite", { token, cpf: limparCpf(cpf), pin, aceitouTermos: true });
       saveSession(authData);
       try { localStorage.setItem("gc-login-modo", "cpf"); } catch (e) {}
       onEntrou();
@@ -2217,6 +2220,10 @@ function ConviteScreen({ token, onEntrou, onCancelar }) {
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF. Não conte o PIN para ninguém.</p>
       </div>
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <label className="flex items-start gap-2 text-xs mt-3" style={{ color: C.inkMuted }}>
+        <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
+        <span>Tenho 18 anos ou mais, li e aceito os <a href="/termos" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Termos de Uso</a> e a <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Política de Privacidade</a>.</span>
+      </label>
       <button onClick={confirmar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-3 disabled:opacity-50">{salvando ? "Entrando..." : "Entrar"}</button>
     </AuthWrap>
   );
@@ -2242,6 +2249,40 @@ function LinkConviteCard({ link, nome, telefone, novoPin, onFechar }) {
       </div>
       <button onClick={onFechar} style={{ color: C.inkMuted }} className="w-full text-[11px] font-mono uppercase mt-2">Fechar</button>
     </div>
+  );
+}
+
+// Aparece quando a pessoa ainda não aceitou a versão vigente dos Termos:
+// primeiro acesso com Google (inclusive vindo de convite por email), contas antigas, ou Termos atualizados.
+function AceiteTermosScreen({ usuario, onAceito, onSair }) {
+  const [aceito, setAceito] = useState(false);
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const aceitar = async () => {
+    if (!aceito) { setErro("Marque a caixa para continuar."); return; }
+    setSalvando(true); setErro("");
+    try { await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ aceitarTermos: true }) }); onAceito(); }
+    catch (err) { setErro(err.message); setSalvando(false); }
+  };
+  const novo = !usuario.termos_versao;
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <h2 style={{ color: C.ink }} className="text-base font-extrabold text-center mt-3">{novo ? `Bem-vindo, ${usuario.nome}!` : "Atualizamos nossos Termos"}</h2>
+      {usuario.empresa_nome && (
+        <p style={{ color: C.inkMuted }} className="text-sm text-center mt-2">
+          Você está entrando na empresa <b style={{ color: C.ink }}>{usuario.empresa_nome}</b> como <b style={{ color: C.ink }}>{RANK_LABELS[usuario.rank]}</b>.
+        </p>
+      )}
+      <p style={{ color: C.inkMuted }} className="text-xs text-center mt-2 mb-4">Para usar o aplicativo, leia e aceite os documentos abaixo.</p>
+      <label className="flex items-start gap-2 text-xs" style={{ color: C.inkMuted }}>
+        <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
+        <span>Tenho 18 anos ou mais, li e aceito os <a href="/termos" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Termos de Uso</a> e a <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Política de Privacidade</a>.</span>
+      </label>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={aceitar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "..." : "Aceitar e continuar"}</button>
+      <button onClick={onSair} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">Não reconheço / sair</button>
+    </AuthWrap>
   );
 }
 
@@ -2358,6 +2399,7 @@ function GestorObras() {
   const [showConfig, setShowConfig] = useState(false);
   const [showDefinirSenha, setShowDefinirSenha] = useState(false);
   const [showMeuPin, setShowMeuPin] = useState(false);
+  const [termosVigente, setTermosVigente] = useState(null);
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
   const navRestauradaRef = useRef(false);
@@ -2384,7 +2426,7 @@ function GestorObras() {
     try {
       const res = await fetch("/api/usuarios-me", { headers: { authorization: `Bearer ${token}` } });
       const dataRes = await res.json();
-      if (dataRes.ok) setUsuarioAPI(dataRes.usuario);
+      if (dataRes.ok) { setUsuarioAPI(dataRes.usuario); setTermosVigente(dataRes.termos_vigente || null); }
       else { clearSession(); setTemSessao(false); }
     } catch (e) {
       // sem rede: mantemos a sessão, só não temos os dados do servidor por enquanto
@@ -2480,7 +2522,7 @@ function GestorObras() {
   };
 
   const excluirMinhaConta = async () => {
-    const r = window.prompt("Excluir sua conta? Você não vai mais conseguir entrar; seus registros ficam e você aparece como AUSENTE. Digite EXCLUIR para confirmar.");
+    const r = window.prompt("Excluir sua conta? Você não vai mais conseguir entrar e seus dados pessoais (nome, e-mail, CPF, telefone) serão apagados. O que você registrou nas obras fica, assinado como «Usuário removido». Digite EXCLUIR para confirmar.");
     if (r !== "EXCLUIR") return;
     try {
       await apiFetch("/api/usuarios-me", { method: "DELETE" });
@@ -2872,6 +2914,8 @@ function GestorObras() {
     content = <TrancaBiometricaScreen onDesbloqueado={() => setBiometriaPassada(true)} onUsarSenha={sair} />;
   } else if (!usuarioAPI) {
     content = <SplashScreen />;
+  } else if (termosVigente && usuarioAPI.termos_versao !== termosVigente) {
+    content = <AceiteTermosScreen usuario={usuarioAPI} onAceito={() => setUsuarioAPI((u) => ({ ...u, termos_versao: termosVigente }))} onSair={sair} />;
   } else {
     content = (
     <div className="p-4 pb-24">

@@ -1,4 +1,5 @@
 import { getSql } from "./db.js";
+import { TERMOS_VERSAO, registrarAcesso, MAX_TENTATIVAS, duracaoBloqueioMin, textoEspera } from "./legal.js";
 
 export function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -132,8 +133,10 @@ async function semearPermissoesDefault(sql, empresaId) {
 // si no, crea empresa nueva y queda como Dono (rank 1).
 export async function signup(req, env) {
   const sql = getSql(env);
-  const { email: rawEmail, senha, nome } = await req.json();
+  const { email: rawEmail, senha, nome, aceitouTermos } = await req.json();
   if (!rawEmail || !senha) return jsonResponse({ ok: false, error: "email e senha são obrigatórios" }, 400);
+  if (!aceitouTermos) return jsonResponse({ ok: false, error: "É preciso aceitar os Termos de Uso e a Política de Privacidade." }, 400);
+  if (String(senha).length < 8) return jsonResponse({ ok: false, error: "A senha precisa ter ao menos 8 caracteres." }, 400);
   const email = rawEmail.toLowerCase();
 
   const existentes = await sql`SELECT id FROM usuarios WHERE email = ${email}`;
@@ -157,7 +160,7 @@ export async function signup(req, env) {
       VALUES (${email}, ${nome || email}, ${convite.empresa_id}, ${convite.rank}, ${senhaHash})
       RETURNING *
     `;
-    await sql`UPDATE convites SET aceito = true WHERE id = ${convite.id}`;
+    await sql`DELETE FROM convites WHERE id = ${convite.id}`;
     novoUsuario = novos[0];
     if (convite.obra_id) {
       await sql`
@@ -179,6 +182,8 @@ export async function signup(req, env) {
     await semearPermissoesDefault(sql, empresa.id);
   }
 
+  await sql`UPDATE usuarios SET termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now() WHERE id = ${novoUsuario.id}`;
+  await registrarAcesso(sql, req, novoUsuario.id, "cadastro");
   const token = await signJWT({ usuarioId: novoUsuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
   return jsonResponse({ ok: true, token, usuario: { id: novoUsuario.id, email: novoUsuario.email, nome: novoUsuario.nome } });
 }
@@ -190,11 +195,28 @@ export async function login(req, env) {
   if (!rawEmail || !senha) return jsonResponse({ ok: false, error: "email e senha são obrigatórios" }, 400);
   const email = rawEmail.toLowerCase();
 
-  const rows = await sql`SELECT * FROM usuarios WHERE email = ${email}`;
-  if (rows.length === 0) return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
+  const rows = await sql`SELECT * FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
+  if (rows.length === 0 || !rows[0].senha_hash) return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
   const usuario = rows[0];
+  if (usuario.login_bloqueado_ate && new Date(usuario.login_bloqueado_ate) > new Date()) {
+    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(usuario.login_bloqueado_ate)}.` }, 429);
+  }
   const ok = await verificarSenha(senha, usuario.senha_hash);
-  if (!ok) return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
+  if (!ok) {
+    // Bloqueio progressivo: 5 erros → 15 min, depois 1 h, depois 24 h.
+    const tent = (usuario.login_tentativas || 0) + 1;
+    if (tent >= MAX_TENTATIVAS) {
+      const rodadas = usuario.login_rodadas || 0;
+      const min = duracaoBloqueioMin(rodadas);
+      await sql`UPDATE usuarios SET login_tentativas = 0, login_rodadas = ${rodadas + 1},
+        login_bloqueado_ate = now() + (${min} * interval '1 minute') WHERE id = ${usuario.id}`;
+      return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${min >= 60 ? min / 60 + " h" : min + " min"}.` }, 429);
+    }
+    await sql`UPDATE usuarios SET login_tentativas = ${tent} WHERE id = ${usuario.id}`;
+    return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
+  }
+  await sql`UPDATE usuarios SET login_tentativas = 0, login_rodadas = 0, login_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
+  await registrarAcesso(sql, req, usuario.id, "senha");
 
   const token = await signJWT({ usuarioId: usuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
   return jsonResponse({ ok: true, token, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome } });
@@ -206,7 +228,9 @@ export async function login(req, env) {
 // só que sem senha, porque a identidade já vem confirmada pelo Google.
 // ============================================================
 
-export async function loginOuCriarComGoogle(email, nome, env) {
+// Obs.: quem entra pela primeira vez (ou com Termos desatualizados) vê a tela de aceite antes de usar o app,
+// com o nome da empresa em que está entrando — inclusive quando veio de um convite por email (L9).
+export async function loginOuCriarComGoogle(email, nome, env, req) {
   const sql = getSql(env);
   const emailNorm = email.toLowerCase();
 
@@ -226,7 +250,7 @@ export async function loginOuCriarComGoogle(email, nome, env) {
         VALUES (${emailNorm}, ${nome || emailNorm}, ${convite.empresa_id}, ${convite.rank})
         RETURNING *
       `;
-      await sql`UPDATE convites SET aceito = true WHERE id = ${convite.id}`;
+      await sql`DELETE FROM convites WHERE id = ${convite.id}`;
       usuario = novos[0];
       if (convite.obra_id) {
         await sql`
@@ -249,6 +273,7 @@ export async function loginOuCriarComGoogle(email, nome, env) {
     }
   }
 
+  if (req) await registrarAcesso(sql, req, usuario.id, "google");
   const token = await signJWT({ usuarioId: usuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
   return { token, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome } };
 }

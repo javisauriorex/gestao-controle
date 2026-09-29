@@ -53,11 +53,13 @@ export async function googleCallback(req, env) {
     const payloadJson = b64urlDecode(tokenData.id_token.split(".")[1]);
     const payload = JSON.parse(payloadJson);
     if (!payload.email) return paginaHtml(paginaErro("O Google não retornou um e-mail."));
+    if (payload.email_verified === false) return paginaHtml(paginaErro("O e-mail desta conta Google não está verificado."));
 
-    const { token, usuario } = await loginOuCriarComGoogle(payload.email, payload.name || "", env);
+    const { token, usuario } = await loginOuCriarComGoogle(payload.email, payload.name || "", env, req);
     return paginaHtml(paginaSucesso(token, usuario));
   } catch (e) {
-    return paginaHtml(paginaErro(String(e && e.message || e)));
+    console.error("google callback", e);
+    return paginaHtml(paginaErro("Não foi possível entrar com o Google. Tente de novo."));
   }
 }
 

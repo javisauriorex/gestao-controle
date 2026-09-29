@@ -22,7 +22,7 @@ function cpf(n) { const b = String(n).padStart(9, "1").slice(0, 9).split("").map
   const d = (arr) => { let s = 0; arr.forEach((x, i) => s += x * (arr.length + 1 - i)); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
   const d1 = d(b); const d2 = d([...b, d1]); return b.join("") + d1 + d2; }
 
-const dono = await call("POST", "/api/auth/signup", null, { email: "dono@x.com", senha: "123456", nome: "Dono" });
+const dono = await call("POST", "/api/auth/signup", null, { email: "dono@x.com", senha: "12345678", nome: "Dono", aceitouTermos: true });
 check("signup dono", dono.ok, JSON.stringify(dono));
 const D = dono.token;
 const obraA = await call("POST", "/api/obras", D, { cliente: "Obra A" });
@@ -35,7 +35,7 @@ let i = 0;
 for (const [k, r] of Object.entries(ranks)) {
   const c = await call("POST", "/api/convite-link", D, { obraId: A, nome: k, rank: r });
   check("convite " + k, c.ok, JSON.stringify(c));
-  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(234567890 + (i++) * 1111), pin: "8391" });
+  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(234567890 + (i++) * 1111), pin: "8391", aceitouTermos: true });
   check("aceitar " + k, a.ok, JSON.stringify(a));
   pessoas[k] = { token: a.token, id: a.usuario.id };
 }
@@ -109,7 +109,8 @@ check("mestre exclui conta do chefe → 403", (await call("DELETE", `/api/usuari
 check("profissional exclui a própria conta", (await call("DELETE", "/api/usuarios-me", T("prof"))).ok);
 check("token do excluído não funciona mais", (await call("GET", "/api/obras", T("prof"))).status === 401);
 const eqA2 = await call("GET", `/api/equipe?obra_id=${A}`, D);
-check("excluído aparece como ausente na equipe", !!eqA2.equipe.find((m) => m.usuario_id === pessoas.prof.id)?.removido_em);
+const linhaExcl = eqA2.equipe.find((m) => m.usuario_id === pessoas.prof.id);
+check("excluído continua na equipe, anonimizado", !!linhaExcl?.removido_em && linhaExcl.nome === "Usuário removido" && linhaExcl.email == null, JSON.stringify(linhaExcl));
 const empresa = await call("GET", "/api/equipe", D);
 check("excluído some da lista 'Da empresa'", !empresa.equipe.find((m) => m.usuario_id === pessoas.prof.id));
 check("mestre (responsável) exclui conta do encarregado", (await call("DELETE", `/api/usuarios-me?id=${pessoas.encarr.id}`, T("mestre"))).ok);
@@ -124,7 +125,7 @@ check("almox registra observação", (await call("POST", "/api/observacoes", T("
 const c2 = await call("POST", "/api/obras", D, { cliente: "Obra C" });
 const C_ = c2.obra.id;
 const e1 = await call("POST", "/api/convite-link", D, { obraId: C_, nome: "enc2", rank: 5 });
-const enc2 = await call("POST", "/api/auth/aceitar-convite", null, { token: e1.token, cpf: cpf(398765432), pin: "7302" });
+const enc2 = await call("POST", "/api/auth/aceitar-convite", null, { token: e1.token, cpf: cpf(398765432), pin: "7302", aceitouTermos: true });
 check("aceitar enc2", enc2.ok, JSON.stringify(enc2));
 const convEnc = await call("POST", "/api/convite-link", enc2.token, { obraId: C_, nome: "pedreiro", rank: 8, funcao: "Pedreiro" });
 check("encarregado convida profissional", convEnc.ok, JSON.stringify(convEnc));
@@ -133,7 +134,7 @@ check("encarregado convida para obra onde não está → 403", (await call("POST
 check("encarregado gera Novo PIN → 403", (await call("POST", "/api/convite-link", enc2.token, { usuarioId: pessoas.almox.id })).status === 403);
 // Eng. Chefe edita outro Eng. Chefe
 const cc = await call("POST", "/api/convite-link", D, { obraId: C_, nome: "chefe2", rank: 2 });
-const chefe2 = await call("POST", "/api/auth/aceitar-convite", null, { token: cc.token, cpf: cpf(476543210), pin: "5190" });
+const chefe2 = await call("POST", "/api/auth/aceitar-convite", null, { token: cc.token, cpf: cpf(476543210), pin: "5190", aceitouTermos: true });
 const eqC = await call("GET", `/api/equipe?obra_id=${C_}`, D);
 const linhaChefe2 = eqC.equipe.find((m) => m.usuario_id === chefe2.usuario.id);
 check("chefe muda rank de outro chefe para 3", (await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 3 })).ok);
@@ -150,7 +151,7 @@ const ets = await call("GET", `/api/etapas?obra_id=${C_}`, D);
 check("etapa mostra quem concluiu", ets.etapas.find((e) => e.id === et2.etapa.id)?.concluida_por_nome === "enc2");
 
 // --- Segurança (auditoria L1–L3, 2026-09-29) ---
-const outra = await call("POST", "/api/auth/signup", null, { email: "dono2@y.com", senha: "123456", nome: "Dono2" });
+const outra = await call("POST", "/api/auth/signup", null, { email: "dono2@y.com", senha: "12345678", nome: "Dono2", aceitouTermos: true });
 const D2 = outra.token;
 const obraOutra = (await call("POST", "/api/obras", D2, { cliente: "Obra da outra empresa" })).obra.id;
 // L1 arquivos
@@ -188,6 +189,42 @@ await call("POST", "/api/arquivo-set", D, { id: uuid2, payload: "{}" });
 const et3 = await call("POST", "/api/etapas", D, { obraId: C_, texto: "Pintura" });
 check("foto vinculada à etapa", (await call("POST", "/api/etapa-fotos", D, { etapaId: et3.etapa.id, arquivoId: uuid2 })).ok);
 check("apagar obra C apaga fotos do KV", (await call("DELETE", `/api/obras?id=${C_}`, D)).ok && !kv.has(uuid2));
+
+// --- Bloco legal (2026-09-29) ---
+check("cadastro sem aceitar termos → 400", (await call("POST", "/api/auth/signup", null, { email: "z@z.com", senha: "12345678", nome: "Z" })).status === 400);
+check("cadastro com senha curta → 400", (await call("POST", "/api/auth/signup", null, { email: "z@z.com", senha: "123", nome: "Z", aceitouTermos: true })).status === 400);
+const me2 = await call("GET", "/api/usuarios-me", D);
+check("dono tem termos aceitos na versão vigente", me2.usuario.termos_versao === me2.termos_vigente && !!me2.usuario.termos_aceito_em, JSON.stringify(me2));
+check("usuarios-me não expõe contadores de login", !("login_tentativas" in me2.usuario) && !!me2.usuario.empresa_nome);
+const cConv = await call("POST", "/api/convite-link", D, { obraId: A, nome: "semaceite", rank: 8 });
+check("aceitar convite sem termos → 400", (await call("POST", "/api/auth/aceitar-convite", null, { token: cConv.token, cpf: cpf(611122233), pin: "4816" })).status === 400);
+const okConv = await call("POST", "/api/auth/aceitar-convite", null, { token: cConv.token, cpf: cpf(611122233), pin: "4816", aceitouTermos: true });
+check("aceitar convite com termos", okConv.ok);
+const { pool: poolDb } = await import("./src/lib/db.js");
+const convRest = await poolDb.query("SELECT count(*)::int n FROM convites WHERE token = $1", [cConv.token]);
+check("convite usado é apagado", convRest.rows[0].n === 0);
+const acs = await poolDb.query("SELECT metodo, count(*)::int n FROM acessos GROUP BY metodo");
+const met = Object.fromEntries(acs.rows.map((r) => [r.metodo, r.n]));
+check("acessos registrados (cadastro, convite, cpf)", met.cadastro >= 2 && met.convite >= 1 && met.cpf >= 1, JSON.stringify(met));
+// usuário antigo sem aceite → aceita via PATCH
+await poolDb.query("UPDATE usuarios SET termos_versao = NULL WHERE id = $1", [me2.usuario.id]);
+check("usuário sem aceite aparece sem termos", !(await call("GET", "/api/usuarios-me", D)).usuario.termos_versao);
+check("aceitar termos pelo app", (await call("PATCH", "/api/usuarios-me", D, { aceitarTermos: true })).ok && (await call("GET", "/api/usuarios-me", D)).usuario.termos_versao === "1.0");
+// bloqueio progressivo no login por senha
+for (let k = 0; k < 4; k++) await call("POST", "/api/auth/login", null, { email: "dono2@y.com", senha: "errada" });
+const bloq1 = await call("POST", "/api/auth/login", null, { email: "dono2@y.com", senha: "errada" });
+check("5ª senha errada bloqueia 15 min", bloq1.status === 429 && /15 min/.test(bloq1.error), JSON.stringify(bloq1));
+check("bloqueado nem com a senha certa", (await call("POST", "/api/auth/login", null, { email: "dono2@y.com", senha: "12345678" })).status === 429);
+await poolDb.query("UPDATE usuarios SET login_bloqueado_ate = now() - interval '1 minute' WHERE email = 'dono2@y.com'");
+for (let k = 0; k < 4; k++) await call("POST", "/api/auth/login", null, { email: "dono2@y.com", senha: "errada" });
+const bloq2 = await call("POST", "/api/auth/login", null, { email: "dono2@y.com", senha: "errada" });
+check("2ª rodada bloqueia 1 h", bloq2.status === 429 && /1 h/.test(bloq2.error), JSON.stringify(bloq2));
+await poolDb.query("UPDATE usuarios SET login_bloqueado_ate = now() - interval '1 minute' WHERE email = 'dono2@y.com'");
+check("senha certa entra e zera", (await call("POST", "/api/auth/login", null, { email: "dono2@y.com", senha: "12345678" })).ok);
+// convite-info não expõe endereço da obra
+const cInfo = await call("POST", "/api/convite-link", D, { obraId: A, nome: "info", rank: 8 });
+const info = await call("GET", `/api/convite-info?token=${cInfo.token}`, null);
+check("convite-info sem endereço", info.ok && info.obra && !("endereco" in info.obra), JSON.stringify(info));
 
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;

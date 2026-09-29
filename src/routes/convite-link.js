@@ -1,5 +1,6 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, hashSenha, verificarSenha, signJWT } from "../lib/auth.js";
+import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
 
 // ============================================================
 // Convite por link (WhatsApp) + login com CPF e PIN.
@@ -10,8 +11,7 @@ import { getUsuario, jsonResponse, hashSenha, verificarSenha, signJWT } from "..
 // ============================================================
 
 const VALIDADE_DIAS = 7;
-const MAX_TENTATIVAS = 5;
-const BLOQUEIO_MIN = 15;
+const MAX_TENTATIVAS = 5; // depois: bloqueio progressivo (15 min → 1 h → 24 h), ver lib/legal.js
 
 export function limparCpf(cpf) {
   return String(cpf || "").replace(/\D/g, "");
@@ -74,7 +74,7 @@ export async function criarConviteLink(req, env) {
       return jsonResponse({ ok: false, error: "só pode gerar Novo PIN para ranks abaixo do seu" }, 403);
     }
     // Invalida links de Novo PIN anteriores dessa pessoa
-    await sql`UPDATE convites SET aceito = true WHERE usuario_id = ${alvo.id} AND aceito = false`;
+    await sql`DELETE FROM convites WHERE usuario_id = ${alvo.id}`;
     const rows = await sql`
       INSERT INTO convites (empresa_id, email, nome, telefone, rank, funcao, obra_id, criado_por, token, expira_em, usuario_id)
       VALUES (${usuario.empresa_id}, ${null}, ${alvo.nome}, ${alvo.telefone}, ${alvo.rank}, ${""}, ${null}, ${usuario.id}, ${token}, ${expira}, ${alvo.id})
@@ -120,7 +120,7 @@ export async function conviteInfo(req, env) {
   if (erro) return jsonResponse({ ok: false, error: erro }, 404);
   let obra = null;
   if (convite.obra_id) {
-    const o = await sql`SELECT cliente, endereco FROM obras WHERE id = ${convite.obra_id}`;
+    const o = await sql`SELECT cliente FROM obras WHERE id = ${convite.obra_id}`; // só o necessário (sem endereço)
     obra = o[0] || null;
   }
   let temCpf = false;
@@ -143,9 +143,10 @@ export async function conviteInfo(req, env) {
 export async function aceitarConvite(req, env) {
   if (req.method !== "POST") return jsonResponse({ ok: false, error: "method not allowed" }, 405);
   const sql = getSql(env);
-  const { token, cpf: cpfBruto, pin } = await req.json();
+  const { token, cpf: cpfBruto, pin, aceitouTermos } = await req.json();
   const { convite, erro } = await buscarConviteValido(sql, token);
   if (erro) return jsonResponse({ ok: false, error: erro }, 404);
+  if (!aceitouTermos) return jsonResponse({ ok: false, error: "É preciso aceitar os Termos de Uso e a Política de Privacidade." }, 400);
 
   const cpf = limparCpf(cpfBruto);
   if (!cpfValido(cpf)) return jsonResponse({ ok: false, error: "CPF inválido. Confira os números." }, 400);
@@ -164,10 +165,12 @@ export async function aceitarConvite(req, env) {
       if (dono.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
     }
     const rows = await sql`
-      UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL
+      UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL,
+        termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now()
       WHERE id = ${u.id} RETURNING *
     `;
-    await sql`UPDATE convites SET aceito = true WHERE id = ${convite.id}`;
+    await sql`DELETE FROM convites WHERE id = ${convite.id}`;
+    await registrarAcesso(sql, req, u.id, "convite");
     return jsonResponse(await emitirSessao(rows[0], env));
   }
 
@@ -181,12 +184,14 @@ export async function aceitarConvite(req, env) {
     if (porEmail.length > 0) return jsonResponse({ ok: false, error: "Este email já tem conta. Entre normalmente." }, 409);
   }
   const novos = await sql`
-    INSERT INTO usuarios (email, nome, empresa_id, rank, cpf, pin_hash, telefone)
-    VALUES (${convite.email}, ${convite.nome || "Sem nome"}, ${convite.empresa_id}, ${convite.rank}, ${cpf}, ${pinHash}, ${convite.telefone})
+    INSERT INTO usuarios (email, nome, empresa_id, rank, cpf, pin_hash, telefone, termos_versao, termos_aceito_em)
+    VALUES (${convite.email}, ${convite.nome || "Sem nome"}, ${convite.empresa_id}, ${convite.rank}, ${cpf}, ${pinHash}, ${convite.telefone}, ${TERMOS_VERSAO}, now())
     RETURNING *
   `;
   const novo = novos[0];
-  await sql`UPDATE convites SET aceito = true WHERE id = ${convite.id}`;
+  // Convite usado não serve mais: apagado (guardava nome/telefone/email).
+  await sql`DELETE FROM convites WHERE id = ${convite.id}`;
+  await registrarAcesso(sql, req, novo.id, "convite");
   if (convite.obra_id) {
     await sql`
       INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
@@ -206,27 +211,30 @@ export async function loginCpf(req, env) {
   const erroGenerico = jsonResponse({ ok: false, error: "CPF ou PIN incorretos." }, 401);
   if (cpf.length !== 11 || !pin) return erroGenerico;
 
-  const rows = await sql`SELECT * FROM usuarios WHERE cpf = ${cpf}`;
+  const rows = await sql`SELECT * FROM usuarios WHERE cpf = ${cpf} AND removido_em IS NULL`;
   if (rows.length === 0 || !rows[0].pin_hash) return erroGenerico;
   const u = rows[0];
 
   if (u.pin_bloqueado_ate && new Date(u.pin_bloqueado_ate) > new Date()) {
-    const min = Math.ceil((new Date(u.pin_bloqueado_ate) - new Date()) / 60000);
-    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${min} min, ou peça um Novo PIN ao seu chefe.` }, 429);
+    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(u.pin_bloqueado_ate)}, ou peça um Novo PIN ao seu chefe.` }, 429);
   }
 
   const ok = await verificarSenha(String(pin), u.pin_hash);
   if (!ok) {
     const tent = (u.pin_tentativas || 0) + 1;
     if (tent >= MAX_TENTATIVAS) {
-      const ate = new Date(Date.now() + BLOQUEIO_MIN * 60000).toISOString();
-      await sql`UPDATE usuarios SET pin_tentativas = 0, pin_bloqueado_ate = ${ate} WHERE id = ${u.id}`;
-      return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${BLOQUEIO_MIN} min.` }, 429);
+      // Bloqueio progressivo: 15 min → 1 h → 24 h (zera ao acertar ou com Novo PIN).
+      const rodadas = u.pin_rodadas || 0;
+      const min = duracaoBloqueioMin(rodadas);
+      await sql`UPDATE usuarios SET pin_tentativas = 0, pin_rodadas = ${rodadas + 1},
+        pin_bloqueado_ate = now() + (${min} * interval '1 minute') WHERE id = ${u.id}`;
+      return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${min >= 60 ? min / 60 + " h" : min + " min"}.` }, 429);
     }
     await sql`UPDATE usuarios SET pin_tentativas = ${tent} WHERE id = ${u.id}`;
     return erroGenerico;
   }
 
-  await sql`UPDATE usuarios SET pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE id = ${u.id}`;
+  await sql`UPDATE usuarios SET pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL WHERE id = ${u.id}`;
+  await registrarAcesso(sql, req, u.id, "cpf");
   return jsonResponse(await emitirSessao(u, env));
 }

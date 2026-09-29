@@ -1,15 +1,19 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, hashSenha } from "../lib/auth.js";
 import { limparCpf, cpfValido, problemaPin } from "./convite-link.js";
+import { TERMOS_VERSAO } from "../lib/legal.js";
 
 export default async function usuariosMeHandler(req, env) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
 
   if (req.method === "GET") {
-    const { senha_hash, pin_hash, cpf, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
+    const { senha_hash, pin_hash, cpf, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
     const cpfMascarado = cpf ? `${cpf.slice(0, 3)}.***.***-${cpf.slice(9)}` : null;
-    return jsonResponse({ ok: true, usuario: { ...publico, cpf_mascarado: cpfMascarado, tem_senha: !!senha_hash, tem_pin: !!pin_hash } });
+    const emp = await getSql(env)`SELECT nome FROM empresas WHERE id = ${usuario.empresa_id}`;
+    return jsonResponse({ ok: true, termos_vigente: TERMOS_VERSAO, usuario: {
+      ...publico, empresa_nome: emp[0] ? emp[0].nome : null, cpf_mascarado: cpfMascarado, tem_senha: !!senha_hash, tem_pin: !!pin_hash,
+    } });
   }
 
   // Define ou troca a senha. Útil sobretudo pra quem entrou via Google e
@@ -18,6 +22,12 @@ export default async function usuariosMeHandler(req, env) {
   // a senha no Google Password Manager.
   if (req.method === "PATCH") {
     const body = await req.json();
+
+    // Aceite dos Termos de Uso e da Política de Privacidade (versão vigente) — L4
+    if (body.aceitarTermos) {
+      await getSql(env)`UPDATE usuarios SET termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now() WHERE id = ${usuario.id}`;
+      return jsonResponse({ ok: true, termos_versao: TERMOS_VERSAO });
+    }
 
     // Criar/trocar meu PIN (para também entrar com CPF + PIN). Quem já tem CPF não troca o CPF.
     if (body.pin !== undefined) {
@@ -31,13 +41,13 @@ export default async function usuariosMeHandler(req, env) {
         if (dono.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
       }
       const pinHash = await hashSenha(String(body.pin));
-      await sql`UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
+      await sql`UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
       return jsonResponse({ ok: true });
     }
 
     const { novaSenha } = body;
-    if (!novaSenha || novaSenha.length < 6) {
-      return jsonResponse({ ok: false, error: "a senha precisa ter ao menos 6 caracteres" }, 400);
+    if (!novaSenha || novaSenha.length < 8) {
+      return jsonResponse({ ok: false, error: "a senha precisa ter ao menos 8 caracteres" }, 400);
     }
     const sql = getSql(env);
     const senhaHash = await hashSenha(novaSenha);
@@ -46,9 +56,9 @@ export default async function usuariosMeHandler(req, env) {
   }
 
   // Excluir conta. DELETE sem ?id → a própria conta. DELETE ?id=X → conta de outro (só um superior dele).
-  // A pessoa NÃO some do histórico: nome e registros ficam, e ela aparece como "ausente".
-  // Apagamos os dados de acesso e pessoais (email, CPF, senha, PIN, telefone) — ela não entra mais,
-  // e o email/CPF ficam livres caso um dia seja convidada de novo.
+  // ANONIMIZAÇÃO: os registros da pessoa (observações, pedidos, etapas, fotos) ficam na obra,
+  // mas assinados como "Usuário removido". Apagamos nome, email, CPF, senha, PIN e telefone:
+  // não sobra nenhum dado pessoal. Email/CPF ficam livres caso um dia seja convidada de novo.
   if (req.method === "DELETE") {
     const sql = getSql(env);
     const idParam = new URL(req.url).searchParams.get("id");
@@ -74,11 +84,11 @@ export default async function usuariosMeHandler(req, env) {
         ON CONFLICT (obra_id, usuario_id) DO NOTHING
       `;
     }
-    await sql`UPDATE convites SET aceito = true WHERE usuario_id = ${alvo.id} AND aceito = false`;
+    await sql`DELETE FROM convites WHERE usuario_id = ${alvo.id}`;
     await sql`
       UPDATE usuarios SET
-        removido_em = now(), removido_por = ${usuario.id},
-        email = NULL, cpf = NULL, senha_hash = NULL, pin_hash = NULL, telefone = NULL
+        removido_em = now(), removido_por = ${usuario.id}, nome = 'Usuário removido',
+        email = NULL, cpf = NULL, senha_hash = NULL, pin_hash = NULL, telefone = NULL, excecao_modulos = NULL
       WHERE id = ${alvo.id}
     `;
     return jsonResponse({ ok: true, propria });

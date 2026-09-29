@@ -1,6 +1,6 @@
 -- ============================================================
 -- Gestão & Controle — ESQUEMA REAL do banco (Neon, projeto raspy-forest-82462838)
--- Gerado a partir do Neon em 2026-09-28, depois do bloco de ranks.
+-- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql).
 --
 -- Serve de DOCUMENTAÇÃO e para montar bancos de teste. NÃO rodar no Neon
 -- de produção (as tabelas já existem). Mudanças novas vão em sql/AAAA-MM-DD-nome.sql
@@ -34,6 +34,12 @@ CREATE TABLE usuarios (
   telefone text,
   removido_em timestamp with time zone,
   removido_por integer,
+  termos_versao text,
+  termos_aceito_em timestamp with time zone,
+  pin_rodadas integer DEFAULT 0,
+  login_tentativas integer DEFAULT 0,
+  login_bloqueado_ate timestamp with time zone,
+  login_rodadas integer DEFAULT 0,
   CONSTRAINT usuarios_rank_check CHECK (((rank >= 1) AND (rank <= 8))),
   CONSTRAINT usuarios_empresa_id_fkey FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
   CONSTRAINT usuarios_removido_por_fkey FOREIGN KEY (removido_por) REFERENCES usuarios(id),
@@ -244,7 +250,21 @@ CREATE TABLE leads (
   CONSTRAINT leads_pkey PRIMARY KEY (id)
 );
 
+-- Registros de acesso (Marco Civil art. 15): IP + data/hora de cada entrada, apagados após 180 dias.
+CREATE TABLE acessos (
+  id SERIAL,
+  usuario_id integer,
+  metodo text NOT NULL,
+  ip text,
+  user_agent text,
+  criado_em timestamp with time zone DEFAULT now(),
+  CONSTRAINT acessos_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL,
+  CONSTRAINT acessos_pkey PRIMARY KEY (id)
+);
+
 -- Índices
+CREATE INDEX idx_acessos_criado_em ON public.acessos USING btree (criado_em);
+CREATE INDEX idx_acessos_usuario ON public.acessos USING btree (usuario_id);
 CREATE INDEX idx_convites_email ON public.convites USING btree (email);
 CREATE INDEX idx_documentos_obra ON public.documentos USING btree (obra_id);
 CREATE INDEX idx_equipe_obra ON public.equipe USING btree (obra_id);
