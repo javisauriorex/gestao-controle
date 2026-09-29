@@ -17,6 +17,7 @@ import leads from "./routes/leads.js";
 import arquivoSet from "./routes/arquivo-set.js";
 import arquivoGet from "./routes/arquivo-get.js";
 import arquivoDelete from "./routes/arquivo-delete.js";
+import ajuda from "./routes/ajuda.js";
 
 const ROTAS = {
   "/api/auth/login": login,
@@ -43,6 +44,7 @@ const ROTAS = {
   "/api/arquivo-set": arquivoSet,
   "/api/arquivo-get": arquivoGet,
   "/api/arquivo-delete": arquivoDelete,
+  "/api/ajuda": ajuda,
 };
 
 export default {

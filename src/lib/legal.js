@@ -4,7 +4,7 @@
 
 // Versão vigente dos Termos de Uso + Política de Privacidade.
 // Mudou o texto de forma relevante? Suba a versão: todos terão que aceitar de novo.
-export const TERMOS_VERSAO = "1.0";
+export const TERMOS_VERSAO = "1.1"; // 1.1 (29/09/2026): assistente de Ajuda com IA (Cloudflare Workers AI)
 
 // Marco Civil art. 15: guardar IP + data/hora dos acessos por 6 meses.
 // Aproveita a chamada para fazer a faxina legal (logs velhos e convites vencidos).

@@ -1348,12 +1348,161 @@ function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph
   );
 }
 
-function BottomNav({ onInicio, onConfig, active }) {
+// --- Ajuda: o conteúdo vem do servidor (src/lib/ajuda-conhecimento.js), mesma fonte do assistente ---
+let ajudaCache = null;
+async function carregarAjuda() {
+  if (!ajudaCache) ajudaCache = apiFetch("/api/ajuda").catch((e) => { ajudaCache = null; throw e; });
+  return ajudaCache;
+}
+
+// Texto simples com **negrito** e quebras de linha (respostas do assistente e seções)
+function TextoAjuda({ texto }) {
+  return (
+    <div style={{ color: C.ink }} className="text-sm whitespace-pre-wrap leading-relaxed">
+      {String(texto || "").split(/(\*\*[^*]+\*\*)/g).map((p, i) => p.startsWith("**") && p.endsWith("**") ? <b key={i}>{p.slice(2, -2)}</b> : <span key={i}>{p}</span>)}
+    </div>
+  );
+}
+
+// "?" no topo de cada gaveta: mostra a seção do manual daquele módulo
+function AjudaModulo({ modulo }) {
+  const [aberto, setAberto] = useState(false);
+  const [secao, setSecao] = useState(null);
+  const abrir = async () => {
+    if (aberto) { setAberto(false); return; }
+    setAberto(true);
+    if (!secao) { try { const r = await carregarAjuda(); setSecao(r.secoes.find((x) => x.modulo === modulo) || null); } catch (e) {} }
+  };
+  return (
+    <>
+      <button onClick={abrir} title="Ajuda desta gaveta" style={{ borderColor: C.border, color: C.inkMuted }} className="ml-auto w-7 h-7 border rounded-full text-sm font-bold shrink-0">?</button>
+      {aberto && (
+        <div style={{ background: C.surface, borderColor: C.amber }} className="basis-full border-l-4 rounded-r p-3 mt-2 text-left normal-case tracking-normal font-normal">
+          {secao ? <TextoAjuda texto={secao.texto} /> : <p style={{ color: C.inkMuted }} className="text-xs font-mono">Carregando...</p>}
+          <button onClick={() => setAberto(false)} style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase mt-2">Fechar</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function AjudaScreen({ usuarioAPI }) {
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState("");
+  const [conversa, setConversa] = useState([]); // [{role, content}]
+  const [pergunta, setPergunta] = useState("");
+  const [pensando, setPensando] = useState(false);
+  const [aberta, setAberta] = useState(null);
+  const fimRef = useRef(null);
+
+  useEffect(() => { carregarAjuda().then(setDados).catch((e) => setErro(e.message)); }, []);
+  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [conversa, pensando]);
+
+  const perguntar = async (texto) => {
+    const t = String(texto || "").trim();
+    if (!t || pensando) return;
+    setPergunta(""); setErro("");
+    const historico = conversa.slice(-4);
+    setConversa((c) => [...c, { role: "user", content: t }]);
+    setPensando(true);
+    try {
+      const r = await apiFetch("/api/ajuda", { method: "POST", body: JSON.stringify({ pergunta: t, historico }) });
+      setConversa((c) => [...c, { role: "assistant", content: r.resposta }]);
+    } catch (e) {
+      setConversa((c) => [...c, { role: "assistant", content: e.message, erro: true }]);
+    }
+    setPensando(false);
+  };
+
+  if (erro && !dados) return <p style={{ color: C.rust }} className="text-sm font-mono text-center py-16">{erro}</p>;
+  if (!dados) return <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>;
+
+  const primeiro = (usuarioAPI.nome || "").split(" ")[0];
+  const secoesOrdenadas = [...dados.secoes].sort((a, b) => (b.para === dados.grupo) - (a.para === dados.grupo));
+
+  return (
+    <div>
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">❓ Ajuda</h2>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Olá, {primeiro}! Você é <b>{RANK_LABELS[usuarioAPI.rank]}</b>.</p>
+
+      {dados.assistente && (
+        <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-3 mb-5">
+          <p style={{ color: C.ink }} className="font-bold text-sm mb-2">💬 Pergunte ao G&C</p>
+          <div className="space-y-2 mb-2">
+            {conversa.length === 0 && (
+              <div className="flex flex-wrap gap-2">
+                {dados.sugestoes.map((q) => (
+                  <button key={q} onClick={() => perguntar(q)} style={{ borderColor: C.teal, color: C.teal }} className="border rounded-full px-3 py-1 text-xs text-left">{q}</button>
+                ))}
+              </div>
+            )}
+            {conversa.map((m, i) => (
+              <div key={i} className={m.role === "user" ? "flex justify-end" : "flex"}>
+                <div style={{ background: m.role === "user" ? C.teal : C.bg, color: m.role === "user" ? "#fff" : C.ink, borderColor: m.erro ? C.rust : C.border }} className={`max-w-[85%] rounded-lg px-3 py-2 ${m.role === "user" ? "" : "border"}`}>
+                  {m.role === "user" ? <span className="text-sm">{m.content}</span> : <TextoAjuda texto={m.content} />}
+                </div>
+              </div>
+            ))}
+            {pensando && <p style={{ color: C.inkMuted }} className="text-xs font-mono">G&C está pensando...</p>}
+            <div ref={fimRef} />
+          </div>
+          <div className="flex gap-2">
+            <input value={pergunta} onChange={(e) => setPergunta(e.target.value)} onKeyDown={(e) => e.key === "Enter" && perguntar(pergunta)} maxLength={400} placeholder="Escreva sua dúvida..." style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-2 text-sm outline-none" />
+            <button onClick={() => perguntar(pergunta)} disabled={!pergunta.trim() || pensando} style={{ background: C.teal }} className="text-white rounded px-3 text-sm font-bold disabled:opacity-40">Enviar</button>
+          </div>
+          <p style={{ color: C.inkMuted }} className="text-[10px] font-mono mt-2">O assistente usa inteligência artificial e pode errar. Não escreva CPF, PIN ou senha aqui. Na dúvida, confira no guia abaixo ou fale com seu superior.</p>
+        </div>
+      )}
+
+      <p style={{ color: C.ink }} className="font-bold text-sm mb-2">📖 Guia</p>
+      <div className="space-y-2">
+        {secoesOrdenadas.map((sec) => (
+          <div key={sec.id} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md">
+            <button onClick={() => setAberta(aberta === sec.id ? null : sec.id)} style={{ color: C.ink }} className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold text-left">
+              <span>{sec.titulo}</span><span style={{ color: C.inkMuted }}>{aberta === sec.id ? "▲" : "▼"}</span>
+            </button>
+            {aberta === sec.id && <div className="px-3 pb-3"><TextoAjuda texto={sec.texto} /></div>}
+          </div>
+        ))}
+      </div>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">Não achou? Escreva para <a href="mailto:suporte@gestaoecontrole.app.br" style={{ color: C.amber }} className="underline">suporte@gestaoecontrole.app.br</a></p>
+    </div>
+  );
+}
+
+// Cartão de boas-vindas no primeiro acesso (some ao tocar em "Entendi")
+function BoasVindas({ usuarioAPI, onAbrirAjuda }) {
+  const chave = `gc-boasvindas-${usuarioAPI.id}`;
+  const [visivel, setVisivel] = useState(() => { try { return !localStorage.getItem(chave); } catch (e) { return false; } });
+  if (!visivel) return null;
+  const fechar = () => { try { localStorage.setItem(chave, "1"); } catch (e) {} setVisivel(false); };
+  const chefe = usuarioAPI.rank <= 5;
+  return (
+    <div style={{ background: C.surface, borderColor: C.amber }} className="border-2 rounded-md p-4 mb-4">
+      <p style={{ color: C.ink }} className="font-bold text-sm">👋 Bem-vindo ao G&C, {(usuarioAPI.nome || "").split(" ")[0]}!</p>
+      <p style={{ color: C.inkMuted }} className="text-sm mt-1">Você é <b style={{ color: C.ink }}>{RANK_LABELS[usuarioAPI.rank]}</b>.{" "}
+        {chefe
+          ? "Comece abrindo uma obra (ou criando uma) e convide sua equipe pela gaveta Equipe → 📲 Novo por link."
+          : "Toque numa obra para abrir. Dentro dela, cada gaveta tem um botão ? que explica o que dá para fazer."}
+      </p>
+      <div className="flex gap-2 mt-3">
+        <button onClick={() => { fechar(); onAbrirAjuda(); }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-xs rounded px-3 py-2">❓ Abrir Ajuda</button>
+        <button onClick={fechar} style={{ borderColor: C.border, color: C.ink }} className="border font-bold uppercase tracking-wide text-xs rounded px-3 py-2">Entendi</button>
+      </div>
+    </div>
+  );
+}
+
+function BottomNav({ onInicio, onConfig, onAjuda, active }) {
   return (
     <div style={{ background: C.surface, borderColor: C.border }} className="fixed bottom-0 left-0 right-0 border-t flex justify-around items-center py-2 z-40">
       <button onClick={onInicio} className="flex flex-col items-center gap-0.5 px-6 py-1">
         <img src="logo_home_11.webp" alt="Início" className="w-6 h-6 object-contain" style={{ opacity: active === "inicio" ? 1 : 0.55 }} draggable="false" />
         <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Início</span>
+      </button>
+      <button onClick={onAjuda} className="flex flex-col items-center gap-0.5 px-6 py-1">
+        <span className="w-6 h-6 flex items-center justify-center text-lg leading-none" style={{ opacity: active === "ajuda" ? 1 : 0.55 }}>❓</span>
+        <span style={{ color: active === "ajuda" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Ajuda</span>
       </button>
       <button onClick={onConfig} className="flex flex-col items-center gap-0.5 px-6 py-1">
         <img src="logo_config_12.webp" alt="Config" className="w-6 h-6 object-contain" style={{ opacity: 0.55 }} draggable="false" />
@@ -1747,7 +1896,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     const podeEditar = nivelDoModulo(modulo) === "editar";
     return (
       <div>
-        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}</h2>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex flex-wrap items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}<AjudaModulo modulo={modulo} /></h2>
         {modulo === "documentos" && <PedidosPanel obraId={obra.id} tipo="documento" tipoLabel="Documentos" equipe={equipe} usuarioAPI={usuarioAPI} />}
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} usuarioId={usuarioAPI?.id} responsavelId={obra.responsavel_id} podeEditar={podeEditar} />}
@@ -2476,7 +2625,7 @@ function GestorObras() {
       if (saved.view === "obra" && saved.selectedId && listaObras.some((o) => o.id === saved.selectedId)) {
         abrirObra(saved.selectedId, { pushHistory: arranqueFrio, moduloInicial: saved.modulo || null });
         if (arranqueFrio && saved.modulo) empurrarHistorico({ gcModulo: true });
-      } else if (["pendientes", "report", "permissoes", "leads"].includes(saved.view)) {
+      } else if (["pendientes", "report", "permissoes", "leads", "ajuda"].includes(saved.view)) {
         setView(saved.view);
         if (arranqueFrio) empurrarHistorico({ gcView: saved.view });
       }
@@ -2931,6 +3080,7 @@ function GestorObras() {
               <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
             </div>
           </div>
+          <BoasVindas usuarioAPI={usuarioAPI} onAbrirAjuda={() => irParaView("ajuda")} />
           <div className="flex flex-wrap gap-2 mb-4">
             {usuarioAPI.rank <= 4 && <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>}
             <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
@@ -2974,6 +3124,7 @@ function GestorObras() {
       {view === "report" && <ReportView obras={obras} onBack={() => window.history.back()} />}
       {view === "permissoes" && <PermissoesScreen onBack={() => window.history.back()} usuarioRank={usuarioAPI.rank} />}
       {view === "leads" && <LeadsScreen onBack={() => window.history.back()} />}
+      {view === "ajuda" && <AjudaScreen usuarioAPI={usuarioAPI} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
       {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
@@ -2982,7 +3133,7 @@ function GestorObras() {
     content = (
       <>
         {content}
-        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
+        <BottomNav active={view === "dashboard" ? "inicio" : view === "ajuda" ? "ajuda" : ""} onAjuda={() => { if (view !== "ajuda") irParaView("ajuda"); }} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
         {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
         {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
