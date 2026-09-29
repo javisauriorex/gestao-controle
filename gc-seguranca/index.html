@@ -1,0 +1,2999 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#D98E04" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<title>Gestão & Controle</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"Special Elite"', 'ui-monospace', 'monospace'],
+          mono: ['"Special Elite"', 'ui-monospace', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { margin:0; padding:0; background:#EDEAE1; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Special Elite', ui-monospace, monospace; }
+  .font-comic { font-family: 'Bangers', cursive; letter-spacing: 0.03em; }
+  @keyframes logoPop {
+    0% { transform: scale(0.2); opacity: 0; }
+    60% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .logo-pop { animation: logoPop 0.7s cubic-bezier(0.34,1.56,0.64,1) both; border-radius: 9999px; position: relative; }
+  @keyframes blinkFade {
+    0%, 92%, 100% { opacity: 0; }
+    94%, 97% { opacity: 1; }
+  }
+  .logo-blink-img { animation: blinkFade 3.5s infinite; }
+
+  /* Splash: el título crece en altura empujando al conjunto centrado hacia arriba (el logo "sube" solo) */
+  @keyframes splashTitleGrow {
+    0% { max-height: 0; margin-top: 0; }
+    100% { max-height: 140px; margin-top: 14px; }
+  }
+  .splash-title-wrap {
+    max-height: 0;
+    overflow: hidden;
+    text-align: center;
+    line-height: 1.15;
+    animation: splashTitleGrow 0.9s ease-out 1s forwards;
+  }
+
+  /* Efecto "reparto de cartas": cada letra entra grande y se achica a su tamaño final */
+  @keyframes dealLetter {
+    0% { transform: scale(2.6); opacity: 0; }
+    55% { transform: scale(0.85); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .deal-letter {
+    display: inline-block;
+    opacity: 0;
+    animation-name: dealLetter;
+    animation-duration: 0.35s;
+    animation-timing-function: cubic-bezier(0.22, 0.9, 0.3, 1);
+    animation-fill-mode: both;
+  }
+
+  /* Barrita de carga estilo Windows XP: aparece recién en el segundo 2, en loop */
+  .xp-loader-wrap {
+    position: absolute;
+    bottom: 56px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    opacity: 0;
+    animation: fadeIn 0.2s ease 2s forwards;
+  }
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+  .xp-loader-track {
+    width: 160px;
+    height: 12px;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    background: #ffffff;
+    border: 1px solid #b8b8b8;
+  }
+  .xp-loader-bar {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    width: 38%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #1b5fa8, #6fb2f0, #1b5fa8);
+    animation: xpSlide 1.1s linear 2s infinite;
+  }
+  @keyframes xpSlide {
+    0% { left: -40%; }
+    100% { left: 100%; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel-source" id="app-source">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// --- shim: localStorage acting like window.storage ---
+window.storage = {
+  get: async (key) => { const v = localStorage.getItem(key); return v !== null ? { key, value: v } : null; },
+  set: async (key, value) => { localStorage.setItem(key, value); return { key, value }; },
+};
+
+const TEMA_CLARO = {
+  bg: "#EDEAE1", surface: "#FFFFFF", ink: "#262420", inkMuted: "#6B655C",
+  border: "#D8D2C4", amber: "#D98E04", blue: "#35586F", rust: "#B54B33",
+  green: "#4B7A51", steel: "#7A6A52", teal: "#3E7068",
+};
+const TEMA_ESCURO = {
+  bg: "#1C1B19", surface: "#262420", ink: "#EDEAE1", inkMuted: "#A8A29A",
+  border: "#3D3A35", amber: "#E8A33D", blue: "#7BA0BF", rust: "#E08769",
+  green: "#7FB588", steel: "#B7A184", teal: "#6FBBA9",
+};
+// C referencia variables CSS: los valores reales se inyectan en el div raíz según o tema ativo.
+// Isso permite trocar de tema sem reescrever cada componente que usa C.xxx.
+const C = {
+  bg: "var(--c-bg)", surface: "var(--c-surface)", ink: "var(--c-ink)", inkMuted: "var(--c-inkMuted)",
+  border: "var(--c-border)", amber: "var(--c-amber)", blue: "var(--c-blue)", rust: "var(--c-rust)",
+  green: "var(--c-green)", steel: "var(--c-steel)", teal: "var(--c-teal)",
+};
+
+const REG_CATS = {
+  ferramenta: { label: "Ferramenta", color: C.steel, glyph: "🔧" },
+  material: { label: "Material", color: C.amber, glyph: "📦" },
+  pendencia: { label: "Pendência", color: C.rust, glyph: "⚠" },
+};
+
+const FUNCOES = ["Encarregado", "Oficial", "Ajudante", "Almoxarife", "Frete", "Outro"];
+const RANK_LABELS = { 1: "Dono", 2: "Engenheiro Chefe de Obra", 3: "Engenheiro Estagiário", 4: "Mestre de Obra", 5: "Encarregado", 6: "Almoxarife", 7: "Chefe de Turma", 8: "Profissional" };
+const RANK_DESCRICOES = {
+  1: "acesso total a todas as obras da empresa",
+  2: "gerencia obras, equipe e conteúdo como o Dono",
+  3: "mesmo nível de acesso que o Engenheiro Chefe",
+  4: "gerencia etapas, equipe e conteúdo da obra",
+  5: "carrega conteúdo, conclui etapas, gerencia equipe",
+  6: "gerencia materiais e ferramentas, visualiza o resto",
+  7: "só visualiza — não pode editar nada",
+  8: "só visualiza Etapas e Documentos — sem acesso ao resto",
+};
+const ESTADOS = {
+  ativa: { label: "ATIVA", color: C.blue, selo: "selo_ativa_8.webp" },
+  pausada: { label: "PAUSADA", color: C.amber, selo: "selo_pausada_9.webp" },
+  concluida: { label: "CONCLUÍDA", color: C.green, selo: "selo_concluida_10.webp" },
+};
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const fmt = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
+const fmtTs = (ts) => (ts ? new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
+const daysAgo = (iso) => Math.floor((Date.now() - new Date(iso + "T00:00:00").getTime()) / 86400000);
+
+const EMPTY = { obras: [], registros: [], etapas: [], avancos: [], equipe: [], documentos: [] };
+
+// --- Auth local (sem backend): hash de senha, código de recuperação, WebAuthn ---
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function randomCode(len = 10) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const arr = crypto.getRandomValues(new Uint8Array(len));
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[arr[i] % chars.length];
+  return out;
+}
+function bufToBase64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  bytes.forEach((b) => (str += String.fromCharCode(b)));
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64urlToBuf(b64url) {
+  let b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const str = atob(b64);
+  const bytes = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
+  return bytes.buffer;
+}
+const biometriaSuportada = () => typeof window !== "undefined" && !!window.PublicKeyCredential;
+
+// --- Login propio (JWT contra /api/auth/*), reemplaza a Netlify Identity ---
+
+async function apiSignup(email, password, nome) {
+  const res = await fetch("/api/auth/signup", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, senha: password, nome }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || "Não foi possível criar a conta.");
+  return data;
+}
+
+async function apiLogin(email, password) {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, senha: password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || "Email ou senha incorretos.");
+  return data;
+}
+
+// --- CPF + PIN e convite por link (WhatsApp) ---
+function limparCpf(v) { return String(v || "").replace(/\D/g, "").slice(0, 11); }
+function formatarCpf(v) {
+  const c = limparCpf(v);
+  return c.replace(/^(\d{3})(\d)/, "$1.$2").replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d{1,2})$/, ".$1-$2");
+}
+function cpfValido(v) {
+  const c = limparCpf(v);
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false;
+  const dig = (n) => { let s = 0; for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+  return dig(9) === Number(c[9]) && dig(10) === Number(c[10]);
+}
+function linkDoConvite(token) { return `${window.location.origin}/?convite=${token}`; }
+function urlWhatsApp(telefone, texto) {
+  let t = String(telefone || "").replace(/\D/g, "");
+  if (t.length === 10 || t.length === 11) t = "55" + t;
+  return `https://wa.me/${t}?text=${encodeURIComponent(texto)}`;
+}
+async function apiPublica(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || "Algo deu errado. Tente de novo.");
+  return data;
+}
+
+function saveSession(authData) {
+  const session = { token: authData.token, usuario: authData.usuario };
+  localStorage.setItem("gc-session", JSON.stringify(session));
+  return session;
+}
+
+function getSession() {
+  try {
+    return JSON.parse(localStorage.getItem("gc-session"));
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearSession() {
+  localStorage.removeItem("gc-session");
+}
+
+// Helper central: toda llamada a nuestras Functions pasa por acá.
+// Agrega el token automáticamente y tira un error legible si el server rechaza.
+async function apiFetch(path, opts = {}) {
+  const token = await getValidAccessToken();
+  if (!token) throw new Error("Sessão expirada. Entre novamente.");
+  const headers = { authorization: `Bearer ${token}`, ...(opts.headers || {}) };
+  if (opts.body) headers["content-type"] = "application/json";
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  return data;
+}
+
+// El token propio dura 30 dias (definido en el backend); si el servidor lo rechaza (401),
+// el propio apiFetch/carregarUsuarioAPI limpia la sesión. No hay refresh — más simple, alcanza para esta etapa.
+async function getValidAccessToken() {
+  const session = getSession();
+  return session?.token || null;
+}
+
+// Arquivos (fotos/documentos): autorizados com a sessão do usuário (JWT), e o servidor
+// confere se o arquivo é de uma obra a que ele tem acesso. Ids de arquivo = UUID (não adivinháveis).
+const novoIdArquivo = () => (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""));
+const cabecalhoAuth = () => { const t = getSession()?.token; return t ? { authorization: `Bearer ${t}` } : {}; };
+
+function compressImage(file, maxWidth = 800, quality = 0.55) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+const EXT_IMAGEM = ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "svg"];
+function isImagemDoc(doc) {
+  if (doc.tipo && doc.tipo.startsWith("image/")) return true;
+  const ext = (doc.nome || "").split(".").pop().toLowerCase();
+  return EXT_IMAGEM.includes(ext);
+}
+
+// Formatos permitidos en Documentos: planos (PDF), administrativo (Word/Excel), fotos.
+// Nada de video: es justo lo que más pesa el bandwidth sin aportar tanto valor acá.
+const TIPO_MIME_DOC = {
+  "application/pdf": "pdf",
+  "application/msword": "word",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word",
+  "application/vnd.ms-excel": "excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "excel",
+  "image/jpeg": "imagem",
+  "image/png": "imagem",
+};
+const TIPO_EXT_DOC = { pdf: "pdf", doc: "word", docx: "word", xls: "excel", xlsx: "excel", jpg: "imagem", jpeg: "imagem", png: "imagem" };
+function categoriaDoc(doc) {
+  if (doc.tipo && TIPO_MIME_DOC[doc.tipo]) return TIPO_MIME_DOC[doc.tipo];
+  const ext = (doc.nome || "").split(".").pop().toLowerCase();
+  return TIPO_EXT_DOC[ext] || "outro";
+}
+const ICONE_DOC = { pdf: "📕", word: "📘", excel: "📗", outro: "📄" };
+
+function StampBadge({ estado, onClick, grande = false, enorme = false }) {
+  const e = ESTADOS[estado];
+  return (
+    <button onClick={onClick} title="Toque para mudar o estado" style={{ transform: "rotate(-8deg)" }} className="shrink-0 bg-transparent hover:opacity-70 transition">
+      <img src={e.selo} alt={e.label} className={enorme ? "w-full h-auto object-contain" : grande ? "h-10 w-auto object-contain" : "h-7 w-auto object-contain"} draggable="false" />
+    </button>
+  );
+}
+
+function EtapaFotosGaleria({ etapaId, fileCache, loadFile, onViewImage, onAddFoto, onDeleteFoto, podeEditar, saveArquivo }) {
+  const [fotos, setFotos] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [erro, setErro] = useState("");
+  const inputRef = useRef(null);
+
+  const carregar = async () => {
+    try {
+      const r = await apiFetch(`/api/etapa-fotos?etapa_id=${etapaId}`);
+      setFotos(r.fotos);
+    } catch (err) {
+      setFotos([]);
+    }
+  };
+
+  useEffect(() => { carregar(); }, [etapaId]);
+
+  const handleAdd = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setErro("");
+    try {
+      const dataUrl = await compressImage(file);
+      const fotoId = novoIdArquivo();
+      const ok = await saveArquivo(fotoId, { nome: "avanco.jpg", tipo: "image/jpeg", dataUrl });
+      if (ok !== true) { setErro(`Não foi possível salvar: ${ok?.erro || "erro desconhecido"}`); setUploading(false); e.target.value = ""; return; }
+      await onAddFoto(etapaId, fotoId);
+      await carregar();
+    } catch (err) { setErro(err.message); }
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  const handleDelete = async (fotoRowId) => {
+    if (!window.confirm("Apagar esta foto?")) return;
+    try { await onDeleteFoto(fotoRowId); await carregar(); } catch (err) { setErro(err.message); }
+  };
+
+  if (fotos === null) return null;
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {fotos.map((f) => (
+          <div key={f.id} className="relative">
+            <Thumbnail fotoId={f.arquivo_id} fileCache={fileCache} loadFile={loadFile} onView={onViewImage} />
+            {podeEditar && (
+              <button onClick={() => handleDelete(f.id)} style={{ background: C.rust }} className="absolute -top-1.5 -right-1.5 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center shadow">×</button>
+            )}
+          </div>
+        ))}
+        {podeEditar && (
+          <>
+            <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handleAdd} className="hidden" />
+            <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ borderColor: C.border, color: C.inkMuted }} className="w-16 h-16 border-2 border-dashed rounded shrink-0 flex items-center justify-center text-xl disabled:opacity-50">{uploading ? "…" : "+"}</button>
+          </>
+        )}
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{erro}</p>}
+    </div>
+  );
+}
+
+function Thumbnail({ fotoId, fileCache, loadFile, onView }) {
+  useEffect(() => { if (!fileCache[fotoId]) loadFile(fotoId); }, [fotoId]);
+  const file = fileCache[fotoId];
+  if (file === "MISSING") return <div title="Foto não encontrada (falha ao salvar)" style={{ background: C.bg, borderColor: C.rust, color: C.rust }} className="w-16 h-16 rounded border-2 border-dashed shrink-0 flex items-center justify-center text-lg">⚠</div>;
+  if (!file) return <div style={{ background: C.border }} className="w-16 h-16 rounded animate-pulse shrink-0" />;
+  return <img src={file.dataUrl} alt="" onClick={() => onView && onView(file.dataUrl)} className="w-16 h-16 object-cover rounded border shrink-0 cursor-pointer active:opacity-70" style={{ borderColor: C.border }} />;
+}
+
+function EditableRow({ glyph, color, label, dateStr, text, onSave, onDelete, extra }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(text);
+  if (editing) {
+    return (
+      <div style={{ background: C.surface, borderLeftColor: color }} className="border-l-4 rounded-r-md p-3 shadow-sm">
+        <textarea value={val} onChange={(e) => setVal(e.target.value)} rows={2} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none resize-none mb-2" autoFocus />
+        <div className="flex gap-2">
+          <button onClick={() => { onSave(val); setEditing(false); }} style={{ background: C.green }} className="text-white text-xs font-bold uppercase rounded px-2.5 py-1">💾 Salvar</button>
+          <button onClick={() => { setVal(text); setEditing(false); }} style={{ color: C.inkMuted, borderColor: C.border }} className="border text-xs font-bold uppercase rounded px-2.5 py-1">Cancelar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ background: C.surface, borderLeftColor: color }} className="border-l-4 rounded-r-md p-3 shadow-sm flex gap-3 group">
+      {glyph && <span className="mt-0.5 shrink-0">{glyph}</span>}
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          {label && <span style={{ color }} className="text-[11px] font-bold uppercase tracking-wide">{label}</span>}
+          {dateStr && <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">{dateStr}</span>}
+        </div>
+        <p style={{ color: C.ink }} className="text-sm mt-0.5">{text}</p>
+        {extra}
+      </div>
+      <div className="flex gap-2 shrink-0">
+        <button onClick={() => setEditing(true)} style={{ color: C.inkMuted }}>✎</button>
+        <button onClick={onDelete} style={{ color: C.rust }}>🗑</button>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmarLimpezaModal({ onClose, onConfirm }) {
+  const [texto, setTexto] = useState("");
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+        <h2 style={{ color: C.rust }} className="text-lg font-extrabold uppercase tracking-wide mb-2">⚠ Limpar todos os dados</h2>
+        <p style={{ color: C.inkMuted }} className="text-sm mb-3">Isso vai apagar TODAS as obras, etapas, fotos, documentos e equipe deste aparelho. Sua conta e login continuam. Não pode ser desfeito — faça um backup antes se ainda não fez.</p>
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Digite LIMPAR para confirmar</label>
+        <input value={texto} onChange={(e) => setTexto(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none uppercase" autoFocus />
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Cancelar</button>
+          <button onClick={onConfirm} disabled={texto.trim().toUpperCase() !== "LIMPAR"} style={{ background: C.rust }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5 disabled:opacity-40">Limpar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NuevaObraModal({ onClose, onSave, obras = [], equipe = [] }) {
+  const [cliente, setCliente] = useState("");
+  const [endereco, setEndereco] = useState("");
+  const [tipo, setTipo] = useState("");
+  const [dataInicio, setDataInicio] = useState(todayISO());
+  const [responsavelId, setResponsavelId] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const clientesHistoricos = [...new Set(obras.map((o) => o.cliente).filter(Boolean))];
+  const tiposHistoricos = [...new Set(obras.map((o) => o.tipo).filter(Boolean))];
+  const submit = async () => {
+    if (!cliente.trim()) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      await onSave({ cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), dataInicio, responsavelId: responsavelId || null });
+    } catch (err) {
+      setErro(err.message);
+      setSalvando(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-md shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Nova obra</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl">×</button>
+        </div>
+        <div className="space-y-3">
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Cliente</label>
+            <input value={cliente} onChange={(e) => setCliente(e.target.value)} list="clientes-historicos" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Nome do cliente" autoFocus /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Endereço</label>
+            <input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Bairro / endereço" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Tipo de trabalho</label>
+            <input value={tipo} onChange={(e) => setTipo(e.target.value)} list="tipos-historicos" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Ex: reforma elétrica, pintura" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Data de início</label>
+            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Responsável</label>
+            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none bg-white">
+              <option value="">— eu mesmo —</option>
+              {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome}</option>)}
+            </select>
+          </div>
+          {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
+        </div>
+        <datalist id="clientes-historicos">{clientesHistoricos.map((c) => <option key={c} value={c} />)}</datalist>
+        <datalist id="tipos-historicos">{tiposHistoricos.map((t) => <option key={t} value={t} />)}</datalist>
+        <button onClick={submit} disabled={!cliente.trim() || salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-40">{salvando ? "Criando..." : "Criar obra"}</button>
+      </div>
+    </div>
+  );
+}
+
+function EditarObraModal({ obra, equipe, onClose, onSave }) {
+  const [cliente, setCliente] = useState(obra.cliente || "");
+  const [endereco, setEndereco] = useState(obra.endereco || "");
+  const [tipo, setTipo] = useState(obra.tipo || "");
+  const [responsavelId, setResponsavelId] = useState(obra.responsavel_id || "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const submit = async () => {
+    if (!cliente.trim()) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      await onSave({ cliente: cliente.trim(), endereco: endereco.trim(), tipo: tipo.trim(), novoResponsavelId: responsavelId || null });
+      onClose();
+    } catch (err) {
+      setErro(err.message);
+      setSalvando(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-md shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Editar obra</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl">×</button>
+        </div>
+        <div className="space-y-3">
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Cliente</label>
+            <input value={cliente} onChange={(e) => setCliente(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Endereço</label>
+            <input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Tipo de trabalho</label>
+            <input value={tipo} onChange={(e) => setTipo(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" /></div>
+          <div><label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Responsável</label>
+            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none bg-white">
+              <option value="">— sem responsável —</option>
+              {equipe.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome}</option>)}
+            </select>
+          </div>
+          {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
+        </div>
+        <button onClick={submit} disabled={!cliente.trim() || salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-40">{salvando ? "Salvando..." : "Salvar alterações"}</button>
+      </div>
+    </div>
+  );
+}
+
+function CollapsibleSection({ title, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md mb-5">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between p-4">
+        <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">{title}</span>
+        <span>{open ? "🔺" : "🔻"}</span>
+      </button>
+      {open && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  );
+}
+
+function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loadFile, saveArquivo, onViewImage, podeEditar = true }) {
+  const inputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [erro, setErro] = useState("");
+  const [pdfAberto, setPdfAberto] = useState(null);
+  const list = documentos;
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const categoria = categoriaDoc({ tipo: file.type, nome: file.name });
+    if (categoria === "outro") {
+      setErro("Formato não suportado. Apenas PDF, Word (.doc/.docx), Excel (.xls/.xlsx), JPG ou PNG.");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 4.5 * 1024 * 1024) {
+      alert("O arquivo é muito grande (máx ~4MB).");
+      e.target.value = "";
+      return;
+    }
+    setErro("");
+    setUploading(true);
+    try {
+      const dataUrl = await fileToDataURL(file);
+      const arquivoId = novoIdArquivo();
+      const ok = await saveArquivo(arquivoId, { nome: file.name, tipo: file.type, dataUrl });
+      if (ok === true) {
+        await onAdd({ obraId, nome: file.name, tipo: file.type, arquivoId });
+      } else {
+        alert(`Não foi possível salvar o arquivo: ${ok?.erro || "erro desconhecido"}`);
+      }
+    } catch (err) {
+      setErro(err.message || "Não foi possível processar o arquivo.");
+    }
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  useEffect(() => { list.forEach((d) => { if (!fileCache[d.arquivo_id]) loadFile(d.arquivo_id); }); }, [obraId, list.map((d) => d.arquivo_id).join(",")]);
+
+  const download = (doc) => {
+    const f = fileCache[doc.arquivo_id];
+    if (!f || f === "MISSING") return;
+    const a = document.createElement("a");
+    a.href = f.dataUrl;
+    a.download = doc.nome;
+    a.click();
+  };
+
+  const abrir = (doc) => {
+    const f = fileCache[doc.arquivo_id];
+    if (!f || f === "MISSING") return;
+    const categoria = categoriaDoc(doc);
+    if (categoria === "imagem") onViewImage(f.dataUrl);
+    else if (categoria === "pdf") setPdfAberto({ src: f.dataUrl, nome: doc.nome });
+    else download(doc);
+  };
+
+  const remover = async (doc) => {
+    setErro("");
+    try {
+      await onDelete(doc.id, doc.arquivo_id);
+    } catch (err) {
+      setErro(err.message);
+    }
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {list.map((d) => {
+          const categoria = categoriaDoc(d);
+          const f = fileCache[d.arquivo_id];
+          const faltando = f === "MISSING";
+          return (
+            <div key={d.id} className="relative flex flex-col items-center gap-1">
+              <button onClick={() => abrir(d)} disabled={faltando} style={{ background: C.bg, borderColor: faltando ? C.rust : C.border }} className="w-full aspect-square border rounded-lg overflow-hidden flex items-center justify-center disabled:opacity-60">
+                {categoria === "imagem" && f && !faltando ? (
+                  <img src={f.dataUrl} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-3xl">{faltando ? "⚠" : ICONE_DOC[categoria]}</span>
+                )}
+              </button>
+              {podeEditar && (
+                <button onClick={() => remover(d)} style={{ background: C.rust }} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs leading-none shadow">×</button>
+              )}
+              <span style={{ color: faltando ? C.rust : C.inkMuted }} className="text-[10px] font-mono text-center truncate w-full px-0.5">{d.nome}{faltando ? " (indisp.)" : ""}</span>
+            </div>
+          );
+        })}
+        {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono col-span-3">Nenhum documento anexado.</p>}
+      </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
+      {podeEditar && (
+        <>
+          <input ref={inputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/jpeg,image/png" onChange={handleFile} className="hidden" />
+          <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ background: C.ink }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2 disabled:opacity-50">
+            + {uploading ? "Enviando..." : "Adicionar projeto"}
+          </button>
+          <p style={{ color: C.inkMuted }} className="text-[10px] font-mono mt-1.5">PDF, Word, Excel, JPG ou PNG — até 4MB.</p>
+        </>
+      )}
+      {pdfAberto && <PdfViewer src={pdfAberto.src} nome={pdfAberto.nome} onClose={() => setPdfAberto(null)} />}
+    </div>
+  );
+}
+
+function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExcecao, usuarioRank, usuarioId, responsavelId, podeEditar = true }) {
+  const souResponsavel = usuarioId != null && usuarioId === responsavelId;
+  const [email, setEmail] = useState("");
+  const [funcao, setFuncao] = useState("");
+  const [rank, setRank] = useState(usuarioRank + 1 <= 8 ? usuarioRank + 1 : 8);
+  const [erro, setErro] = useState("");
+  const [msg, setMsg] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [excecaoAberta, setExcecaoAberta] = useState(null);
+  const [modoAdd, setModoAdd] = useState("link"); // "link" (WhatsApp) | "email"
+  const [nomeNovo, setNomeNovo] = useState("");
+  const [telNovo, setTelNovo] = useState("");
+  const [linkGerado, setLinkGerado] = useState(null); // { link, nome, telefone, novoPin }
+  const [genteEmpresa, setGenteEmpresa] = useState(null); // pra "Da empresa"
+  const [pessoaEscolhida, setPessoaEscolhida] = useState("");
+  const [edicao, setEdicao] = useState({ rank: 8, funcao: "" }); // painel ⚙
+  const list = equipe;
+  const hoje = todayISO();
+  const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
+  const ranksDisponiveis = [2, 3, 4, 5, 6, 7, 8].filter((r) => r > usuarioRank);
+
+  const submit = async () => {
+    if (!email.trim()) return;
+    setErro(""); setMsg(""); setSalvando(true);
+    try {
+      const r = await onAdd({ obraId, email: email.trim(), rank, funcao: funcao.trim() });
+      if (r.convite && r.token) {
+        setLinkGerado({ link: linkDoConvite(r.token), nome: email.trim().split("@")[0], telefone: "", novoPin: false });
+        setMsg("Ainda não tem conta: mande o link abaixo (ou ele entra com o Google usando esse email).");
+      } else {
+        setMsg(r.convite ? `Convite criado para ${email.trim()}.` : "Adicionado.");
+      }
+      setEmail(""); setFuncao("");
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  const convidarPorLink = async () => {
+    if (!nomeNovo.trim()) return;
+    setErro(""); setMsg(""); setSalvando(true);
+    try {
+      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ obraId, nome: nomeNovo.trim(), telefone: telNovo, rank, funcao: funcao.trim() }) });
+      setLinkGerado({ link: linkDoConvite(r.token), nome: nomeNovo.trim(), telefone: telNovo, novoPin: false });
+      setNomeNovo(""); setTelNovo(""); setFuncao("");
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  const gerarNovoPin = async (m) => {
+    setErro(""); setMsg("");
+    try {
+      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ usuarioId: m.usuario_id }) });
+      setLinkGerado({ link: linkDoConvite(r.token), nome: m.nome, telefone: r.convite.telefone || "", novoPin: true });
+    } catch (err) {
+      setErro(err.message);
+    }
+  };
+
+  const remover = async (m) => {
+    setErro("");
+    try { await onRemove(m.id); } catch (err) { setErro(err.message); }
+  };
+
+  const marcarPresenca = async (m) => {
+    setErro("");
+    try { await onToggleHoje(m.id, hoje); } catch (err) { setErro(err.message); }
+  };
+
+  const toggleBloqueio = async (m, moduloKey) => {
+    setErro("");
+    const atual = m.excecao_modulos || {};
+    const bloqueado = atual[moduloKey] === "nenhum";
+    const novo = { ...atual };
+    if (bloqueado) delete novo[moduloKey];
+    else novo[moduloKey] = "nenhum";
+    try { await onSetExcecao(m.id, { excecaoModulos: Object.keys(novo).length > 0 ? novo : null }); } catch (err) { setErro(err.message); }
+  };
+
+  const abrirPainel = (m) => {
+    if (excecaoAberta === m.id) { setExcecaoAberta(null); return; }
+    setEdicao({ rank: m.rank, funcao: m.funcao || "" });
+    setExcecaoAberta(m.id);
+  };
+
+  const excluirConta = async (m) => {
+    if (window.prompt(`Excluir a conta de ${m.nome}? Ele não vai mais conseguir entrar e aparecerá como AUSENTE. Digite EXCLUIR para confirmar.`) !== "EXCLUIR") return;
+    setErro(""); setMsg("");
+    try {
+      await apiFetch(`/api/usuarios-me?id=${m.usuario_id}`, { method: "DELETE" });
+      await onSetExcecao(m.id, {}); // PATCH vazio: só recarrega o integrante (agora com removido_em)
+      setExcecaoAberta(null);
+      setMsg(`Conta de ${m.nome} excluída.`);
+    } catch (err) { setErro(err.message); }
+  };
+
+  const salvarMembro = async (m) => {
+    setErro(""); setMsg("");
+    const campos = { funcao: edicao.funcao };
+    if (usuarioRank <= 2 && Number(edicao.rank) !== m.rank) campos.rank = Number(edicao.rank);
+    try { await onSetExcecao(m.id, campos); setMsg(`${m.nome} atualizado.`); setExcecaoAberta(null); }
+    catch (err) { setErro(err.message); }
+  };
+
+  const escolherModo = async (modo) => {
+    setModoAdd(modo);
+    if (modo === "empresa") {
+      try { const r = await apiFetch("/api/equipe"); setGenteEmpresa(r.equipe); }
+      catch (err) { setErro(err.message); }
+    }
+  };
+
+  const adicionarDaEmpresa = async () => {
+    if (!pessoaEscolhida) return;
+    const p = (genteEmpresa || []).find((x) => String(x.usuario_id) === String(pessoaEscolhida));
+    setErro(""); setMsg(""); setSalvando(true);
+    try {
+      await onAdd({ obraId, usuarioId: Number(pessoaEscolhida), funcao: funcao.trim() });
+      setMsg(`${p ? p.nome : "Pessoa"} adicionado à obra.`);
+      setPessoaEscolhida(""); setFuncao("");
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+
+  return (
+    <div>
+      <div className="space-y-2 mb-3">
+        {list.map((m) => {
+          const presenteHoje = m.asistencias?.includes(hoje);
+          const temExcecao = m.excecao_modulos && Object.keys(m.excecao_modulos).length > 0;
+          const ausente = !!m.removido_em;
+          if (ausente) {
+            return (
+              <div key={m.id} style={{ background: C.bg, borderColor: C.border, opacity: 0.6 }} className="border rounded px-3 py-2 flex items-center gap-2">
+                <div className="flex-1 min-w-0 truncate">
+                  <span style={{ color: C.inkMuted }} className="font-semibold text-sm line-through">{m.nome}</span> <span style={{ color: C.rust }} className="text-[10px] font-mono uppercase border rounded px-1 ml-1">Ausente</span>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">conta excluída · {RANK_LABELS[m.rank]}</div>
+                </div>
+                <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
+                {podeEditar && <button onClick={() => remover(m)} title="Tirar da lista desta obra" style={{ color: C.inkMuted }} className="shrink-0">×</button>}
+              </div>
+            );
+          }
+          return (
+            <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => podeEditar && marcarPresenca(m)} disabled={!podeEditar} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
+                  {presenteHoje ? "✓" : ""}
+                </button>
+                <div className="flex-1 min-w-0 truncate">
+                  {/* Título: o rank. Para Profissional, o ofício (Pedreiro, Pintor...) quando informado. */}
+                  <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.rank === 8 && m.funcao ? m.funcao : RANK_LABELS[m.rank]}</span>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.rank === 8 ? (m.funcao ? `${RANK_LABELS[8]} · ` : "") : (m.funcao ? `${m.funcao} · ` : "")}{m.email || "entra com CPF"}{temExcecao ? " · acesso personalizado" : ""}</div>
+                </div>
+                <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
+                {podeEditar && <button onClick={() => abrirPainel(m)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Editar rank, função e acesso" className="shrink-0">⚙</button>}
+                {podeEditar && usuarioRank <= 2 && m.rank > usuarioRank && <button onClick={() => gerarNovoPin(m)} title="Novo PIN (manda link por WhatsApp)" style={{ color: C.inkMuted }} className="shrink-0">🔑</button>}
+                {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
+              </div>
+              {excecaoAberta === m.id && (
+                <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t">
+                  {(usuarioRank <= 2 && m.usuario_id !== usuarioId && (m.rank > usuarioRank || (usuarioRank === 2 && m.rank === 2))) || (souResponsavel && m.rank > usuarioRank) ? (
+                    <div className="mb-3">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <select value={edicao.rank} disabled={usuarioRank > 2} onChange={(e) => setEdicao({ ...edicao, rank: Number(e.target.value) })} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white">
+                          {[2, 3, 4, 5, 6, 7, 8].filter((r) => (usuarioRank === 2 && m.rank === 2 ? r >= 2 : r > usuarioRank)).map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+                        </select>
+                        <input value={edicao.funcao} onChange={(e) => setEdicao({ ...edicao, funcao: e.target.value })} placeholder={edicao.rank === 8 ? "Ofício (ex.: Pedreiro)" : "Função nesta obra"} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[7rem] border rounded px-2 py-1.5 text-xs outline-none" />
+                        <button onClick={() => salvarMembro(m)} style={{ background: C.teal }} className="text-white rounded px-3 py-1.5 text-xs font-bold uppercase">Salvar</button>
+                      </div>
+                      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">O rank vale para todas as obras; a função, só para esta.</p>
+                    </div>
+                  ) : (
+                    <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">Só Dono e Engenheiro Chefe podem mudar o rank de quem está abaixo deles.</p>
+                  )}
+                  {souResponsavel && m.rank > usuarioRank ? (<>
+                  <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-1.5">Bloquear acesso NESTA obra a (você é o responsável):</p>
+                  <div className="flex flex-wrap gap-2">
+                    {MODULOS_OBRA.map((mod) => {
+                      const bloqueado = m.excecao_modulos?.[mod.key] === "nenhum";
+                      return (
+                        <button key={mod.key} onClick={() => toggleBloqueio(m, mod.key)} style={{ borderColor: bloqueado ? C.rust : C.border, background: bloqueado ? C.rust : "transparent", color: bloqueado ? "#fff" : C.inkMuted }} className="border rounded px-2 py-1 text-[11px] font-mono">
+                          {mod.glyph} {mod.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  </>) : (
+                    <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Só o responsável da obra bloqueia módulos nesta obra.</p>
+                  )}
+                  {usuarioRank < m.rank && m.usuario_id !== usuarioId && (
+                    <button onClick={() => excluirConta(m)} style={{ color: C.rust }} className="mt-3 text-[11px] font-mono uppercase">🚫 Excluir conta (fica como ausente)</button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {list.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem equipe atribuída.</p>}
+      </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {podeEditar && (
+        <>
+          <div className="flex mb-2">
+            <button onClick={() => escolherModo("link")} style={{ background: modoAdd === "link" ? C.teal : "transparent", color: modoAdd === "link" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-l py-1.5 text-[11px] font-bold uppercase">📲 Novo por link</button>
+            <button onClick={() => escolherModo("empresa")} style={{ background: modoAdd === "empresa" ? C.teal : "transparent", color: modoAdd === "empresa" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border-y py-1.5 text-[11px] font-bold uppercase">👥 Da empresa</button>
+            <button onClick={() => escolherModo("email")} style={{ background: modoAdd === "email" ? C.teal : "transparent", color: modoAdd === "email" ? "#fff" : C.inkMuted, borderColor: C.teal }} className="flex-1 border rounded-r py-1.5 text-[11px] font-bold uppercase">✉ Por email</button>
+          </div>
+          {modoAdd === "link" && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              <input value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} placeholder="Nome" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[8rem] border rounded px-3 py-1.5 text-sm outline-none" />
+              <input value={telNovo} onChange={(e) => setTelNovo(e.target.value)} placeholder="WhatsApp (opcional)" inputMode="tel" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[8rem] border rounded px-3 py-1.5 text-sm outline-none" />
+            </div>
+          )}
+          {modoAdd === "empresa" && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              <select value={pessoaEscolhida} onChange={(e) => setPessoaEscolhida(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-sm outline-none bg-white">
+                <option value="">{genteEmpresa ? "Escolha a pessoa..." : "Carregando..."}</option>
+                {(genteEmpresa || []).filter((p) => !list.some((m) => m.usuario_id === p.usuario_id) && (usuarioRank <= 2 || p.rank > usuarioRank)).map((p) => (
+                  <option key={p.usuario_id} value={p.usuario_id}>{p.nome} · {RANK_LABELS[p.rank]}</option>
+                ))}
+              </select>
+              <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder="Função" list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
+              <button onClick={adicionarDaEmpresa} disabled={!pessoaEscolhida || salvando} style={{ background: C.teal }} className="text-white rounded px-3 text-xs font-bold uppercase disabled:opacity-40 shrink-0">Adicionar</button>
+            </div>
+          )}
+          {modoAdd !== "empresa" && <div className="flex flex-wrap gap-2">
+            {modoAdd === "email" && <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="email@exemplo.com" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />}
+            <input value={funcao} onChange={(e) => setFuncao(e.target.value)} placeholder={rank === 8 ? "Ofício (ex.: Pedreiro)" : "Função (opcional)"} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="border rounded px-2 py-1.5 text-xs outline-none w-28 shrink-0" />
+            <select value={rank} onChange={(e) => setRank(Number(e.target.value))} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white shrink-0">
+              {ranksDisponiveis.map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+            </select>
+            <datalist id="funcoes-equipe">{funcoesHistoricas.map((f) => <option key={f} value={f} />)}</datalist>
+            {modoAdd === "email"
+              ? <button onClick={submit} disabled={!email.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+              : <button onClick={convidarPorLink} disabled={!nomeNovo.trim() || salvando} style={{ background: C.teal }} className="text-white rounded px-3 text-xs font-bold uppercase disabled:opacity-40 shrink-0">{salvando ? "..." : "Gerar link"}</button>}
+          </div>}
+          {modoAdd !== "empresa" && <p style={{ color: C.amber }} className="text-[11px] font-mono mt-1.5">→ {RANK_LABELS[rank]} · {RANK_DESCRICOES[rank]}</p>}
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">{modoAdd === "link" ? "Gera um link para mandar por WhatsApp. A pessoa entra com CPF + PIN, sem precisar de email." : modoAdd === "empresa" ? "Quem já tem conta na empresa (inclusive com CPF). Mantém o rank que já tem." : "Se o email ainda não tem conta, gera um link de convite."}</p>
+          {linkGerado && <LinkConviteCard {...linkGerado} onFechar={() => setLinkGerado(null)} />}
+        </>
+      )}
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
+      {msg && <p style={{ color: C.green }} className="text-xs font-mono mt-1">{msg}</p>}
+    </div>
+  );
+}
+
+function Lightbox({ src, onClose }) {
+  return (
+    <div onClick={onClose} className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-[100]">
+      <img src={src} className="max-w-full max-h-full rounded shadow-2xl" onClick={(e) => e.stopPropagation()} />
+      <button onClick={onClose} className="absolute top-4 right-4 text-white text-3xl leading-none">×</button>
+    </div>
+  );
+}
+
+function PdfViewer({ src, nome, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/85 flex flex-col z-[100]">
+      <div style={{ background: C.surface, borderColor: C.border }} className="flex items-center justify-between px-4 py-3 border-b">
+        <span style={{ color: C.ink }} className="text-sm font-bold truncate flex-1 pr-2">{nome}</span>
+        <button onClick={onClose} style={{ color: C.ink }} className="text-2xl leading-none px-1">×</button>
+      </div>
+      <iframe src={src} title={nome} className="flex-1 w-full border-0" style={{ background: "#fff" }} />
+    </div>
+  );
+}
+
+function EtapaNode({ etapa, allEtapas, depth, onToggle, onRemove, onAddSub, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, onAddFoto, onDeleteFoto, nomesHistoricos = [], podeEditar = true }) {
+  const [openSub, setOpenSub] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const [nomeEdit, setNomeEdit] = useState(etapa.texto);
+  const [novoSub, setNovoSub] = useState("");
+  const [erro, setErro] = useState("");
+  const inputRef = useRef(null);
+  const filhos = allEtapas.filter((e) => e.parent_id === etapa.id);
+  const temFilhos = filhos.length > 0;
+
+  const salvarNome = async () => {
+    if (nomeEdit.trim() && nomeEdit.trim() !== etapa.texto) {
+      try { await onEditEtapa(etapa.id, nomeEdit.trim()); } catch (err) { setErro(err.message); setNomeEdit(etapa.texto); }
+    } else setNomeEdit(etapa.texto);
+    setEditando(false);
+  };
+
+  const toggleSimples = async () => {
+    if (!podeEditar) return;
+    setErro("");
+    try { await onToggle(etapa.id, !etapa.concluida); } catch (err) { setErro(err.message); }
+  };
+
+  const addSub = async () => {
+    if (!novoSub.trim()) return;
+    setErro("");
+    try { await onAddSub(etapa.id, novoSub.trim()); setNovoSub(""); } catch (err) { setErro(err.message); }
+  };
+
+  const removerEtapa = async () => {
+    setErro("");
+    try { await onRemove(etapa.id); } catch (err) { setErro(err.message); }
+  };
+
+  return (
+    <div style={{ marginLeft: depth * 14 }}>
+      <div style={{ borderColor: C.border, background: C.bg }} className="border rounded-md p-2.5 mb-2">
+        <div className="flex items-center gap-1.5">
+          <button onClick={toggleSimples} disabled={!podeEditar} style={{ borderColor: etapa.concluida ? C.green : C.border, background: etapa.concluida ? C.green : "transparent" }} className="w-4 h-4 border-2 rounded flex items-center justify-center shrink-0 text-white text-[10px] disabled:opacity-60">{etapa.concluida ? "✓" : ""}</button>
+          <button onClick={() => setOpenSub(!openSub)} title="Subetapas" className="shrink-0">{temFilhos ? (openSub ? "📂" : "📁") : "📄"}</button>
+          {editando ? (
+            <input value={nomeEdit} onChange={(e) => setNomeEdit(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvarNome()} onBlur={salvarNome} autoFocus style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="flex-1 min-w-0 border rounded px-2 py-0.5 text-sm outline-none" />
+          ) : (
+            <span style={{ color: etapa.concluida ? C.inkMuted : C.ink, textDecoration: etapa.concluida ? "line-through" : "none" }} className="text-sm flex-1 min-w-0 truncate">{etapa.texto}</span>
+          )}
+          {temFilhos && <span style={{ color: C.inkMuted }} className="text-[10px] font-mono shrink-0">{filhos.filter((f) => f.concluida).length}/{filhos.length}</span>}
+          {podeEditar && !editando && <button onClick={() => { setNomeEdit(etapa.texto); setEditando(true); }} style={{ color: C.inkMuted }} className="shrink-0">✎</button>}
+          {podeEditar && <button onClick={removerEtapa} style={{ color: C.rust }} className="shrink-0">🗑</button>}
+        </div>
+        {etapa.concluida && etapa.concluida_em && (
+          <p style={{ color: C.green }} className="text-[11px] font-mono mt-1">✓ {etapa.concluida_por_nome ? `por ${etapa.concluida_por_nome} · ` : ""}{fmtFirma(etapa.concluida_em)}</p>
+        )}
+        <EtapaFotosGaleria etapaId={etapa.id} fileCache={fileCache} loadFile={loadFile} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} podeEditar={podeEditar} saveArquivo={saveArquivo} />
+        {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{erro}</p>}
+      </div>
+
+      {openSub && (
+        <div style={{ borderLeft: `2px dashed ${C.border}`, marginLeft: 8 }} className="pl-2 mb-2">
+          {filhos.map((f) => (
+            <EtapaNode key={f.id} etapa={f} allEtapas={allEtapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAddSub} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
+          ))}
+          {podeEditar && (
+            <div className="flex gap-2 mb-2">
+              <input value={novoSub} onChange={(e) => setNovoSub(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSub()} placeholder="Nova subetapa" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+              <button onClick={addSub} disabled={!novoSub.trim()} style={{ background: C.teal }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa, fileCache, loadFile, saveArquivo, onViewImage, onAddFoto, onDeleteFoto, podeEditar = true }) {
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const raiz = etapas.filter((e) => !e.parent_id);
+  const nomesHistoricos = [...new Set(etapas.map((e) => e.texto).filter(Boolean))];
+
+  const submit = async () => {
+    if (!texto.trim()) return;
+    setErro("");
+    try { await onAdd(null, texto.trim()); setTexto(""); } catch (err) { setErro(err.message); }
+  };
+
+  return (
+    <div>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · + adiciona fotos de avanço (livre, quantas quiser).</p>
+      <div className="mb-3">
+        {raiz.map((e) => (
+          <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
+        ))}
+        {raiz.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Sem etapas cadastradas.</p>}
+      </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {podeEditar && (
+        <div className="flex gap-2">
+          <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ex: instalação elétrica" list="nomes-etapas" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+          <datalist id="nomes-etapas">{nomesHistoricos.map((n) => <option key={n} value={n} />)}</datalist>
+          <button onClick={submit} disabled={!texto.trim()} style={{ background: C.ink }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+        </div>
+      )}
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
+    </div>
+  );
+}
+
+function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
+  const [pedidos, setPedidos] = useState(null);
+  const [mostrarForm, setMostrarForm] = useState(null); // "pedir" | "entregar" | null
+  const [descricao, setDescricao] = useState("");
+  const [quantidade, setQuantidade] = useState("");
+  const [pessoaId, setPessoaId] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const carregar = async () => {
+    try {
+      const r = await apiFetch(`/api/pedidos?obra_id=${obraId}`);
+      setPedidos(r.pedidos.filter((p) => p.tipo === tipo));
+    } catch (e) { setPedidos([]); }
+  };
+  useEffect(() => { carregar(); }, [obraId, tipo]);
+
+  const superiores = equipe.filter((m) => !m.removido_em && m.rank < usuarioAPI.rank);
+  const subordinados = equipe.filter((m) => !m.removido_em && m.rank > usuarioAPI.rank);
+
+  const abrirForm = (qual) => {
+    setMostrarForm(qual);
+    setDescricao(""); setQuantidade(""); setPessoaId(""); setErro("");
+  };
+
+  const enviar = async () => {
+    if (!descricao.trim() || !pessoaId) { setErro("Preencha a descrição e escolha a pessoa."); return; }
+    setSalvando(true);
+    setErro("");
+    try {
+      const remetenteId = mostrarForm === "pedir" ? pessoaId : usuarioAPI.id;
+      const destinatarioId = mostrarForm === "pedir" ? usuarioAPI.id : pessoaId;
+      await apiFetch("/api/pedidos", { method: "POST", body: JSON.stringify({ obraId, tipo, descricao: descricao.trim(), quantidade: quantidade.trim(), remetenteId, destinatarioId }) });
+      setMostrarForm(null);
+      await carregar();
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+
+  const responder = async (id, status) => {
+    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); await carregar(); } catch (e) {}
+  };
+
+  const cancelar = async (id) => {
+    if (!window.confirm("Cancelar este pedido?")) return;
+    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "DELETE" }); await carregar(); } catch (e) {}
+  };
+
+  if (pedidos === null) return null;
+
+  const recebidos = pedidos.filter((p) => p.remetente_id === usuarioAPI.id && p.status === "pendente");
+  const historico = pedidos.filter((p) => !(p.remetente_id === usuarioAPI.id && p.status === "pendente")).slice(0, 8);
+
+  return (
+    <div style={{ borderColor: C.border, background: C.surface }} className="border rounded-md p-3 mb-4">
+      <p style={{ color: C.ink }} className="text-xs font-extrabold uppercase tracking-wide mb-2">📋 Pedidos de {tipoLabel}</p>
+
+      {recebidos.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {recebidos.map((p) => (
+            <div key={p.id} style={{ borderColor: C.amber, background: C.bg }} className="border rounded p-2">
+              <p style={{ color: C.ink }} className="text-sm"><b>{p.destinatario_nome}</b> pediu: {p.descricao}{p.quantidade ? ` (${p.quantidade})` : ""}</p>
+              <div className="flex gap-2 mt-1.5">
+                <button onClick={() => responder(p.id, "atendido")} style={{ background: C.green }} className="text-white text-[11px] font-bold uppercase rounded px-2 py-1">✓ Atender</button>
+                <button onClick={() => responder(p.id, "recusado")} style={{ color: C.rust, borderColor: C.rust }} className="border text-[11px] font-bold uppercase rounded px-2 py-1">Recusar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mostrarForm ? (
+        <div style={{ borderColor: C.border }} className="border rounded p-2 mb-2">
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase mb-1.5">{mostrarForm === "pedir" ? "Pedir a alguém acima" : "Entregar a alguém abaixo"}</p>
+          <select value={pessoaId} onChange={(e) => setPessoaId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none bg-white mb-1.5">
+            <option value="">{mostrarForm === "pedir" ? "Pedir a quem?" : "Entregar a quem?"}</option>
+            {(mostrarForm === "pedir" ? superiores : subordinados).map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
+          </select>
+          <input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder={tipo === "material" ? "Ex: cimento" : tipo === "ferramenta" ? "Ex: furadeira" : "Ex: planta baixa"} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none mb-1.5" />
+          {tipo !== "documento" && (
+            <input value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="Quantidade (opcional)" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none mb-1.5" />
+          )}
+          {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mb-1.5">{erro}</p>}
+          <div className="flex gap-2">
+            <button onClick={enviar} disabled={salvando} style={{ background: C.amber }} className="text-white text-xs font-bold uppercase rounded px-3 py-1.5 disabled:opacity-50">{salvando ? "..." : "Confirmar"}</button>
+            <button onClick={() => setMostrarForm(null)} style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2 mb-2">
+          {superiores.length > 0 && <button onClick={() => abrirForm("pedir")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Pedir</button>}
+          {subordinados.length > 0 && <button onClick={() => abrirForm("entregar")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Entregar</button>}
+        </div>
+      )}
+
+      {historico.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {historico.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-2">
+              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">
+                {p.status === "atendido" ? "✓" : p.status === "recusado" ? "✕" : "…"} {p.remetente_nome} → {p.destinatario_nome}: {p.descricao}
+              </p>
+              {p.criado_por === usuarioAPI.id && p.status === "pendente" && (
+                <button onClick={() => cancelar(p.id)} style={{ color: C.rust }} className="text-[11px] shrink-0">cancelar</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Observações: "livro de obra" com firma, edição só do autor (com histórico) e apagar só superiores ---
+const fmtFirma = (ts) => (ts ? new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+
+function ObservacoesSection({ items, onAdd, onDelete, onEdit, usuarioAPI, podeEditar = true }) {
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const [textoEdicao, setTextoEdicao] = useState("");
+  const [historico, setHistorico] = useState({}); // { [id]: versoes[] }
+  const eu = usuarioAPI || {};
+
+  const registrar = async () => {
+    if (!texto.trim()) return;
+    setErro(""); setSalvando(true);
+    try { await onAdd(texto.trim()); setTexto(""); } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+  const salvarEdicao = async (item) => {
+    if (!textoEdicao.trim()) return;
+    setErro("");
+    try { await onEdit(item.id, textoEdicao.trim()); setEditandoId(null); setHistorico((h) => { const n = { ...h }; delete n[item.id]; return n; }); }
+    catch (err) { setErro(err.message); }
+  };
+  const apagar = async (item) => {
+    if (!window.confirm("Apagar esta observação? Não pode ser desfeito.")) return;
+    setErro("");
+    try { await onDelete(item.id); } catch (err) { setErro(err.message); }
+  };
+  const alternarHistorico = async (item) => {
+    if (historico[item.id]) { setHistorico((h) => { const n = { ...h }; delete n[item.id]; return n; }); return; }
+    setErro("");
+    try { const r = await apiFetch(`/api/observacoes?historico=${item.id}`); setHistorico((h) => ({ ...h, [item.id]: r.versoes })); }
+    catch (err) { setErro(err.message); }
+  };
+
+  return (
+    <div>
+      {podeEditar && (
+        <div className="mb-4">
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} placeholder="Aviso, sugestão, reclamação... Ex.: Pedreiro, ATENÇÃO às tubulações existentes de água e eletricidade." style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="w-full border rounded px-3 py-2 text-sm outline-none resize-y" />
+          <button onClick={registrar} disabled={!texto.trim() || salvando} style={{ background: C.teal }} className="w-full mt-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2 disabled:opacity-40">{salvando ? "Registrando..." : "📝 Registrar no livro"}</button>
+        </div>
+      )}
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-3">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
+      <div className="space-y-2">
+        {items.map((item) => {
+          const souAutor = item.criado_por === eu.id;
+          const rankAutorAtual = item.autor_rank_atual ?? item.rank_autor;
+          const souSuperior = eu.rank === 1 || (rankAutorAtual != null && eu.rank < rankAutorAtual);
+          const rankNaFirma = item.rank_autor ?? item.autor_rank_atual;
+          return (
+            <div key={item.id} style={{ background: C.surface, borderLeftColor: C.teal }} className="border-l-4 rounded-r-md p-3 shadow-sm">
+              {editandoId === item.id ? (
+                <div>
+                  <textarea value={textoEdicao} onChange={(e) => setTextoEdicao(e.target.value)} rows={3} style={{ borderColor: C.border, color: C.ink, background: C.bg }} className="w-full border rounded px-2 py-1.5 text-sm outline-none resize-y" autoFocus />
+                  <div className="flex gap-2 mt-1">
+                    <button onClick={() => setEditandoId(null)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border rounded py-1.5 text-xs font-bold uppercase">Cancelar</button>
+                    <button onClick={() => salvarEdicao(item)} disabled={!textoEdicao.trim()} style={{ background: C.teal }} className="flex-1 text-white rounded py-1.5 text-xs font-bold uppercase disabled:opacity-40">Salvar</button>
+                  </div>
+                  <p style={{ color: C.inkMuted }} className="text-[10px] font-mono mt-1">A versão anterior fica guardada (visível só pra você e seus superiores).</p>
+                </div>
+              ) : (
+                <p style={{ color: C.ink }} className="text-sm whitespace-pre-wrap">{item.texto}</p>
+              )}
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
+                <p style={{ color: C.inkMuted }} className="text-[11px] font-mono flex-1 min-w-0">
+                  — {item.autor_nome || "?"}{item.autor_removido ? " (ausente)" : ""}{rankNaFirma ? ` · ${RANK_LABELS[rankNaFirma]}` : ""} · {fmtFirma(item.criado_em)}
+                  {item.editado_em && <span className="italic"> · editado {fmtFirma(item.editado_em)}</span>}
+                </p>
+                {item.n_edicoes > 0 && (souAutor || souSuperior) && (
+                  <button onClick={() => alternarHistorico(item)} style={{ color: C.blue }} className="text-[11px] font-mono shrink-0">🕘 {historico[item.id] ? "ocultar" : `versões (${item.n_edicoes})`}</button>
+                )}
+                {souAutor && editandoId !== item.id && (
+                  <button onClick={() => { setEditandoId(item.id); setTextoEdicao(item.texto); }} title="Editar (só o autor)" className="shrink-0">✏️</button>
+                )}
+                {souSuperior && !souAutor && (
+                  <button onClick={() => apagar(item)} title="Apagar (só superiores do autor)" style={{ color: C.rust }} className="shrink-0">🗑</button>
+                )}
+                {souSuperior && souAutor && eu.rank === 1 && (
+                  <button onClick={() => apagar(item)} title="Apagar" style={{ color: C.rust }} className="shrink-0">🗑</button>
+                )}
+              </div>
+              {historico[item.id] && (
+                <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t space-y-1.5">
+                  {historico[item.id].map((v, i) => (
+                    <div key={i}>
+                      <p style={{ color: C.inkMuted }} className="text-xs whitespace-pre-wrap line-through decoration-1">{v.texto}</p>
+                      <p style={{ color: C.inkMuted }} className="text-[10px] font-mono">substituído em {fmtFirma(v.substituido_em)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nada registrado ainda.</p>}
+      </div>
+    </div>
+  );
+}
+
+function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId, podeEditar = true }) {
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState("");
+  const historico = [...new Set(items.map((i) => i.texto).filter(Boolean))];
+
+  const submit = async () => {
+    if (!texto.trim()) return;
+    setErro("");
+    try { await onAdd(texto.trim()); setTexto(""); } catch (err) { setErro(err.message); }
+  };
+  const remover = async (item) => {
+    setErro("");
+    try { await onDelete(item.id); } catch (err) { setErro(err.message); }
+  };
+
+  return (
+    <div>
+      <div className="space-y-2 mb-3">
+        {items.map((item) => (
+          <div key={item.id} style={{ background: C.surface, borderLeftColor: color }} className="border-l-4 rounded-r-md p-3 shadow-sm flex gap-3 group">
+            <span className="mt-0.5 shrink-0">{glyph}</span>
+            <div className="flex-1">
+              <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">{fmtTs(item.criado_em)}</span>
+              <p style={{ color: C.ink }} className="text-sm">{item.texto}</p>
+            </div>
+            {podeEditar && <button onClick={() => remover(item)} style={{ color: C.rust }} className="opacity-0 group-hover:opacity-100 hover:opacity-60 transition shrink-0">🗑</button>}
+          </div>
+        ))}
+        {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nada registrado ainda.</p>}
+      </div>
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {podeEditar && (
+        <div className="flex gap-2">
+          <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder={placeholder} list={datalistId} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
+          <datalist id={datalistId}>{historico.map((h) => <option key={h} value={h} />)}</datalist>
+          <button onClick={submit} disabled={!texto.trim()} style={{ background: color }} className="text-white rounded px-3 disabled:opacity-40 shrink-0">+</button>
+        </div>
+      )}
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1">{erro}</p>}
+    </div>
+  );
+}
+
+function BottomNav({ onInicio, onConfig, active }) {
+  return (
+    <div style={{ background: C.surface, borderColor: C.border }} className="fixed bottom-0 left-0 right-0 border-t flex justify-around items-center py-2 z-40">
+      <button onClick={onInicio} className="flex flex-col items-center gap-0.5 px-6 py-1">
+        <img src="logo_home_11.webp" alt="Início" className="w-6 h-6 object-contain" style={{ opacity: active === "inicio" ? 1 : 0.55 }} draggable="false" />
+        <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Início</span>
+      </button>
+      <button onClick={onConfig} className="flex flex-col items-center gap-0.5 px-6 py-1">
+        <img src="logo_config_12.webp" alt="Config" className="w-6 h-6 object-contain" style={{ opacity: 0.55 }} draggable="false" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase">Config</span>
+      </button>
+    </div>
+  );
+}
+
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div style={{ background: C.surface, borderColor: C.border }} className="relative w-64 max-w-[80vw] h-full p-5 shadow-2xl border-l flex flex-col">
+        <button onClick={onClose} style={{ color: C.inkMuted }} className="self-end text-2xl mb-4 leading-none">×</button>
+        <div className="flex items-center gap-2.5 mb-6">
+          <img src="logo.png" alt="G&C" className="w-10 h-10 rounded-full shrink-0" />
+          <div className="min-w-0">
+            <p style={{ color: C.ink }} className="font-bold text-sm truncate">{usuario.nome}</p>
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuario.email}</p>
+          </div>
+        </div>
+        <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
+        {usuario.rank <= 3 && (
+          <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono flex items-center justify-center gap-2"><img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" /> Permissões</button>
+        )}
+        {usuario.email === "marcelojavierbonet@gmail.com" && (
+          <button onClick={onAbrirLeads} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📋 Leads (expo)</button>
+        )}
+        <button onClick={onAbrirDefinirSenha} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Definir senha</button>
+        {onAbrirMeuPin && <button onClick={onAbrirMeuPin} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</button>}
+        {usuario.rank !== 1 && onExcluirConta && (
+          <button onClick={onExcluirConta} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir minha conta</button>
+        )}
+        <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
+        {usuario.rank === 1 && (
+          <button onClick={onBackupForcado} disabled={fazendoBackup} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono disabled:opacity-50">
+            {fazendoBackup ? "Gerando..." : "⤓ Backup de tudo"}
+          </button>
+        )}
+        <button onClick={onSair} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 text-sm font-mono">🔒 Sair</button>
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-auto pt-4">© 2026 Gestão & Controle</p>
+      </div>
+    </div>
+  );
+}
+
+function MeuPinModal({ usuario, onClose }) {
+  const [cpf, setCpf] = useState("");
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [erro, setErro] = useState("");
+  const [ok, setOk] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const jaTemCpf = !!usuario.cpf_mascarado;
+  const salvar = async () => {
+    setErro("");
+    if (!jaTemCpf && !cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
+    if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
+    setSalvando(true);
+    try {
+      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ cpf: limparCpf(cpf), pin }) });
+      setOk(true);
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</h2>
+        {ok ? (
+          <>
+            <p style={{ color: C.green }} className="text-sm my-4">Pronto! Agora você também pode entrar com CPF + PIN.</p>
+            <button onClick={onClose} style={{ background: C.teal }} className="w-full text-white font-bold uppercase tracking-wide text-sm rounded py-2.5">Fechar</button>
+          </>
+        ) : (
+          <>
+            <p style={{ color: C.inkMuted }} className="text-xs mb-3">Para entrar com CPF + PIN, sem precisar de email nem Google.</p>
+            {jaTemCpf ? (
+              <p style={{ color: C.ink }} className="text-sm font-mono mb-3">CPF: {usuario.cpf_mascarado}</p>
+            ) : (
+              <>
+                <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Seu CPF</label>
+                <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none tracking-wider" />
+              </>
+            )}
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none text-xl tracking-[0.5em] text-center" />
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
+            <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && salvar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none text-xl tracking-[0.5em] text-center" />
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF.</p>
+            {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+            <div className="flex gap-2 mt-4">
+              <button onClick={onClose} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Cancelar</button>
+              <button onClick={salvar} disabled={salvando} style={{ background: C.teal }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5 disabled:opacity-50">{salvando ? "..." : "Salvar"}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DefinirSenhaModal({ usuario, onClose }) {
+  const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
+  const [erro, setErro] = useState("");
+  const [ok, setOk] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async () => {
+    setErro("");
+    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
+    if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
+    setSalvando(true);
+    try {
+      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ novaSenha: senha }) });
+      // Oferece salvar no gerenciador de senhas do navegador (Google Password Manager no Chrome).
+      try {
+        if (window.PasswordCredential) {
+          const cred = new window.PasswordCredential({ id: usuario.email, password: senha, name: usuario.nome });
+          await navigator.credentials.store(cred);
+        }
+      } catch (e) { /* navegador sem suporte, ou usuário recusou — segue normal */ }
+      setOk(true);
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Definir senha</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl">×</button>
+        </div>
+        {ok ? (
+          <>
+            <p style={{ color: C.ink }} className="text-sm">Senha salva! Agora você também pode entrar com email e senha, sem depender do Google.</p>
+            <button onClick={onClose} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5">Fechar</button>
+          </>
+        ) : (
+          <>
+            <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-3">Útil se você entrou com Google — assim consegue entrar mesmo sem ele.</p>
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
+            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus />
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
+            <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+            {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+            <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar senha"}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TicketCard({ obra, pendCount, lastDate, onOpen, onEdit, onDelete }) {
+  const e = ESTADOS[obra.estado];
+  return (
+    <div onClick={onOpen} style={{ background: C.surface, borderColor: C.border, backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 6px, ${C.bg} 6px, ${C.bg} 10px)`, backgroundSize: "100% 3px", backgroundRepeat: "no-repeat", backgroundPosition: "bottom" }} className="relative cursor-pointer border rounded-md p-4 pb-5 shadow-sm active:shadow-md transition">
+      {pendCount > 0 && <div style={{ background: C.rust }} className="absolute -top-2 -right-2 text-white text-[11px] font-extrabold rounded-full w-6 h-6 flex items-center justify-center shadow">{pendCount}</div>}
+      <div className="flex justify-between items-start gap-2">
+        <div>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase tracking-wide">{obra.tipo || "Obra"}</p>
+          <h3 style={{ color: C.ink }} className="text-lg font-extrabold leading-tight mt-0.5">{obra.cliente}</h3>
+          <p style={{ color: C.inkMuted }} className="text-sm mt-0.5">{obra.endereco}</p>
+        </div>
+        <span style={{ color: e.color, borderColor: e.color, transform: "rotate(-6deg)", fontFamily: "ui-monospace, monospace" }} className="text-[10px] font-extrabold tracking-widest border-2 rounded px-2 py-0.5 uppercase shrink-0">{e.label}</span>
+      </div>
+      <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: `1px dashed ${C.border}` }}>
+        <span style={{ color: C.inkMuted }} className="text-xs font-mono">🕐 {lastDate ? `há ${daysAgo(lastDate)}d` : "sem atividade"}</span>
+        <div className="flex items-center gap-3">
+          {onEdit && <button onClick={(ev) => { ev.stopPropagation(); onEdit(); }} style={{ color: C.blue }} className="text-xs font-mono uppercase">✏️ Editar</button>}
+          {onDelete && <button onClick={(ev) => { ev.stopPropagation(); onDelete(); }} style={{ color: C.rust }} className="text-xs font-mono uppercase">🗑️ Eliminar</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeadsScreen({ onBack }) {
+  const [leads, setLeads] = useState(null);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiFetch("/api/leads");
+        setLeads(r.leads);
+      } catch (err) {
+        setErro(err.message);
+      }
+    })();
+  }, []);
+
+  const exportarCSV = () => {
+    const linhas = [["Nome", "Empresa", "Contato", "Data"]];
+    leads.forEach((l) => linhas.push([l.nome, l.empresa || "", l.contato, fmtTs(l.criado_em)]));
+    const csv = linhas.map((linha) => linha.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads-gc-${todayISO()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">📋 Leads (expo)</h2>
+        {leads && leads.length > 0 && (
+          <button onClick={exportarCSV} style={{ background: C.teal }} className="text-white text-xs font-bold uppercase rounded px-3 py-1.5">⤓ Exportar CSV</button>
+        )}
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-sm font-mono mb-3">{erro}</p>}
+      {!leads && !erro && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Carregando...</p>}
+      {leads && leads.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nenhum lead capturado ainda.</p>}
+      {leads && leads.length > 0 && (
+        <div className="space-y-2">
+          <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-2">{leads.length} contato{leads.length !== 1 ? "s" : ""} capturado{leads.length !== 1 ? "s" : ""}</p>
+          {leads.map((l) => (
+            <div key={l.id} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-3">
+              <div className="flex justify-between items-start gap-2">
+                <span style={{ color: C.ink }} className="font-bold text-sm">{l.nome}</span>
+                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono shrink-0">{fmtTs(l.criado_em)}</span>
+              </div>
+              {l.empresa && <p style={{ color: C.inkMuted }} className="text-xs">{l.empresa}</p>}
+              <p style={{ color: C.amber }} className="text-sm font-mono mt-1">{l.contato}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PermissoesScreen({ onBack, usuarioRank = 8 }) {
+  const [permissoes, setPermissoes] = useState(null);
+  const [erro, setErro] = useState("");
+  const [salvandoCelda, setSalvandoCelda] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiFetch("/api/permissoes");
+        setPermissoes(r.permissoes);
+      } catch (err) { setErro(err.message); }
+    })();
+  }, []);
+
+  const nivelDe = (rank, modulo) => {
+    const row = permissoes?.find((p) => p.rank === rank && p.modulo === modulo);
+    return row ? row.nivel : "nenhum";
+  };
+
+  const ciclo = { nenhum: "visualizar", visualizar: "editar", editar: "nenhum" };
+  const corDe = { nenhum: C.inkMuted, visualizar: C.blue, editar: C.green };
+  const labelNivel = { nenhum: "Nenhum", visualizar: "Ver", editar: "Editar" };
+
+  const toggle = async (rank, modulo) => {
+    const novo = ciclo[nivelDe(rank, modulo)];
+    const key = `${rank}-${modulo}`;
+    setSalvandoCelda(key);
+    setErro("");
+    try {
+      await apiFetch("/api/permissoes", { method: "PATCH", body: JSON.stringify({ rank, modulo, nivel: novo }) });
+      setPermissoes((prev) => {
+        const existe = prev.find((p) => p.rank === rank && p.modulo === modulo);
+        if (existe) return prev.map((p) => (p.rank === rank && p.modulo === modulo ? { ...p, nivel: novo } : p));
+        return [...prev, { rank, modulo, nivel: novo }];
+      });
+    } catch (err) { setErro(err.message); }
+    setSalvandoCelda(null);
+  };
+
+  if (!permissoes) return <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>;
+
+  return (
+    <div>
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">🔑 Permissões</h2>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Toque numa célula para alternar: Nenhum → Ver → Editar. Você só altera os ranks abaixo do seu (as linhas apagadas estão travadas).</p>
+      <div className="overflow-x-auto -mx-4 px-4">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left p-1"></th>
+              {MODULOS_OBRA.map((m) => <th key={m.key} style={{ color: C.inkMuted }} className="p-1 font-mono font-normal text-center">{m.glyph}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((rank) => (
+              <tr key={rank}>
+                <td style={{ color: C.ink }} className="p-1 font-mono whitespace-nowrap pr-2 text-[11px]">{RANK_LABELS[rank]}</td>
+                {MODULOS_OBRA.map((m) => {
+                  const nivel = nivelDe(rank, m.key);
+                  const key = `${rank}-${m.key}`;
+                  return (
+                    <td key={m.key} className="p-1 text-center">
+                      <button onClick={() => toggle(rank, m.key)} disabled={salvandoCelda === key || rank <= usuarioRank || usuarioRank > 3}
+                        style={{ borderColor: corDe[nivel], color: corDe[nivel] }}
+                        className="border rounded w-14 py-1 text-[10px] font-mono uppercase disabled:opacity-50">
+                        {salvandoCelda === key ? "..." : labelNivel[nivel]}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-3">{erro}</p>}
+    </div>
+  );
+}
+
+const MODULOS_OBRA = [
+  { key: "equipe", label: "Equipe", glyph: "👥", cajao: "cajon_equipe_2.webp", icone: "icone_equipe_2.webp" },
+  { key: "etapas", label: "Etapas", glyph: "☑", cajao: "cajon_etapas_1.webp", icone: "icone_etapas_1.webp" },
+  { key: "ferramentas", label: "Ferramentas", glyph: "🔧", cajao: "cajon_ferramentas_4.webp", icone: "icone_ferramentas_4.webp" },
+  { key: "materiais", label: "Materiais", glyph: "📦", cajao: "cajon_materiais_5.webp", icone: "icone_materiais_5.webp" },
+  { key: "observacoes", label: "Observações", glyph: "📝", cajao: "cajon_observacoes_6.webp", icone: "icone_observacoes_6.webp" },
+  { key: "documentos", label: "Documentos", glyph: "📎", cajao: "cajon_documentos_3.webp", icone: "icone_documentos_3.webp" },
+];
+
+function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, onTransferirObra,
+  onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa, onAddFotoEtapa, onDeleteFotoEtapa,
+  onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao, onEditObservacao,
+  onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, usuarioAPI, niveis,
+  onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
+  const [erroObra, setErroObra] = useState("");
+  const [transferindo, setTransferindo] = useState(false);
+  const [novoResponsavel, setNovoResponsavel] = useState("");
+  const { etapas, equipe, ferramentas, materiais, observacoes, documentos } = obraDetalhe;
+  const etapasObraCount = etapas.length;
+  const etapasObraDone = etapas.filter((e) => e.concluida).length;
+  const responsavelAtual = equipe.find((m) => m.usuario_id === obra.responsavel_id);
+  // Nível efetivo NESTA obra: o da tela de Permissões, recortado pelo bloqueio que o responsável da obra definiu.
+  const meuMembro = equipe.find((m) => m.usuario_id === usuarioAPI?.id);
+  const nivelDoModulo = (key) => {
+    const base = niveis?.[key] || "nenhum";
+    const exc = meuMembro?.excecao_modulos?.[key];
+    if (exc === "nenhum") return "nenhum";
+    if (exc === "visualizar" && base === "editar") return "visualizar";
+    return base;
+  };
+  const modulosVisiveis = MODULOS_OBRA.filter((m) => nivelDoModulo(m.key) !== "nenhum");
+  const souChefe = usuarioRank <= 2;
+
+  const cycleEstado = async () => {
+    setErroObra("");
+    const order = ["ativa", "pausada", "concluida"];
+    try { await onChangeEstado(obra.id, order[(order.indexOf(obra.estado) + 1) % order.length]); }
+    catch (err) { setErroObra(err.message); }
+  };
+
+  const excluir = async () => {
+    setErroObra("");
+    try { await onDeleteObra(obra.id); }
+    catch (err) { setErroObra(err.message); }
+  };
+
+  const transferir = async () => {
+    if (!novoResponsavel) return;
+    setErroObra("");
+    try {
+      await onTransferirObra(obra.id, Number(novoResponsavel));
+      setTransferindo(false);
+      setNovoResponsavel("");
+    } catch (err) { setErroObra(err.message); }
+  };
+
+  const contagens = {
+    etapas: etapasObraCount > 0 ? `${etapasObraDone}/${etapasObraCount}` : null,
+    equipe: equipe.length || null,
+    documentos: documentos.length || null,
+    ferramentas: ferramentas.length || null,
+    materiais: materiais.length || null,
+    observacoes: observacoes.length || null,
+  };
+
+  if (modulo) {
+    const mod = MODULOS_OBRA.find((m) => m.key === modulo);
+    const podeEditar = nivelDoModulo(modulo) === "editar";
+    return (
+      <div>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}</h2>
+        {modulo === "documentos" && <PedidosPanel obraId={obra.id} tipo="documento" tipoLabel="Documentos" equipe={equipe} usuarioAPI={usuarioAPI} />}
+        {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
+        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} usuarioId={usuarioAPI?.id} responsavelId={obra.responsavel_id} podeEditar={podeEditar} />}
+        {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFotoEtapa} onDeleteFoto={onDeleteFotoEtapa} podeEditar={podeEditar} />}
+        {modulo === "ferramentas" && <PedidosPanel obraId={obra.id} tipo="ferramenta" tipoLabel="Ferramentas" equipe={equipe} usuarioAPI={usuarioAPI} />}
+        {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
+        {modulo === "materiais" && <PedidosPanel obraId={obra.id} tipo="material" tipoLabel="Materiais" equipe={equipe} usuarioAPI={usuarioAPI} />}
+        {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
+        {modulo === "observacoes" && (
+          <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p style={{ color: C.inkMuted }} className="text-xs font-mono">
+                👤 Responsável: <span style={{ color: C.ink }}>{responsavelAtual ? `${responsavelAtual.nome} (${RANK_LABELS[responsavelAtual.rank]})` : "—"}</span>
+              </p>
+              {souChefe && <button onClick={() => setTransferindo(!transferindo)} style={{ color: C.blue }} className="text-xs font-mono uppercase">🔄 Transferir</button>}
+            </div>
+            {transferindo && (
+              <div className="flex gap-2 mt-2">
+                <select value={novoResponsavel} onChange={(e) => setNovoResponsavel(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs outline-none bg-white">
+                  <option value="">Escolha o novo responsável...</option>
+                  {equipe.filter((m) => !m.removido_em).map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
+                </select>
+                <button onClick={transferir} disabled={!novoResponsavel} style={{ background: C.blue }} className="text-white text-xs font-bold uppercase rounded px-3 disabled:opacity-40 shrink-0">Confirmar</button>
+              </div>
+            )}
+            {souChefe && <button onClick={excluir} style={{ color: C.rust }} className="mt-4 text-xs font-mono">🗑 excluir obra</button>}
+            {erroObra && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroObra}</p>}
+          </div>
+        )}
+        {modulo === "observacoes" && <ObservacoesSection items={observacoes} onAdd={onAddObservacao} onDelete={onDeleteObservacao} onEdit={onEditObservacao} usuarioAPI={usuarioAPI} podeEditar={podeEditar} />}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="relative -mx-4 -mt-4 mb-3">
+        <img src="arquivero_completo_16.webp" alt="" className="w-full h-auto block" draggable="false" style={{ aspectRatio: "1048 / 1797" }} />
+
+        {/* ===== POSICIONAMENTO DO TEXTO SOBRE O ARCHIVERO =====
+            Imagem fonte: arquivero_completo_16.webp, 1048×1797px exatos (ver aspectRatio acima).
+            % (não px fixo) DE PROPÓSITO: container é w-full/h-auto, escala com a tela do aparelho.
+            Margem de contorno = 25% da largura/altura DA PRÓPRIA FOLHA (não da imagem toda) —
+            dobrada em relação à versão anterior, pra sobrar espaço visível de forma inequívoca.
+
+            HOJA 1 — borda da folha medida (%): left=1.9% top=4.9% right=44.8% bottom=35.0%
+                     (largura=42.9% altura=30.1%) → margem 25%: ~10.7% horizontal, ~7.5% vertical
+                     caixa de texto final: left=13% top=12% width=24%
+            HOJA 2 — borda da folha medida (%): left=59.7% top=17.0% right=83.1% bottom=34.1%
+                     (largura=23.4% altura=17.1%) → margem 25%: ~5.9% horizontal, ~4.3% vertical
+                     caixa de texto final: left=66% top=22% width=12%
+            Rotação com transformOrigin "top left" (pivota do canto declarado, não do centro). */}
+        <div className="absolute" style={{ left: "13%", top: "12%", width: "24%", transform: "rotate(-3deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-[11px] font-bold font-mono uppercase tracking-wide">{obra.tipo || "Obra"}{obra.data_inicio ? ` · desde ${fmt(obra.data_inicio)}` : ""}</p>
+          <h2 style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-lg font-extrabold leading-tight mt-1">{obra.cliente}</h2>
+          <p style={{ color: "#3D3934", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs font-bold mt-1">{obra.endereco}</p>
+        </div>
+
+        <div className="absolute" style={{ left: "66%", top: "22%", width: "12%", transform: "rotate(-2deg)", transformOrigin: "top left" }}>
+          <p style={{ color: "#4A4640" }} className="text-[9px] font-bold font-mono uppercase tracking-wide">Responsável</p>
+          <p style={{ color: "#1A1815", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }} className="text-xs font-extrabold leading-tight mt-1">{responsavelAtual ? responsavelAtual.nome : "—"}</p>
+        </div>
+
+        {/* Selo de status, ENORME, bem visível */}
+        <div className="absolute" style={{ right: "3%", top: "1%", width: "42%" }}>
+          <StampBadge estado={obra.estado} onClick={cycleEstado} enorme />
+        </div>
+
+        {/* Botões invisíveis sobre cada caixa do archivero — a imagem já tem mascote + texto */}
+        <div className="absolute grid grid-cols-2" style={{ left: 0, right: 0, top: "37%", bottom: 0, gridTemplateRows: "repeat(3, 1fr)" }}>
+          {modulosVisiveis.map((m) => (
+            <button key={m.key} onClick={() => onAbrirModulo(m.key)} className="relative active:bg-black/10 transition">
+              {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-4 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendientesView({ obras, onBack, onOpenObra }) {
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const resultados = await Promise.all(obras.map(async (obra) => {
+        try {
+          const r = await apiFetch(`/api/etapas?obra_id=${obra.id}`);
+          return { obra, pendentes: r.etapas.filter((e) => !e.concluida) };
+        } catch (e) { return { obra, pendentes: [] }; }
+      }));
+      setItems(resultados.filter((x) => x.pendentes.length > 0));
+      setLoading(false);
+    })();
+  }, [obras]);
+
+  return (
+    <div>
+      <h2 style={{ color: C.ink }} className="text-xl font-extrabold uppercase tracking-wide mb-1">● Pendências</h2>
+      <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">Etapas ainda não concluídas, em todas as obras</p>
+      {loading && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Carregando...</p>}
+      {!loading && items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Nada pendente. Tudo em ordem.</p>}
+      <div className="space-y-4">
+        {items.map(({ obra, pendentes }) => (
+          <div key={obra.id} style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4">
+            <button onClick={() => onOpenObra(obra.id)} style={{ color: C.ink }} className="font-extrabold text-sm uppercase tracking-wide">
+              {obra.cliente} <span style={{ color: C.inkMuted }} className="font-normal normal-case">— {obra.endereco}</span>
+            </button>
+            {pendentes.map((e) => <div key={e.id} className="flex items-start gap-2 text-sm mt-2"><span>☑</span><span style={{ color: C.inkMuted }}>{e.texto}</span></div>)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportView({ obras, onBack }) {
+  const [loading, setLoading] = useState(true);
+  const [reportText, setReportText] = useState("");
+  const [copied, setCopied] = useState(false);
+  const cutoff = todayISO();
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const lines = [`*RELATÓRIO SEMANAL — GESTÃO & CONTROLE*`, `${fmt(weekAgo)} a ${fmt(cutoff)}`, ""];
+      let totalPendentes = 0;
+      const blocos = [];
+      for (const obra of obras) {
+        try {
+          const [etR, feR, maR, obR] = await Promise.all([
+            apiFetch(`/api/etapas?obra_id=${obra.id}`),
+            apiFetch(`/api/ferramentas?obra_id=${obra.id}`),
+            apiFetch(`/api/materiais?obra_id=${obra.id}`),
+            apiFetch(`/api/observacoes?obra_id=${obra.id}`),
+          ]);
+          const etapas = etR.etapas, ferramentas = feR.ferramentas, materiais = maR.materiais, observacoes = obR.observacoes;
+          const pendentes = etapas.filter((e) => !e.concluida);
+          totalPendentes += pendentes.length;
+          const doneCount = etapas.filter((e) => e.concluida).length;
+          const concluidasRecentes = etapas.filter((e) => e.concluida && e.concluida_em >= weekAgo);
+          const ferRecent = ferramentas.filter((f) => f.criado_em >= weekAgo);
+          const matRecent = materiais.filter((m) => m.criado_em >= weekAgo);
+          const obsRecent = observacoes.filter((o) => o.criado_em >= weekAgo);
+          if (etapas.length === 0 && ferRecent.length === 0 && matRecent.length === 0 && obsRecent.length === 0) continue;
+          const bloco = [`*${obra.cliente}* (${ESTADOS[obra.estado].label}) — ${obra.endereco}`];
+          if (etapas.length > 0) bloco.push(`  Etapas: ${doneCount}/${etapas.length} concluídas`);
+          concluidasRecentes.forEach((e) => bloco.push(`  • [Concluída] ${e.texto}`));
+          ferRecent.forEach((f) => bloco.push(`  • [Ferramenta] ${f.texto}`));
+          matRecent.forEach((m) => bloco.push(`  • [Material] ${m.texto}`));
+          obsRecent.forEach((o) => bloco.push(`  • [Observação] ${o.texto}`));
+          blocos.push(bloco.join("\n"));
+        } catch (e) {}
+      }
+      if (totalPendentes > 0) lines.push(`*⚠ ETAPAS PENDENTES (${totalPendentes})*`, "");
+      lines.push(...blocos.map((b) => b + "\n"));
+      if (blocos.length === 0 && totalPendentes === 0) lines.push("Sem novidades registradas essa semana.");
+      setReportText(lines.join("\n"));
+      setLoading(false);
+    })();
+  }, [obras]);
+
+  const copy = async () => { try { await navigator.clipboard.writeText(reportText); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {} };
+  const openWhatsapp = () => window.open(`https://wa.me/?text=${encodeURIComponent(reportText)}`, "_blank");
+  const openEmail = () => { const subject = encodeURIComponent(`Relatório semanal — ${fmt(weekAgo)} a ${fmt(cutoff)}`); const body = encodeURIComponent(reportText.replace(/\*/g, "")); window.location.href = `mailto:?subject=${subject}&body=${body}`; };
+
+  return (
+    <div>
+      <h2 style={{ color: C.ink }} className="text-xl font-extrabold uppercase tracking-wide mb-1">Relatório semanal</h2>
+      <p style={{ color: C.inkMuted }} className="text-sm font-mono mb-4">{fmt(weekAgo)} — {fmt(cutoff)}</p>
+      {loading ? (
+        <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-12">Carregando...</p>
+      ) : (
+        <>
+          <pre style={{ background: C.surface, borderColor: C.border, color: C.ink }} className="border rounded-md p-4 text-sm whitespace-pre-wrap font-sans leading-relaxed mb-4">{reportText}</pre>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={openWhatsapp} style={{ background: C.green }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">💬 WhatsApp</button>
+            <button onClick={openEmail} style={{ background: C.blue }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">✉ Email</button>
+            <button onClick={copy} style={{ borderColor: C.border, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">{copied ? "✓ Copiado" : "⧉ Copiar"}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Reparte cada letra con una animación tipo "carta servida por el crupier", en cascada.
+// 15 caracteres totales (GESTÃO=6 + &=1 + CONTROLE=8) repartidos en 1 segundo -> ~66.7ms entre letra y letra.
+function DealText({ text, startIndex, color, fontSize }) {
+  return text.split("").map((ch, i) => (
+    <span key={i} className="deal-letter" style={{ color, fontSize, animationDelay: `${1000 + (startIndex + i) * (1000 / 15)}ms` }}>
+      {ch === " " ? "\u00A0" : ch}
+    </span>
+  ));
+}
+
+function SplashScreen() {
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", position: "relative" }} className="flex flex-col items-center justify-center overflow-hidden">
+      <div className="logo-pop" style={{ width: 140, height: 140 }}>
+        <img src="logo.png" alt="" style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }} />
+        <img src="logo-blink.png" alt="" className="logo-blink-img" style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }} />
+      </div>
+      <div className="splash-title-wrap font-comic">
+        <div><DealText text="GESTÃO" startIndex={0} color={C.ink} fontSize={26} /></div>
+        <div><DealText text="&" startIndex={6} color={C.amber} fontSize={26} /></div>
+        <div><DealText text="CONTROLE" startIndex={7} color={C.ink} fontSize={26} /></div>
+      </div>
+      <div className="xp-loader-wrap">
+        <div className="xp-loader-track"><div className="xp-loader-bar" /></div>
+      </div>
+    </div>
+  );
+}
+
+function AuthWrap({ children }) {
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh" }} className="flex flex-col items-center justify-center p-6">
+      <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-lg p-6 w-full max-w-sm shadow-xl">{children}</div>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-5">© 2026 Gestão & Controle</p>
+    </div>
+  );
+}
+
+function LogoTitulo() {
+  return (
+    <div className="flex items-center justify-center gap-2.5 mb-1">
+      <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
+      <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
+    </div>
+  );
+}
+
+function CadastroScreen({ onIrLogin, onCadastrado }) {
+  const [email, setEmail] = useState("");
+  const [nome, setNome] = useState("");
+  const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
+  const [aceito, setAceito] = useState(false);
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const cadastrar = async () => {
+    setErro("");
+    if (!email.trim() || !nome.trim()) { setErro("Preencha nome e email."); return; }
+    if (senha.length < 6) { setErro("A senha precisa ter ao menos 6 caracteres."); return; }
+    if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
+    if (!aceito) { setErro("Você precisa aceitar os Termos de Uso."); return; }
+    setSalvando(true);
+    try {
+      const authData = await apiSignup(email.trim(), senha, nome.trim());
+      saveSession(authData);
+      onCadastrado();
+    } catch (err) {
+      setErro(err.message);
+    }
+    setSalvando(false);
+  };
+
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Criar conta</p>
+      <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
+        <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
+      </a>
+      <div className="flex items-center gap-2 mb-4">
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+      </div>
+      <div className="space-y-3">
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nome</label>
+          <input value={nome} onChange={(e) => setNome(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Seu nome" autoFocus />
+        </div>
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="voce@exemplo.com" />
+        </div>
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
+          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Mínimo 6 caracteres" />
+        </div>
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
+          <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cadastrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+        </div>
+        <label className="flex items-start gap-2 text-xs" style={{ color: C.inkMuted }}>
+          <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
+          <span>Li e aceito os Termos de Uso e a Política de Privacidade <span className="italic">(em elaboração)</span>.</span>
+        </label>
+        {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
+      </div>
+      <button onClick={cadastrar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Criando..." : "Criar conta"}</button>
+      <button onClick={onIrLogin} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-3">Já tenho conta — entrar</button>
+    </AuthWrap>
+  );
+}
+
+function LoginScreen({ onLogado, onIrCadastro }) {
+  const [modo, setModo] = useState(() => { try { return localStorage.getItem("gc-login-modo") || "email"; } catch (e) { return "email"; } });
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [pin, setPin] = useState("");
+  const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
+
+  const trocarModo = (m) => { setModo(m); setErro(""); try { localStorage.setItem("gc-login-modo", m); } catch (e) {} };
+
+  const entrar = async () => {
+    setErro("");
+    setEntrando(true);
+    try {
+      const authData = await apiLogin(email.trim(), senha);
+      saveSession(authData);
+      onLogado();
+    } catch (err) {
+      setErro(err.message);
+    }
+    setEntrando(false);
+  };
+
+  const entrarCpf = async () => {
+    setErro("");
+    if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!/^\d{4}$/.test(pin)) { setErro("O PIN tem 4 números."); return; }
+    setEntrando(true);
+    try {
+      const authData = await apiPublica("/api/auth/login-cpf", { cpf: limparCpf(cpf), pin });
+      saveSession(authData);
+      onLogado();
+    } catch (err) {
+      setErro(err.message);
+    }
+    setEntrando(false);
+  };
+
+  const abaEstilo = (ativa) => ({ background: ativa ? C.ink : "transparent", color: ativa ? "#fff" : C.inkMuted, borderColor: C.ink });
+
+  if (modo === "cpf") {
+    return (
+      <AuthWrap>
+        <LogoTitulo />
+        <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-4">Entrar</p>
+        <div className="flex mb-4">
+          <button onClick={() => trocarModo("cpf")} style={abaEstilo(true)} className="flex-1 border rounded-l py-2 text-xs font-bold uppercase">CPF + PIN</button>
+          <button onClick={() => trocarModo("email")} style={abaEstilo(false)} className="flex-1 border rounded-r py-2 text-xs font-bold uppercase">Email / Google</button>
+        </div>
+        <div>
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">CPF</label>
+          <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-lg tracking-wider" autoFocus />
+        </div>
+        <div className="mt-3">
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
+          <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && entrarCpf()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+        </div>
+        {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+        <button onClick={entrarCpf} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-3 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-3">Esqueceu o PIN? Peça um "Novo PIN" ao seu chefe.</p>
+      </AuthWrap>
+    );
+  }
+
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-4">Entrar</p>
+      <div className="flex mb-4">
+        <button onClick={() => trocarModo("cpf")} style={abaEstilo(false)} className="flex-1 border rounded-l py-2 text-xs font-bold uppercase">CPF + PIN</button>
+        <button onClick={() => trocarModo("email")} style={abaEstilo(true)} className="flex-1 border rounded-r py-2 text-xs font-bold uppercase">Email / Google</button>
+      </div>
+      <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
+        <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
+      </a>
+      <div className="flex items-center gap-2 mb-4">
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+        <span style={{ color: C.inkMuted }} className="text-[11px] font-mono">ou com email</span>
+        <div style={{ borderColor: C.border }} className="flex-1 border-t" />
+      </div>
+      <div>
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Email</label>
+        <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" autoFocus />
+      </div>
+      <div className="mt-3">
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
+        <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={entrar} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
+      <button onClick={onIrCadastro} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">Não tenho conta — criar</button>
+    </AuthWrap>
+  );
+}
+
+function ConviteScreen({ token, onEntrou, onCancelar }) {
+  const [info, setInfo] = useState(null);
+  const [erroLink, setErroLink] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    apiPublica(`/api/convite-info?token=${encodeURIComponent(token)}`)
+      .then(setInfo)
+      .catch((e) => setErroLink(e.message));
+  }, [token]);
+
+  const confirmar = async () => {
+    setErro("");
+    if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
+    if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
+    setSalvando(true);
+    try {
+      const authData = await apiPublica("/api/auth/aceitar-convite", { token, cpf: limparCpf(cpf), pin });
+      saveSession(authData);
+      try { localStorage.setItem("gc-login-modo", "cpf"); } catch (e) {}
+      onEntrou();
+    } catch (err) {
+      setErro(err.message);
+      setSalvando(false);
+    }
+  };
+
+  if (erroLink) {
+    return (
+      <AuthWrap>
+        <LogoTitulo />
+        <p style={{ color: C.rust }} className="text-sm text-center my-4">{erroLink}</p>
+        <button onClick={onCancelar} style={{ background: C.ink }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">Ir para o login</button>
+      </AuthWrap>
+    );
+  }
+  if (!info) return <SplashScreen />;
+
+  const novoPin = info.tipo === "novo-pin";
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold text-center mt-3">Olá, {info.nome}!</h2>
+      {novoPin ? (
+        <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">Crie seu novo PIN de 4 números.</p>
+      ) : (
+        <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">
+          Você foi convidado{info.obra ? <> para a obra <b style={{ color: C.ink }}>{info.obra.cliente}</b></> : null} como <b style={{ color: C.ink }}>{RANK_LABELS[info.rank]}</b>{info.funcao ? ` (${info.funcao})` : ""}.
+        </p>
+      )}
+      <div>
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Seu CPF</label>
+        <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-lg tracking-wider" />
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">É o que você vai usar para entrar.</p>
+      </div>
+      <div className="mt-3">
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Crie um PIN (4 números)</label>
+        <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+      </div>
+      <div className="mt-3">
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
+        <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && confirmar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF. Não conte o PIN para ninguém.</p>
+      </div>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
+      <button onClick={confirmar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-3 disabled:opacity-50">{salvando ? "Entrando..." : "Entrar"}</button>
+    </AuthWrap>
+  );
+}
+
+// Cartão com o link gerado: botão WhatsApp + copiar.
+function LinkConviteCard({ link, nome, telefone, novoPin, onFechar }) {
+  const [copiado, setCopiado] = useState(false);
+  const texto = novoPin
+    ? `Olá ${nome}! Este é seu link para criar um novo PIN no Gestão & Controle (vale 7 dias, uso único):\n${link}`
+    : `Olá ${nome}! Você foi convidado para a equipe da obra no Gestão & Controle. Toque no link para entrar (vale 7 dias, uso único):\n${link}`;
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(link); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }
+    catch (e) { window.prompt("Copie o link:", link); }
+  };
+  return (
+    <div style={{ background: C.bg, borderColor: C.green }} className="border-2 rounded p-3 mt-2">
+      <p style={{ color: C.ink }} className="text-sm font-bold mb-1">{novoPin ? `Link de Novo PIN para ${nome}` : `Convite criado para ${nome}`}</p>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2 break-all">{link}</p>
+      <div className="flex gap-2">
+        <a href={urlWhatsApp(telefone, texto)} target="_blank" rel="noopener" style={{ background: "#25D366" }} className="flex-1 text-white font-bold text-sm rounded py-2 text-center no-underline">📲 WhatsApp</a>
+        <button onClick={copiar} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold text-sm rounded py-2">{copiado ? "✓ Copiado" : "📋 Copiar link"}</button>
+      </div>
+      <button onClick={onFechar} style={{ color: C.inkMuted }} className="w-full text-[11px] font-mono uppercase mt-2">Fechar</button>
+    </div>
+  );
+}
+
+function TrancaBiometricaScreen({ onDesbloqueado, onUsarSenha }) {
+  const [erro, setErro] = useState("");
+
+  const desbloquear = async () => {
+    setErro("");
+    try {
+      const credId = localStorage.getItem("biometria-credential-id");
+      await navigator.credentials.get({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          allowCredentials: credId ? [{ id: base64urlToBuf(credId), type: "public-key" }] : [],
+          userVerification: "required",
+          timeout: 60000,
+        },
+      });
+      onDesbloqueado();
+    } catch (err) {
+      console.error(err);
+      setErro("Não foi possível validar.");
+    }
+  };
+
+  useEffect(() => { desbloquear(); }, []);
+
+  return (
+    <AuthWrap>
+      <div className="text-center mb-5">
+        <LogoTitulo />
+        <p style={{ color: C.inkMuted }} className="text-xs font-mono mt-1">Toque para continuar</p>
+      </div>
+      <button onClick={desbloquear} style={{ background: C.ink }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 mb-2">🔒 Usar digital / PIN</button>
+      {erro && <p style={{ color: C.rust }} className="text-xs font-mono text-center mb-2">{erro}</p>}
+      <button onClick={onUsarSenha} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase py-2">Sair e entrar de novo com senha</button>
+    </AuthWrap>
+  );
+}
+
+function ConfigurarBiometriaScreen({ onFeito }) {
+  const configurar = async () => {
+    try {
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: "Gestão & Controle" },
+          user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "usuario", displayName: "usuario" },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+          timeout: 60000,
+        },
+      });
+      localStorage.setItem("biometria-credential-id", bufToBase64url(cred.rawId));
+    } catch (err) {
+      console.error(err);
+    }
+    onFeito();
+  };
+
+  return (
+    <AuthWrap>
+      <div className="text-center mb-4">
+        <span className="text-3xl">🔒</span>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mt-2">Tranca rápida</h2>
+      </div>
+      <p style={{ color: C.inkMuted }} className="text-sm mb-4 text-center">Quer usar sua digital, PIN ou padrão do celular para abrir o app mais rápido da próxima vez?</p>
+      <button onClick={configurar} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 mb-2">Configurar agora</button>
+      <button onClick={onFeito} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase py-2">Pular por enquanto</button>
+    </AuthWrap>
+  );
+}
+
+function GestorObras() {
+  const [view, setView] = useState("dashboard");
+  const [modulo, setModulo] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [editandoObra, setEditandoObra] = useState(null);
+  const [equipeParaEditar, setEquipeParaEditar] = useState([]);
+  const [fileCache, setFileCache] = useState({});
+  const [lightboxImg, setLightboxImg] = useState(null);
+  const [temaEscuro, setTemaEscuro] = useState(false);
+
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [temSessao, setTemSessao] = useState(false);
+  const [usuarioAPI, setUsuarioAPI] = useState(null);
+  const [authView, setAuthView] = useState("login");
+  const [conviteToken, setConviteToken] = useState(() => { try { return new URLSearchParams(window.location.search).get("convite"); } catch (e) { return null; } });
+  const sairDoConvite = () => {
+    window.history.replaceState(window.history.state, "", "/"); // tira o ?convite= da URL
+    setConviteToken(null);
+  };
+  const [biometriaConfigurada, setBiometriaConfigurada] = useState(false);
+  const [biometriaPassada, setBiometriaPassada] = useState(false);
+  const [configurandoBiometria, setConfigurandoBiometria] = useState(false);
+
+  const [obras, setObras] = useState([]);
+  const [obrasLoading, setObrasLoading] = useState(false);
+  const [pendentesPorObra, setPendentesPorObra] = useState({});
+  const [obraDetalhe, setObraDetalhe] = useState(null);
+  const [notificacoes, setNotificacoes] = useState([]);
+  const obraDetalheRef = useRef(null);
+  const fotosVistasRef = useRef(new Set());
+  useEffect(() => { obraDetalheRef.current = obraDetalhe; }, [obraDetalhe]);
+
+  const notificar = (mensagens) => {
+    const novas = mensagens.map((texto) => ({ id: uid(), texto }));
+    setNotificacoes((prev) => [...prev, ...novas]);
+    novas.forEach((n) => setTimeout(() => setNotificacoes((prev) => prev.filter((x) => x.id !== n.id)), 6000));
+  };
+  const [obraDetalheLoading, setObraDetalheLoading] = useState(false);
+  const [erroGlobal, setErroGlobal] = useState("");
+  const [showConfig, setShowConfig] = useState(false);
+  const [showDefinirSenha, setShowDefinirSenha] = useState(false);
+  const [showMeuPin, setShowMeuPin] = useState(false);
+  const [meusNiveis, setMeusNiveis] = useState(null);
+  const [fazendoBackup, setFazendoBackup] = useState(false);
+  const navRestauradaRef = useRef(false);
+  const [sairAberto, setSairAberto] = useState(false);
+  const [sairFalhou, setSairFalhou] = useState(false);
+  // Histórico do navegador: cada entrada guarda seu "nivel".
+  //   -1 = base (voltar daqui sai do app)   0 = guarda do dashboard   1+ = obra / módulo / telas
+  // Capturado no primeiro render, antes de qualquer efeito mexer no histórico.
+  const arranqueFrioRef = useRef(typeof window.history.state?.nivel !== "number");
+  const empurrarHistorico = (extra = {}) => {
+    const n = (window.history.state?.nivel ?? 0) + 1;
+    window.history.pushState({ ...extra, nivel: n }, "");
+  };
+  // Volta o histórico até a guarda do dashboard (quando se vai ao dashboard por um botão, não pelo "voltar").
+  const recuarAteDashboard = () => {
+    const n = window.history.state?.nivel ?? 0;
+    if (n > 0) window.history.go(-n);
+  };
+
+  const carregarUsuarioAPI = async () => {
+    const token = await getValidAccessToken();
+    if (!token) { setTemSessao(false); setUsuarioAPI(null); return; }
+    setTemSessao(true);
+    try {
+      const res = await fetch("/api/usuarios-me", { headers: { authorization: `Bearer ${token}` } });
+      const dataRes = await res.json();
+      if (dataRes.ok) setUsuarioAPI(dataRes.usuario);
+      else { clearSession(); setTemSessao(false); }
+    } catch (e) {
+      // sem rede: mantemos a sessão, só não temos os dados do servidor por enquanto
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      await carregarUsuarioAPI();
+      setSessionLoading(false);
+
+      setBiometriaConfigurada(!!localStorage.getItem("biometria-credential-id"));
+
+      try {
+        const res = await window.storage.get("tema");
+        setTemaEscuro(res ? res.value === "escuro" : false);
+      } catch (e) {}
+    })();
+  }, []);
+
+  useEffect(() => {
+         if (!navRestauradaRef.current) return;
+    try {
+      if (view === "dashboard") localStorage.removeItem("gc-nav");
+      else localStorage.setItem("gc-nav", JSON.stringify({ view, selectedId, modulo }));
+    } catch (e) {}
+  }, [view, selectedId, modulo]);
+
+  const carregarPendentes = async (lista) => {
+    const mapa = {};
+    await Promise.all(lista.map(async (o) => {
+      try {
+        const r = await apiFetch(`/api/etapas?obra_id=${o.id}`);
+        mapa[o.id] = r.etapas.filter((e) => !e.concluida).length;
+      } catch (e) { mapa[o.id] = 0; }
+    }));
+    setPendentesPorObra(mapa);
+  };
+
+  const restaurarNavegacao = (listaObras) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("gc-nav") || "null");
+      if (!saved) return;
+      // App aberta do zero (não F5): o histórico está vazio e o "voltar" do Android sairia do app.
+      // Nesse caso criamos as entradas que faltam. No F5 o navegador já as conserva.
+      const arranqueFrio = arranqueFrioRef.current;
+      if (saved.view === "obra" && saved.selectedId && listaObras.some((o) => o.id === saved.selectedId)) {
+        abrirObra(saved.selectedId, { pushHistory: arranqueFrio, moduloInicial: saved.modulo || null });
+        if (arranqueFrio && saved.modulo) empurrarHistorico({ gcModulo: true });
+      } else if (["pendientes", "report", "permissoes", "leads"].includes(saved.view)) {
+        setView(saved.view);
+        if (arranqueFrio) empurrarHistorico({ gcView: saved.view });
+      }
+    } catch (e) {}
+  };
+
+  const carregarObras = async () => {
+    setObrasLoading(true);
+    setErroGlobal("");
+    try {
+      const r = await apiFetch("/api/obras");
+      setObras(r.obras);
+      carregarPendentes(r.obras);
+      if (!navRestauradaRef.current) {
+        navRestauradaRef.current = true;
+        restaurarNavegacao(r.obras);
+      }
+    } catch (err) {
+      setErroGlobal(err.message);
+    }
+    setObrasLoading(false);
+  };
+
+  const carregarNiveis = async (usuario) => {
+    try {
+      const r = await apiFetch("/api/permissoes");
+      const meus = {};
+      r.permissoes.filter((p) => p.rank === usuario.rank).forEach((p) => { meus[p.modulo] = p.nivel; });
+      setMeusNiveis(meus);
+    } catch (e) {
+      setMeusNiveis({});
+    }
+  };
+
+  useEffect(() => { if (usuarioAPI) { carregarObras(); carregarNiveis(usuarioAPI); } }, [usuarioAPI]);
+
+  const aoLogar = async () => {
+    setBiometriaPassada(true);
+    await carregarUsuarioAPI();
+    if (!localStorage.getItem("biometria-credential-id") && biometriaSuportada()) {
+      setConfigurandoBiometria(true);
+    }
+  };
+
+  const excluirMinhaConta = async () => {
+    const r = window.prompt("Excluir sua conta? Você não vai mais conseguir entrar; seus registros ficam e você aparece como AUSENTE. Digite EXCLUIR para confirmar.");
+    if (r !== "EXCLUIR") return;
+    try {
+      await apiFetch("/api/usuarios-me", { method: "DELETE" });
+      setShowConfig(false);
+      sair();
+    } catch (err) { window.alert(err.message); }
+  };
+
+  const sair = () => {
+    clearSession();
+    setTemSessao(false);
+    setUsuarioAPI(null);
+    setBiometriaPassada(false);
+    setObras([]);
+    setObraDetalhe(null);
+  };
+
+  const alternarTema = () => {
+    const novo = !temaEscuro;
+    setTemaEscuro(novo);
+    window.storage.set("tema", novo ? "escuro" : "claro").catch(() => {});
+  };
+
+  const temaVars = useMemo(() => {
+    const p = temaEscuro ? TEMA_ESCURO : TEMA_CLARO;
+    return {
+      "--c-bg": p.bg, "--c-surface": p.surface, "--c-ink": p.ink, "--c-inkMuted": p.inkMuted,
+      "--c-border": p.border, "--c-amber": p.amber, "--c-blue": p.blue, "--c-rust": p.rust,
+      "--c-green": p.green, "--c-steel": p.steel, "--c-teal": p.teal,
+      background: p.bg, minHeight: "100vh", colorScheme: temaEscuro ? "dark" : "light",
+    };
+  }, [temaEscuro]);
+
+  const saveArquivo = async (id, payload) => {
+    try {
+      const res = await fetch("/api/arquivo-set", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...cabecalhoAuth() },
+        body: JSON.stringify({ id, payload: JSON.stringify(payload) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        setFileCache((p) => ({ ...p, [id]: payload }));
+        return true;
+      }
+      console.error("saveArquivo falhou:", res.status, data.error);
+      return { erro: data.error || `Erro ${res.status}` };
+    } catch (e) {
+      console.error("saveArquivo exceção:", e);
+      return { erro: e.message };
+    }
+  };
+  const loadFile = async (id) => {
+    if (fileCache[id]) return;
+    try {
+      const res = await fetch(`/api/arquivo-get?id=${encodeURIComponent(id)}`, {
+        headers: cabecalhoAuth(),
+      });
+      if (res.status === 404) { setFileCache((p) => ({ ...p, [id]: "MISSING" })); return; }
+      const data = await res.json();
+      setFileCache((p) => ({ ...p, [id]: data.ok ? JSON.parse(data.payload) : "MISSING" }));
+    } catch (e) {
+      setFileCache((p) => ({ ...p, [id]: "MISSING" }));
+    }
+  };
+  const deleteArquivoRemoto = (id) => {
+    fetch(`/api/arquivo-delete?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: cabecalhoAuth(),
+    }).catch(() => {});
+  };
+
+  // --- Obras ---
+  const criarObra = async (form) => {
+    const r = await apiFetch("/api/obras", { method: "POST", body: JSON.stringify(form) });
+    setObras((prev) => [r.obra, ...prev]);
+    setShowModal(false);
+  };
+
+  const changeEstado = async (obraId, estado) => {
+    const r = await apiFetch(`/api/obras?id=${obraId}`, { method: "PATCH", body: JSON.stringify({ estado }) });
+    setObras((prev) => prev.map((o) => (o.id === obraId ? r.obra : o)));
+  };
+
+  const transferirObra = async (obraId, novoResponsavelId) => {
+    const r = await apiFetch(`/api/obras?id=${obraId}`, { method: "PATCH", body: JSON.stringify({ novoResponsavelId }) });
+    setObras((prev) => prev.map((o) => (o.id === obraId ? r.obra : o)));
+  };
+
+  const deleteObra = async (obraId) => {
+    if (!window.confirm("Excluir esta obra? Essa ação não pode ser desfeita.")) return;
+    await apiFetch(`/api/obras?id=${obraId}`, { method: "DELETE" });
+    setObras((prev) => prev.filter((o) => o.id !== obraId));
+    recuarAteDashboard();
+    setView("dashboard");
+  };
+
+  const abrirEdicaoObra = async (obra) => {
+    setEditandoObra(obra);
+    try {
+      const r = await apiFetch(`/api/equipe`);
+      setEquipeParaEditar(r.equipe);
+    } catch (e) {
+      setEquipeParaEditar([]);
+    }
+  };
+
+  const salvarEdicaoObra = async (dados) => {
+    const r = await apiFetch(`/api/obras?id=${editandoObra.id}`, { method: "PATCH", body: JSON.stringify(dados) });
+    setObras((prev) => prev.map((o) => (o.id === editandoObra.id ? r.obra : o)));
+  };
+
+  const backupForcado = async () => {
+    setFazendoBackup(true);
+    try {
+      const pacote = { geradoEm: new Date().toISOString(), obras: [] };
+      for (const obra of obras) {
+        const [et, eq, fe, ma, ob, doc] = await Promise.all([
+          apiFetch(`/api/etapas?obra_id=${obra.id}`).catch(() => ({ etapas: [] })),
+          apiFetch(`/api/equipe?obra_id=${obra.id}`).catch(() => ({ equipe: [] })),
+          apiFetch(`/api/ferramentas?obra_id=${obra.id}`).catch(() => ({ ferramentas: [] })),
+          apiFetch(`/api/materiais?obra_id=${obra.id}`).catch(() => ({ materiais: [] })),
+          apiFetch(`/api/observacoes?obra_id=${obra.id}`).catch(() => ({ observacoes: [] })),
+          apiFetch(`/api/documentos?obra_id=${obra.id}`).catch(() => ({ documentos: [] })),
+        ]);
+        pacote.obras.push({
+          obra, etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+        });
+      }
+      const blob = new Blob([JSON.stringify(pacote, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gc-backup-${todayISO()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setErroGlobal(err.message);
+    }
+    setFazendoBackup(false);
+  };
+
+  // --- Abrir una obra: carga todo lo de esa obra en paralelo ---
+  const abrirObra = async (id, opts = {}) => {
+    const { pushHistory = true, moduloInicial = null } = opts;
+    setSelectedId(id);
+    setView("obra");
+    setModulo(moduloInicial);
+    if (pushHistory) empurrarHistorico({ gcObra: true });
+    setObraDetalhe(null);
+    setObraDetalheLoading(true);
+    try {
+      const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
+        apiFetch(`/api/etapas?obra_id=${id}`),
+        apiFetch(`/api/equipe?obra_id=${id}`),
+        apiFetch(`/api/ferramentas?obra_id=${id}`),
+        apiFetch(`/api/materiais?obra_id=${id}`),
+        apiFetch(`/api/observacoes?obra_id=${id}`),
+        apiFetch(`/api/documentos?obra_id=${id}`),
+        apiFetch(`/api/etapa-fotos?obra_id=${id}`),
+      ]);
+      setObraDetalhe({
+        etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+        materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+      });
+      fotosVistasRef.current = new Set(fo.fotos.map((f) => f.id));
+    } catch (err) {
+      setErroGlobal(err.message);
+    }
+    setObraDetalheLoading(false);
+  };
+
+  const abrirModulo = (key) => {
+    setModulo(key);
+    empurrarHistorico({ gcModulo: true });
+  };
+
+  // Telas "de passagem" (Permissões, Leads, Pendências, Relatório): lembramos de onde se veio
+  // para que o "voltar" devolva ao mesmo lugar (ex.: a gaveta de Equipe), e não ao dashboard.
+  const pilhaViewsRef = useRef([]);
+  const irParaView = (v) => {
+    pilhaViewsRef.current.push(view);
+    setView(v);
+    empurrarHistorico({ gcView: v });
+  };
+
+  const voltarAoDashboard = () => {
+    pilhaViewsRef.current = [];
+    setView("dashboard");
+    setModulo(null);
+    if (selectedId) carregarPendentes(obras);
+  };
+
+  // --- Refresco automático cada 15s mientras se está viendo uma obra, com aviso de quem fez o quê ---
+  useEffect(() => {
+    if (view !== "obra" || !selectedId) return;
+    const nomeDe = (equipeAtual, userId) => {
+      if (userId === usuarioAPI?.id) return null; // não notifica a própria ação
+      const m = equipeAtual.find((e) => e.usuario_id === userId);
+      return m ? m.nome : "Alguém";
+    };
+
+    const interval = setInterval(async () => {
+      const atual = obraDetalheRef.current;
+      if (!atual) return;
+      try {
+        const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
+          apiFetch(`/api/etapas?obra_id=${selectedId}`),
+          apiFetch(`/api/equipe?obra_id=${selectedId}`),
+          apiFetch(`/api/ferramentas?obra_id=${selectedId}`),
+          apiFetch(`/api/materiais?obra_id=${selectedId}`),
+          apiFetch(`/api/observacoes?obra_id=${selectedId}`),
+          apiFetch(`/api/documentos?obra_id=${selectedId}`),
+          apiFetch(`/api/etapa-fotos?obra_id=${selectedId}`),
+        ]);
+
+        const msgs = [];
+        const idsAntigos = (lista) => new Set(lista.map((x) => x.id));
+
+        et.etapas.filter((x) => !idsAntigos(atual.etapas).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou a etapa "${x.texto}"`);
+        });
+        fe.ferramentas.filter((x) => !idsAntigos(atual.ferramentas).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou a ferramenta "${x.texto}"`);
+        });
+        ma.materiais.filter((x) => !idsAntigos(atual.materiais).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou o material "${x.texto}"`);
+        });
+        ob.observacoes.filter((x) => !idsAntigos(atual.observacoes).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou uma observação: "${x.texto}"`);
+        });
+        doc.documentos.filter((x) => !idsAntigos(atual.documentos).has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou o documento "${x.nome}"`);
+        });
+        fo.fotos.filter((x) => !fotosVistasRef.current.has(x.id)).forEach((x) => {
+          const nome = nomeDe(eq.equipe, x.criado_por);
+          if (nome) msgs.push(`${nome} adicionou uma foto`);
+        });
+        fotosVistasRef.current = new Set(fo.fotos.map((x) => x.id));
+
+        if (msgs.length) notificar(msgs);
+        setObraDetalhe({
+          etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+        });
+      } catch (e) { /* rede falhou nessa rodada, tenta de novo no próximo ciclo */ }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [view, selectedId, usuarioAPI]);
+
+  // Prepara o histórico: base (-1) + guarda do dashboard (0), para que o 1º "voltar" no dashboard não saia direto.
+  useEffect(() => {
+    if (typeof window.history.state?.nivel !== "number") window.history.replaceState({ nivel: -1 }, "");
+    if (window.history.state.nivel === -1) window.history.pushState({ nivel: 0 }, "");
+  }, []);
+
+  const ficarNoApp = () => {
+    window.history.pushState({ nivel: 0 }, "");
+    setSairAberto(false);
+  };
+  const sairDoApp = () => {
+    window.close();
+    // Se o sistema não deixar fechar por código, pedimos o 2º "voltar".
+    setTimeout(() => setSairFalhou(true), 300);
+  };
+
+  // Único ponto que escuta o botão/gesto nativo de voltar do Android.
+  // Fecha primeiro o módulo aberto; se não há módulo, volta pro dashboard a partir de qualquer view.
+  useEffect(() => {
+    const onPopState = () => {
+      if (view === "obra" && modulo) {
+        setModulo(null);
+      } else if (view !== "obra" && view !== "dashboard" && pilhaViewsRef.current.length) {
+        // Saindo de uma tela de passagem: volta pra onde estava (obra + gaveta continuam carregadas)
+        setView(pilhaViewsRef.current.pop());
+      } else if (view !== "dashboard") {
+        voltarAoDashboard();
+      } else if (window.history.state?.nivel === -1) {
+        // 1º "voltar" no dashboard: pergunta. Um 2º "voltar" (com o aviso aberto) sai do app.
+        setSairFalhou(false);
+        setSairAberto(true);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [view, modulo, selectedId, obras]);
+
+  // --- Etapas ---
+  const addEtapa = async (parentId, texto) => {
+    const r = await apiFetch("/api/etapas", { method: "POST", body: JSON.stringify({ obraId: selectedId, parentId, texto }) });
+    setObraDetalhe((d) => ({ ...d, etapas: [...d.etapas, r.etapa] }));
+  };
+  const toggleEtapa = async (id, concluida) => {
+    const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ concluida }) });
+    setObraDetalhe((d) => ({ ...d, etapas: d.etapas.map((e) => (e.id === id ? r.etapa : e)) }));
+  };
+  const addFotoEtapa = async (etapaId, arquivoId) => {
+    await apiFetch(`/api/etapa-fotos`, { method: "POST", body: JSON.stringify({ etapaId, arquivoId }) });
+  };
+  const deleteFotoEtapa = async (fotoRowId) => {
+    await apiFetch(`/api/etapa-fotos?id=${fotoRowId}`, { method: "DELETE" });
+  };
+  const editEtapa = async (id, texto) => {
+    const r = await apiFetch(`/api/etapas?id=${id}`, { method: "PATCH", body: JSON.stringify({ texto }) });
+    setObraDetalhe((d) => ({ ...d, etapas: d.etapas.map((e) => (e.id === id ? r.etapa : e)) }));
+  };
+  const removeEtapa = async (id) => {
+    await apiFetch(`/api/etapas?id=${id}`, { method: "DELETE" });
+    // recarrega para reflejar la cascada (subetapas borradas junto con el padre)
+    const r = await apiFetch(`/api/etapas?obra_id=${selectedId}`);
+    setObraDetalhe((d) => ({ ...d, etapas: r.etapas }));
+  };
+
+  // --- Ferramentas / Materiais / Observações (mismo patrón para los 3) ---
+  const criarListaHandlers = (recurso, campo) => ({
+    add: async (texto) => {
+      const r = await apiFetch(`/api/${recurso}`, { method: "POST", body: JSON.stringify({ obraId: selectedId, texto }) });
+      setObraDetalhe((d) => ({ ...d, [campo]: [r.item, ...d[campo]] }));
+    },
+    del: async (id) => {
+      await apiFetch(`/api/${recurso}?id=${id}`, { method: "DELETE" });
+      setObraDetalhe((d) => ({ ...d, [campo]: d[campo].filter((x) => x.id !== id) }));
+    },
+  });
+  const ferramentasH = criarListaHandlers("ferramentas", "ferramentas");
+  const materiaisH = criarListaHandlers("materiais", "materiais");
+  const observacoesH = criarListaHandlers("observacoes", "observacoes");
+  const editarObservacao = async (id, texto) => {
+    const r = await apiFetch(`/api/observacoes?id=${id}`, { method: "PATCH", body: JSON.stringify({ texto }) });
+    setObraDetalhe((d) => ({ ...d, observacoes: d.observacoes.map((o) => (o.id === id ? r.item : o)) }));
+  };
+
+  // --- Equipe ---
+  const addEquipo = async (payload) => {
+    const r = await apiFetch("/api/equipe", { method: "POST", body: JSON.stringify(payload) });
+    if (!r.convite) setObraDetalhe((d) => ({ ...d, equipe: [...d.equipe, r.equipe] }));
+    return r;
+  };
+  const removeEquipo = async (id) => {
+    await apiFetch(`/api/equipe?id=${id}`, { method: "DELETE" });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.filter((m) => m.id !== id) }));
+  };
+  const toggleHoje = async (id, hoje) => {
+    const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ data: hoje }) });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? r.equipe : m)) }));
+  };
+  // Edita integrante: { rank }, { funcao } e/ou { excecaoModulos }
+  const setExcecao = async (id, campos) => {
+    const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify(campos) });
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? { ...m, ...r.membro } : m)) }));
+  };
+
+  // --- Documentos ---
+  const addDoc = async (payload) => {
+    const r = await apiFetch("/api/documentos", { method: "POST", body: JSON.stringify(payload) });
+    setObraDetalhe((d) => ({ ...d, documentos: [r.documento, ...d.documentos] }));
+  };
+  const deleteDoc = async (id, arquivoId) => {
+    await apiFetch(`/api/documentos?id=${id}`, { method: "DELETE" });
+    if (arquivoId) deleteArquivoRemoto(arquivoId);
+    setObraDetalhe((d) => ({ ...d, documentos: d.documentos.filter((x) => x.id !== id) }));
+  };
+
+  const selectedObra = obras.find((o) => o.id === selectedId);
+  const totalPendientes = Object.values(pendentesPorObra).reduce((a, b) => a + b, 0);
+
+  let content;
+  if (conviteToken) {
+    content = <ConviteScreen token={conviteToken} onEntrou={() => { sairDoConvite(); aoLogar(); }} onCancelar={sairDoConvite} />;
+  } else if (sessionLoading) {
+    content = <SplashScreen />;
+  } else if (!temSessao) {
+    content =
+      authView === "cadastro" ? (
+        <CadastroScreen onIrLogin={() => setAuthView("login")} onCadastrado={aoLogar} />
+      ) : (
+        <LoginScreen onLogado={aoLogar} onIrCadastro={() => setAuthView("cadastro")} />
+      );
+  } else if (configurandoBiometria) {
+    content = <ConfigurarBiometriaScreen onFeito={() => { setConfigurandoBiometria(false); setBiometriaConfigurada(!!localStorage.getItem("biometria-credential-id")); }} />;
+  } else if (biometriaConfigurada && !biometriaPassada) {
+    content = <TrancaBiometricaScreen onDesbloqueado={() => setBiometriaPassada(true)} onUsarSenha={sair} />;
+  } else if (!usuarioAPI) {
+    content = <SplashScreen />;
+  } else {
+    content = (
+    <div className="p-4 pb-24">
+      {view === "dashboard" && (
+        <>
+          <div className="flex items-start gap-3 mb-5 pt-2">
+            <img src="logo.png" alt="G&C" className="w-14 h-14 rounded-full shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{RANK_LABELS[usuarioAPI.rank] || ""}</span>
+                <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuarioAPI.nome}</span>
+              </div>
+              <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {usuarioAPI.rank <= 4 && <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>}
+            <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
+            <button onClick={() => irParaView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
+          </div>
+          {erroGlobal && <p style={{ color: C.rust }} className="text-xs font-mono mb-3">{erroGlobal}</p>}
+          {obrasLoading ? (
+            <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>
+          ) : obras.length === 0 ? (
+            <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Nenhuma obra cadastrada. Comece com "Nova obra".</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {obras.map((obra) => (
+                <TicketCard key={obra.id} obra={obra} pendCount={pendentesPorObra[obra.id] || 0} lastDate={null} onOpen={() => abrirObra(obra.id)} onEdit={usuarioAPI.rank <= 2 ? () => abrirEdicaoObra(obra) : null} onDelete={usuarioAPI.rank <= 2 ? () => deleteObra(obra.id) : null} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {view === "obra" && selectedObra && (
+        obraDetalheLoading ? (
+          <p style={{ color: C.inkMuted }} className="text-sm font-mono text-center py-16">Carregando...</p>
+        ) : !obraDetalhe ? (
+          <div className="text-center py-16">
+            <p style={{ color: C.rust }} className="text-sm font-mono mb-3">{erroGlobal || "Não foi possível carregar a obra."}</p>
+            <button onClick={() => abrirObra(selectedObra.id, { pushHistory: false })} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide rounded px-4 py-2 text-sm">Tentar de novo</button>
+          </div>
+        ) : (
+          <ObraDetail obra={selectedObra} obraDetalhe={obraDetalhe}
+            onBack={() => { recuarAteDashboard(); voltarAoDashboard(); }} modulo={modulo} onAbrirModulo={abrirModulo}
+            onChangeEstado={changeEstado} onDeleteObra={deleteObra} onTransferirObra={transferirObra}
+            onAddEtapa={addEtapa} onToggleEtapa={toggleEtapa} onRemoveEtapa={removeEtapa} onEditEtapa={editEtapa} onAddFotoEtapa={addFotoEtapa} onDeleteFotoEtapa={deleteFotoEtapa}
+            onAddFerramenta={ferramentasH.add} onDeleteFerramenta={ferramentasH.del}
+            onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
+            onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del} onEditObservacao={editarObservacao}
+            onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} onSetExcecao={setExcecao} usuarioRank={usuarioAPI.rank} usuarioAPI={usuarioAPI} niveis={meusNiveis}
+            onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
+        )
+      )}
+      {view === "pendientes" && <PendientesView obras={obras} onBack={() => window.history.back()} onOpenObra={abrirObra} />}
+      {view === "report" && <ReportView obras={obras} onBack={() => window.history.back()} />}
+      {view === "permissoes" && <PermissoesScreen onBack={() => window.history.back()} usuarioRank={usuarioAPI.rank} />}
+      {view === "leads" && <LeadsScreen onBack={() => window.history.back()} />}
+      {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
+      {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
+      {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
+    </div>
+    );
+    content = (
+      <>
+        {content}
+        <BottomNav active={view === "dashboard" ? "inicio" : ""} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
+        {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
+        <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
+          {notificacoes.map((n) => (
+            <div key={n.id} style={{ background: C.ink, color: "#fff" }} className="rounded-lg px-4 py-2.5 text-xs font-mono shadow-lg">🔔 {n.texto}</div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div style={temaVars}>
+      {content}
+      {sairAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[200]">
+          <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
+            <h2 style={{ color: C.ink }} className="text-lg font-extrabold mb-2">Deseja sair do aplicativo?</h2>
+            <p style={{ color: C.inkMuted }} className="text-sm mb-4">
+              {sairFalhou ? "Toque em voltar mais uma vez para sair." : "Toque em voltar de novo para sair."}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={ficarNoApp} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Não</button>
+              <button onClick={sairDoApp} style={{ background: C.rust }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5">Sim</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
+</script>
+<script>
+  // Compilamos manualmente forzando runtime clásico (React.createElement),
+  // porque el runtime "automático" por default de Babel genera imports de
+  // módulo ES que un <script> normal no puede ejecutar (pantalla en blanco).
+  (function () {
+    var src = document.getElementById("app-source").textContent;
+    var out = Babel.transform(src, {
+      presets: [["react", { runtime: "classic" }]],
+    }).code;
+    var s = document.createElement("script");
+    s.textContent = out;
+    document.body.appendChild(s);
+  })();
+</script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((e) => console.log("SW falhou:", e));
+    });
+  }
+</script>
+</body>
+</html>

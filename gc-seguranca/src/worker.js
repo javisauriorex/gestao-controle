@@ -1,0 +1,74 @@
+import { login, signup } from "./lib/auth.js";
+import { googleStart, googleCallback } from "./routes/google.js";
+import { criarConviteLink, conviteInfo, aceitarConvite, loginCpf } from "./routes/convite-link.js";
+import documentos from "./routes/documentos.js";
+import equipe from "./routes/equipe.js";
+import etapas from "./routes/etapas.js";
+import etapaFotos from "./routes/etapa-fotos.js";
+import obras from "./routes/obras.js";
+import convites from "./routes/convites.js";
+import observacoes from "./routes/observacoes.js";
+import materiais from "./routes/materiais.js";
+import ferramentas from "./routes/ferramentas.js";
+import pedidos from "./routes/pedidos.js";
+import usuariosMe from "./routes/usuarios-me.js";
+import permissoes from "./routes/permissoes.js";
+import leads from "./routes/leads.js";
+import arquivoSet from "./routes/arquivo-set.js";
+import arquivoGet from "./routes/arquivo-get.js";
+import arquivoDelete from "./routes/arquivo-delete.js";
+
+const ROTAS = {
+  "/api/auth/login": login,
+  "/api/auth/signup": signup,
+  "/api/auth/google": googleStart,
+  "/api/auth/google/callback": googleCallback,
+  "/api/auth/aceitar-convite": aceitarConvite,
+  "/api/auth/login-cpf": loginCpf,
+  "/api/convite-link": criarConviteLink,
+  "/api/convite-info": conviteInfo,
+  "/api/documentos": documentos,
+  "/api/equipe": equipe,
+  "/api/etapas": etapas,
+  "/api/etapa-fotos": etapaFotos,
+  "/api/obras": obras,
+  "/api/convites": convites,
+  "/api/observacoes": observacoes,
+  "/api/materiais": materiais,
+  "/api/ferramentas": ferramentas,
+  "/api/pedidos": pedidos,
+  "/api/usuarios-me": usuariosMe,
+  "/api/permissoes": permissoes,
+  "/api/leads": leads,
+  "/api/arquivo-set": arquivoSet,
+  "/api/arquivo-get": arquivoGet,
+  "/api/arquivo-delete": arquivoDelete,
+};
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/api/")) {
+      const handler = ROTAS[url.pathname];
+      if (!handler) {
+        return new Response(JSON.stringify({ ok: false, error: "not found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      try {
+        return await handler(request, env, ctx);
+      } catch (err) {
+        // O detalhe fica só no log do Cloudflare; o navegador recebe uma mensagem genérica.
+        console.error("Erro em", url.pathname, err);
+        return new Response(JSON.stringify({ ok: false, error: "erro interno do servidor" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    }
+
+    return env.ASSETS.fetch(request);
+  },
+};
