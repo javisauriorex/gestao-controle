@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
+import { apagarDoKV } from "../lib/arquivos.js";
 
 export default async function documentosHandler(req, env) {
   const usuario = await getUsuario(req, env);
@@ -24,6 +25,9 @@ export default async function documentosHandler(req, env) {
     const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "documentos", env);
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
+    // Só dá para vincular um arquivo que VOCÊ acabou de enviar (impede anexar arquivo alheio para lê-lo).
+    const meta = (await env.ARQUIVOS.getWithMetadata(arquivoId, "text")).metadata;
+    if (!meta || meta.por !== usuario.id) return jsonResponse({ ok: false, error: "arquivo inválido" }, 400);
     const rows = await sql`
       INSERT INTO documentos (obra_id, nome, tipo, arquivo_id, criado_por)
       VALUES (${obraId}, ${nome}, ${tipo || ""}, ${arquivoId}, ${usuario.id})
@@ -46,6 +50,7 @@ export default async function documentosHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM documentos WHERE id = ${id}`;
+    await apagarDoKV(env, [alvos[0].arquivo_id]);
     return jsonResponse({ ok: true, arquivoId: alvos[0].arquivo_id });
   }
 

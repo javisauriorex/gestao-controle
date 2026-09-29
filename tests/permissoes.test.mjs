@@ -1,6 +1,14 @@
 import worker from "./src/worker.js";
 import { pool } from "./src/lib/db.js";
-const env = { JWT_SECRET: "x".repeat(32), ASSETS: { fetch: () => new Response("asset") } };
+// KV de mentira (em memória) no lugar do Cloudflare KV
+const kv = new Map();
+const ARQUIVOS = {
+  async get(k) { return kv.has(k) ? kv.get(k).v : null; },
+  async getWithMetadata(k) { return kv.has(k) ? { value: kv.get(k).v, metadata: kv.get(k).m || null } : { value: null, metadata: null }; },
+  async put(k, v, o = {}) { kv.set(k, { v, m: o.metadata }); },
+  async delete(k) { kv.delete(k); },
+};
+const env = { JWT_SECRET: "x".repeat(32), ASSETS: { fetch: () => new Response("asset") }, ARQUIVOS };
 let falhas = 0, ok = 0;
 async function call(method, path, token, body) {
   const headers = { "content-type": "application/json" };
@@ -140,6 +148,46 @@ const et2 = await call("POST", "/api/etapas", D, { obraId: C_, texto: "Reboco" }
 await call("PATCH", `/api/etapas?id=${et2.etapa.id}`, enc2.token, { concluida: true });
 const ets = await call("GET", `/api/etapas?obra_id=${C_}`, D);
 check("etapa mostra quem concluiu", ets.etapas.find((e) => e.id === et2.etapa.id)?.concluida_por_nome === "enc2");
+
+// --- Segurança (auditoria L1–L3, 2026-09-29) ---
+const outra = await call("POST", "/api/auth/signup", null, { email: "dono2@y.com", senha: "123456", nome: "Dono2" });
+const D2 = outra.token;
+const obraOutra = (await call("POST", "/api/obras", D2, { cliente: "Obra da outra empresa" })).obra.id;
+// L1 arquivos
+const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+check("arquivo-set sem login → 401", (await call("POST", "/api/arquivo-set", null, { id: uuid, payload: "{}" })).status === 401);
+check("arquivo-set com id curto → 400", (await call("POST", "/api/arquivo-set", D, { id: "abc12345", payload: "{}" })).status === 400);
+check("arquivo-set dono ok", (await call("POST", "/api/arquivo-set", D, { id: uuid, payload: '{"nome":"a.pdf"}' })).ok);
+check("arquivo-set sobrescrever → 409", (await call("POST", "/api/arquivo-set", D2, { id: uuid, payload: "{}" })).status === 409);
+check("outra empresa lê arquivo não vinculado → 404", (await call("GET", `/api/arquivo-get?id=${uuid}`, D2)).status === 404);
+check("quem enviou lê antes de vincular", (await call("GET", `/api/arquivo-get?id=${uuid}`, D)).ok);
+check("outra empresa tenta vincular arquivo alheio → 400", (await call("POST", "/api/documentos", D2, { obraId: obraOutra, nome: "x", arquivoId: uuid })).status === 400);
+const doc = await call("POST", "/api/documentos", D, { obraId: C_, nome: "planta.pdf", arquivoId: uuid });
+check("dono vincula documento", doc.ok, JSON.stringify(doc));
+check("enc2 (membro da obra C) lê o documento", (await call("GET", `/api/arquivo-get?id=${uuid}`, enc2.token)).ok);
+check("outra empresa lê documento vinculado → 404", (await call("GET", `/api/arquivo-get?id=${uuid}`, D2)).status === 404);
+check("arquivo-delete direto de arquivo vinculado → 403", (await call("DELETE", `/api/arquivo-delete?id=${uuid}`, D)).status === 403);
+check("apagar documento apaga o arquivo do KV", (await call("DELETE", `/api/documentos?id=${doc.documento.id}`, D)).ok && !kv.has(uuid));
+// L2 pedidos
+check("outra empresa lê pedidos da obra C → 403", (await call("GET", `/api/pedidos?obra_id=${C_}`, D2)).status === 403);
+check("outra empresa cria pedido na obra C → 403", (await call("POST", "/api/pedidos", D2, { obraId: C_, tipo: "material", descricao: "x", remetenteId: 1, destinatarioId: 2 })).status === 403);
+const eqC2 = await call("GET", `/api/equipe?obra_id=${C_}`, D);
+const donoId = me.usuario.id;
+check("pedido em que não sou parte → 403", (await call("POST", "/api/pedidos", enc2.token, { obraId: C_, tipo: "material", descricao: "x", remetenteId: donoId, destinatarioId: chefe2.usuario.id })).status === 403);
+const ped = await call("POST", "/api/pedidos", enc2.token, { obraId: C_, tipo: "material", descricao: "cimento", remetenteId: donoId, destinatarioId: enc2.usuario.id });
+check("encarregado pede material ao dono", ped.ok, JSON.stringify(ped));
+check("dono de outra empresa apaga pedido → 403", (await call("DELETE", `/api/pedidos?id=${ped.pedido.id}`, D2)).status === 403);
+// L3 histórico de observações
+const obsC = await call("POST", "/api/observacoes", D, { obraId: C_, texto: "v1" });
+await call("PATCH", `/api/observacoes?id=${obsC.item.id}`, D, { texto: "v2" });
+check("dono vê histórico da própria obra", (await call("GET", `/api/observacoes?historico=${obsC.item.id}`, D)).ok);
+check("dono de outra empresa lê histórico → 404", (await call("GET", `/api/observacoes?historico=${obsC.item.id}`, D2)).status === 404);
+// Apagar obra apaga arquivos
+const uuid2 = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+await call("POST", "/api/arquivo-set", D, { id: uuid2, payload: "{}" });
+const et3 = await call("POST", "/api/etapas", D, { obraId: C_, texto: "Pintura" });
+check("foto vinculada à etapa", (await call("POST", "/api/etapa-fotos", D, { etapaId: et3.etapa.id, arquivoId: uuid2 })).ok);
+check("apagar obra C apaga fotos do KV", (await call("DELETE", `/api/obras?id=${C_}`, D)).ok && !kv.has(uuid2));
 
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;

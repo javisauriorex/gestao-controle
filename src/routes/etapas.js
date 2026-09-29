@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
+import { apagarDoKV } from "../lib/arquivos.js";
 
 // Etapas:
 //  - Ver / criar / marcar concluída: nível do módulo (tela de Permissões + bloqueio por obra).
@@ -85,7 +86,17 @@ export default async function etapasHandler(req, env) {
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
+    // Fotos da etapa e das sub-etapas (que o banco apaga em cascata) também saem do armazenamento.
+    const arquivos = await sql`
+      WITH RECURSIVE arvore AS (
+        SELECT id, foto_conclusao_id FROM etapas WHERE id = ${id}
+        UNION ALL SELECT e.id, e.foto_conclusao_id FROM etapas e JOIN arvore a ON e.parent_id = a.id
+      )
+      SELECT f.arquivo_id FROM etapa_fotos f JOIN arvore a ON a.id = f.etapa_id
+      UNION SELECT foto_conclusao_id FROM arvore WHERE foto_conclusao_id IS NOT NULL
+    `;
     await sql`DELETE FROM etapas WHERE id = ${id}`;
+    await apagarDoKV(env, arquivos.map((r) => r.arquivo_id));
     return jsonResponse({ ok: true });
   }
 

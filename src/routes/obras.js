@@ -1,5 +1,6 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, podeCrear } from "../lib/auth.js";
+import { apagarDoKV } from "../lib/arquivos.js";
 
 export default async function obrasHandler(req, env) {
   const usuario = await getUsuario(req, env);
@@ -86,7 +87,16 @@ export default async function obrasHandler(req, env) {
     if (!podeCrear(2, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return jsonResponse({ ok: false, error: "id é obrigatório" }, 400);
+    const doEmpresa = await sql`SELECT id FROM obras WHERE id = ${id} AND empresa_id = ${usuario.empresa_id}`;
+    if (doEmpresa.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    // Arquivos (documentos e fotos) da obra também saem do armazenamento.
+    const arquivos = await sql`
+      SELECT arquivo_id FROM documentos WHERE obra_id = ${id}
+      UNION SELECT f.arquivo_id FROM etapa_fotos f JOIN etapas e ON e.id = f.etapa_id WHERE e.obra_id = ${id}
+      UNION SELECT foto_conclusao_id FROM etapas WHERE obra_id = ${id} AND foto_conclusao_id IS NOT NULL
+    `;
     await sql`DELETE FROM obras WHERE id = ${id} AND empresa_id = ${usuario.empresa_id}`;
+    await apagarDoKV(env, arquivos.map((r) => r.arquivo_id));
     return jsonResponse({ ok: true });
   }
 

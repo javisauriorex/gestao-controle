@@ -60,7 +60,9 @@ export default {
       try {
         return await handler(request, env, ctx);
       } catch (err) {
-        return new Response(JSON.stringify({ ok: false, error: String(err) }), {
+        // O detalhe fica só no log do Cloudflare; o navegador recebe uma mensagem genérica.
+        console.error("Erro em", url.pathname, err);
+        return new Response(JSON.stringify({ ok: false, error: "erro interno do servidor" }), {
           status: 500,
           headers: { "content-type": "application/json" },
         });

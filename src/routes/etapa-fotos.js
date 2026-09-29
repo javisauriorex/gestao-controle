@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
+import { apagarDoKV } from "../lib/arquivos.js";
 
 // Galeria de fotos de avanço por etapa — livre, várias fotos, independente do check "concluída".
 // Usa o nível do módulo "etapas".
@@ -40,6 +41,9 @@ export default async function etapaFotosHandler(req, env) {
     const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
+    // Só dá para vincular um arquivo que VOCÊ acabou de enviar (impede anexar arquivo alheio para lê-lo).
+    const meta = (await env.ARQUIVOS.getWithMetadata(arquivoId, "text")).metadata;
+    if (!meta || meta.por !== usuario.id) return jsonResponse({ ok: false, error: "arquivo inválido" }, 400);
     const rows = await sql`
       INSERT INTO etapa_fotos (etapa_id, arquivo_id, criado_por) VALUES (${etapaId}, ${arquivoId}, ${usuario.id}) RETURNING *
     `;
@@ -61,6 +65,7 @@ export default async function etapaFotosHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM etapa_fotos WHERE id = ${id}`;
+    await apagarDoKV(env, [alvos[0].arquivo_id]);
     return jsonResponse({ ok: true, arquivoId: alvos[0].arquivo_id });
   }
 

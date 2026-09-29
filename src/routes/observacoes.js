@@ -23,9 +23,12 @@ export default async function observacoesHandler(req, env) {
     const historicoId = url.searchParams.get("historico");
     if (historicoId) {
       const obs = await sql`
-        SELECT o.criado_por, u.rank FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${historicoId}
+        SELECT o.criado_por, o.obra_id, u.rank FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${historicoId}
       `;
       if (obs.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+      // Tem que ter acesso a ESSA obra (antes, um Dono de outra empresa conseguia ler).
+      const acessoHist = await nivelNaObra(sql, usuario, obs[0].obra_id, "observacoes", env);
+      if (!acessoHist.obra || !podeVer(acessoHist.nivel)) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
       const autor = { id: obs[0].criado_por, rank: obs[0].rank };
       if (autor.id !== usuario.id && !(await podeVerHistoricoOuApagar(usuario, autor))) {
         return jsonResponse({ ok: false, error: "só o autor e seus superiores veem o histórico" }, 403);
