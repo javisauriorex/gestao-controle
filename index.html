@@ -1513,48 +1513,84 @@ function BottomNav({ onInicio, onConfig, onAjuda, active }) {
 }
 
 function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
+  // Todos os itens com o mesmo formato: ícone à esquerda, texto alinhado, mesma altura.
+  const Item = ({ icone, texto, onClick, href, perigo, disabled }) => {
+    const estilo = { borderColor: perigo ? C.rust : C.border, color: perigo ? C.rust : C.ink };
+    const classe = "w-full border rounded px-3 py-2.5 text-sm font-mono flex items-center gap-3 text-left leading-tight disabled:opacity-50";
+    const conteudo = (<><span className="w-5 shrink-0 flex items-center justify-center text-base leading-none">{icone}</span><span className="flex-1">{texto}</span></>);
+    return href
+      ? <a href={href} target="_blank" rel="noopener" style={estilo} className={classe}>{conteudo}</a>
+      : <button onClick={onClick} disabled={disabled} style={estilo} className={classe}>{conteudo}</button>;
+  };
+  const Titulo = ({ children }) => <p style={{ color: C.inkMuted }} className="text-[10px] font-mono uppercase tracking-widest mt-4 mb-1.5 px-1">{children}</p>;
+  const encerrarEmpresa = () => {
+    const ok = window.confirm("Você é o Dono: excluir a sua conta significa ENCERRAR A EMPRESA inteira (todas as obras, fotos, documentos e contas da equipe).\n\nPor segurança, isso é feito pelo suporte: vamos abrir um e-mail para suporte@gestaoecontrole.app.br. Envie a partir deste mesmo e-mail da conta. Confirmamos o pedido e concluímos em até 15 dias.\n\nAbrir o e-mail agora?");
+    if (!ok) return;
+    const assunto = encodeURIComponent("Encerrar empresa no G&C");
+    const corpo = encodeURIComponent(`Olá! Quero encerrar a minha empresa no Gestão & Controle e excluir a minha conta de Dono.\n\nNome: ${usuario.nome || ""}\nE-mail da conta: ${usuario.email || ""}\nEmpresa: ${usuario.empresa_nome || ""}\n\nEstou ciente de que todas as obras, fotos, documentos e contas da equipe serão apagados.`);
+    window.location.href = `mailto:suporte@gestaoecontrole.app.br?subject=${assunto}&body=${corpo}`;
+  };
+  const temEmpresa = usuario.rank <= 3 || usuario.rank === 1 || usuario.email === "marcelojavierbonet@gmail.com";
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div onClick={onClose} className="absolute inset-0 bg-black/40" />
-      <div style={{ background: C.surface, borderColor: C.border }} className="relative w-64 max-w-[80vw] h-full p-5 shadow-2xl border-l flex flex-col">
-        <button onClick={onClose} style={{ color: C.inkMuted }} className="self-end text-2xl mb-4 leading-none">×</button>
-        <div className="flex items-center gap-2.5 mb-6">
-          <img src="logo.png" alt="G&C" className="w-10 h-10 rounded-full shrink-0" />
-          <div className="min-w-0">
-            <p style={{ color: C.ink }} className="font-bold text-sm truncate">{usuario.nome}</p>
-            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuario.email}</p>
+      <div style={{ background: C.surface, borderColor: C.border, height: "100dvh" }} className="relative w-72 max-w-[85vw] shadow-2xl border-l flex flex-col">
+        {/* Cabeçalho fixo */}
+        <div style={{ borderColor: C.border }} className="px-4 pt-3 pb-3 border-b shrink-0">
+          <div className="flex justify-end">
+            <button onClick={onClose} style={{ color: C.inkMuted }} className="text-2xl leading-none w-8 h-8 -mr-1" aria-label="Fechar">×</button>
+          </div>
+          <div className="flex items-center gap-3">
+            <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p style={{ color: C.ink }} className="font-bold text-sm truncate">{usuario.nome}</p>
+              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuario.email}</p>
+              <span style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="inline-block border rounded px-2 py-0.5 mt-1 text-[10px] font-mono uppercase tracking-wide">{RANK_LABELS[usuario.rank]}</span>
+            </div>
           </div>
         </div>
-        <p style={{ background: C.bg, color: C.inkMuted, borderColor: C.border }} className="border rounded px-3 py-2 text-xs font-mono uppercase text-center mb-6">{RANK_LABELS[usuario.rank]}</p>
-        {usuario.rank <= 3 && (
-          <button onClick={onAbrirPermissoes} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono flex items-center justify-center gap-2"><img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" /> Permissões</button>
-        )}
-        {usuario.email === "marcelojavierbonet@gmail.com" && (
-          <button onClick={onAbrirLeads} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📋 Leads (expo)</button>
-        )}
-        <button onClick={onAbrirDefinirSenha} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Definir senha</button>
-        {onAbrirMeuPin && <button onClick={onAbrirMeuPin} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</button>}
-        <p className="text-[11px] font-mono text-center my-2"><a href="/termos" target="_blank" rel="noopener" style={{ color: C.inkMuted }} className="underline">Termos de Uso</a> · <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.inkMuted }} className="underline">Privacidade</a></p>
-        {usuario.rank === 1 && (
-          <button onClick={() => {
-            const ok = window.confirm("Você é o Dono: excluir a sua conta significa ENCERRAR A EMPRESA inteira (todas as obras, fotos, documentos e contas da equipe).\n\nPor segurança, isso é feito pelo suporte: vamos abrir um e-mail para suporte@gestaoecontrole.app.br. Envie a partir deste mesmo e-mail da conta. Confirmamos o pedido e concluímos em até 15 dias.\n\nAbrir o e-mail agora?");
-            if (!ok) return;
-            const assunto = encodeURIComponent("Encerrar empresa no G&C");
-            const corpo = encodeURIComponent(`Olá! Quero encerrar a minha empresa no Gestão & Controle e excluir a minha conta de Dono.\n\nNome: ${usuario.nome || ""}\nE-mail da conta: ${usuario.email || ""}\nEmpresa: ${usuario.empresa_nome || ""}\n\nEstou ciente de que todas as obras, fotos, documentos e contas da equipe serão apagados.`);
-            window.location.href = `mailto:suporte@gestaoecontrole.app.br?subject=${assunto}&body=${corpo}`;
-          }} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir conta e encerrar empresa</button>
-        )}
-        {usuario.rank !== 1 && onExcluirConta && (
-          <button onClick={onExcluirConta} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir minha conta</button>
-        )}
-        <button onClick={onAlternarTema} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">{temaEscuro ? "☀️ Modo claro" : "🌙 Modo escuro"}</button>
-        {usuario.rank === 1 && (
-          <button onClick={onBackupForcado} disabled={fazendoBackup} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono disabled:opacity-50">
-            {fazendoBackup ? "Gerando..." : "⤓ Backup de tudo"}
-          </button>
-        )}
-        <button onClick={onSair} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 text-sm font-mono">🔒 Sair</button>
-        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-auto pt-4">© 2026 Gestão & Controle</p>
+
+        {/* Conteúdo com rolagem: nada fica escondido em tela pequena */}
+        <div className="flex-1 overflow-y-auto px-4 pb-4">
+          <Titulo>Minha conta</Titulo>
+          <div className="flex flex-col gap-2">
+            <Item icone="🔑" texto="Definir senha" onClick={onAbrirDefinirSenha} />
+            {onAbrirMeuPin && <Item icone="📱" texto={usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"} onClick={onAbrirMeuPin} />}
+            <Item icone={temaEscuro ? "☀️" : "🌙"} texto={temaEscuro ? "Modo claro" : "Modo escuro"} onClick={onAlternarTema} />
+          </div>
+
+          {temEmpresa && (
+            <>
+              <Titulo>Empresa</Titulo>
+              <div className="flex flex-col gap-2">
+                {usuario.rank <= 3 && <Item icone={<img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" />} texto="Permissões" onClick={onAbrirPermissoes} />}
+                {usuario.rank === 1 && <Item icone="⤓" texto={fazendoBackup ? "Gerando..." : "Backup de tudo"} onClick={onBackupForcado} disabled={fazendoBackup} />}
+                {usuario.email === "marcelojavierbonet@gmail.com" && <Item icone="📋" texto="Leads (expo)" onClick={onAbrirLeads} />}
+              </div>
+            </>
+          )}
+
+          <Titulo>Legal</Titulo>
+          <div className="flex flex-col gap-2">
+            <Item icone="📄" texto="Termos de Uso" href="/termos" />
+            <Item icone="🛡️" texto="Política de Privacidade" href="/privacidade" />
+          </div>
+
+          <Titulo>Sessão</Titulo>
+          <div className="flex flex-col gap-2">
+            <Item icone="🔒" texto="Sair" onClick={onSair} perigo />
+          </div>
+
+          {(usuario.rank === 1 || onExcluirConta) && (
+            <div className="mt-6">
+              {usuario.rank === 1
+                ? <Item icone="🚫" texto="Excluir conta e encerrar empresa" onClick={encerrarEmpresa} perigo />
+                : <Item icone="🚫" texto="Excluir minha conta" onClick={onExcluirConta} perigo />}
+            </div>
+          )}
+
+          <p style={{ color: C.inkMuted }} className="text-[10px] font-mono text-center mt-6">© 2026 Gestão & Controle</p>
+        </div>
       </div>
     </div>
   );
