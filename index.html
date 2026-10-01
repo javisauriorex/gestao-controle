@@ -1535,6 +1535,15 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         <button onClick={onAbrirDefinirSenha} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🔑 Definir senha</button>
         {onAbrirMeuPin && <button onClick={onAbrirMeuPin} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</button>}
         <p className="text-[11px] font-mono text-center my-2"><a href="/termos" target="_blank" rel="noopener" style={{ color: C.inkMuted }} className="underline">Termos de Uso</a> · <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.inkMuted }} className="underline">Privacidade</a></p>
+        {usuario.rank === 1 && (
+          <button onClick={() => {
+            const ok = window.confirm("Você é o Dono: excluir a sua conta significa ENCERRAR A EMPRESA inteira (todas as obras, fotos, documentos e contas da equipe).\n\nPor segurança, isso é feito pelo suporte: vamos abrir um e-mail para suporte@gestaoecontrole.app.br. Envie a partir deste mesmo e-mail da conta. Confirmamos o pedido e concluímos em até 15 dias.\n\nAbrir o e-mail agora?");
+            if (!ok) return;
+            const assunto = encodeURIComponent("Encerrar empresa no G&C");
+            const corpo = encodeURIComponent(`Olá! Quero encerrar a minha empresa no Gestão & Controle e excluir a minha conta de Dono.\n\nNome: ${usuario.nome || ""}\nE-mail da conta: ${usuario.email || ""}\nEmpresa: ${usuario.empresa_nome || ""}\n\nEstou ciente de que todas as obras, fotos, documentos e contas da equipe serão apagados.`);
+            window.location.href = `mailto:suporte@gestaoecontrole.app.br?subject=${assunto}&body=${corpo}`;
+          }} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir conta e encerrar empresa</button>
+        )}
         {usuario.rank !== 1 && onExcluirConta && (
           <button onClick={onExcluirConta} style={{ borderColor: C.rust, color: C.rust }} className="w-full border rounded py-2.5 mb-2 text-sm font-mono">🚫 Excluir minha conta</button>
         )}

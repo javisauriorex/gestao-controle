@@ -233,7 +233,7 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
 
 Excluir minha conta: você deixa de entrar e seus dados pessoais (nome, e-mail, CPF, telefone) são apagados. O que você registrou nas obras fica, assinado como "Usuário removido". O Dono não tem esse botão.
 
-Encerrar a empresa (apagar tudo): o Dono deve escrever para suporte@gestaoecontrole.app.br a partir do e-mail da conta.
+Encerrar a empresa (apagar tudo): o Dono toca em CONFIG → "Excluir conta e encerrar empresa". O app abre um e-mail pronto para suporte@gestaoecontrole.app.br; envie a partir do e-mail da conta. Confirmamos o pedido e concluímos em até 15 dias.
 
 Privacidade, pedidos de dados e dúvidas gerais: info@gestaoecontrole.app.br.
 
