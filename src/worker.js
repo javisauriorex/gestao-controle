@@ -20,6 +20,7 @@ import arquivoDelete from "./routes/arquivo-delete.js";
 import ajuda from "./routes/ajuda.js";
 import encerrarEmpresa from "./routes/encerrar-empresa.js";
 import manual from "./routes/manual.js";
+import admin from "./routes/admin.js";
 
 const ROTAS = {
   "/api/auth/login": login,
@@ -48,6 +49,7 @@ const ROTAS = {
   "/api/arquivo-delete": arquivoDelete,
   "/api/ajuda": ajuda,
   "/api/encerrar-empresa": encerrarEmpresa,
+  "/api/admin": admin,
 };
 
 export default {

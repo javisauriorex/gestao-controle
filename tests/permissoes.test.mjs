@@ -265,6 +265,29 @@ const htmlManual = await rm.text();
 check("manual: 200 html com índice e capítulos", rm.status === 200 && /Índice/.test(htmlManual) && /id="esqueci"/.test(htmlManual) && /<ol>/.test(htmlManual));
 check("manual: escapa HTML", !/<script(?! )/.test(htmlManual.replace(/<script>/g, "")));
 
+// ---- Painel admin ----
+check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);
+check("admin: sem login → 401", (await call("GET", "/api/admin")).status === 401);
+const adm = await call("POST", "/api/auth/signup", null, { email: "marcelojavierbonet@gmail.com", senha: "12345678", nome: "Admin", aceitouTermos: true });
+const AD = adm.token;
+const vitima = await call("POST", "/api/auth/signup", null, { email: "vitima@x.com", senha: "12345678", nome: "Vitima", aceitouTermos: true });
+const obraV = await call("POST", "/api/obras", vitima.token, { cliente: "Obra V" });
+await ARQUIVOS.put("arq-vitima-1", "x", { metadata: { empresa: vitima.usuario.empresa_id } });
+await pool.query("INSERT INTO documentos (obra_id, nome, tipo, arquivo_id, criado_por) VALUES ($1, 'planta', 'pdf', 'arq-vitima-1', $2)", [obraV.obra.id, vitima.usuario.id]);
+const lista = await call("GET", "/api/admin", AD);
+const linhaV = (lista.empresas || []).find((e) => e.dono_email === "vitima@x.com");
+check("admin: lista empresas com números", lista.ok && linhaV && linhaV.obras === 1 && linhaV.documentos === 1 && linhaV.pessoas === 1 && linhaV.logins_30d >= 1, JSON.stringify(linhaV));
+check("admin: traz leads", Array.isArray(lista.leads));
+check("admin: confirmação errada → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: "outra" })).status === 400);
+check("admin: não apaga a própria empresa", (await call("DELETE", `/api/admin?empresa_id=${adm.usuario.empresa_id}`, AD, { confirmar: "x" })).status === 400);
+check("admin: Dono comum não apaga → 403", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, D, { confirmar: linhaV.nome })).status === 403);
+const apg = await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: linhaV.nome });
+check("admin: apaga empresa com confirmação", apg.ok && apg.arquivosApagados === 1, JSON.stringify(apg));
+const resto = await pool.query("SELECT (SELECT count(*) FROM empresas WHERE id=$1)::int AS emp, (SELECT count(*) FROM usuarios WHERE email='vitima@x.com')::int AS us, (SELECT count(*) FROM acessos WHERE usuario_id IS NULL)::int AS acessos_anon", [linhaV.id]);
+check("admin: empresa e pessoas sumiram, acessos ficam sem vínculo", resto.rows[0].emp === 0 && resto.rows[0].us === 0 && resto.rows[0].acessos_anon >= 1, JSON.stringify(resto.rows[0]));
+check("admin: arquivo apagado do KV", !kv.has("arq-vitima-1"));
+check("admin: outras empresas intactas", (await call("GET", "/api/obras", D)).obras.length >= 1);
+
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
 await pool.end();

@@ -1574,7 +1574,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
               <div className="flex flex-col gap-2">
                 {usuario.rank <= 3 && <Item icone={<img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" />} texto="Permissões" onClick={onAbrirPermissoes} />}
                 {usuario.rank === 1 && <Item icone="⤓" texto={fazendoBackup ? "Gerando..." : "Backup de tudo"} onClick={onBackupForcado} disabled={fazendoBackup} />}
-                {usuario.email === "marcelojavierbonet@gmail.com" && <Item icone="📋" texto="Leads (expo)" onClick={onAbrirLeads} />}
+                {usuario.email === "marcelojavierbonet@gmail.com" && <Item icone="🛠" texto="Painel admin" href="/admin" />}
               </div>
             </>
           )}

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Admin — G&amp;C</title>
+<link rel="icon" href="/icon-192.png" />
+<style>
+  :root {
+    --bg:#f6f1e7; --surface:#fff; --ink:#2b2620; --muted:#6b6257; --line:#e2dacd;
+    --amber:#c47f17; --rust:#b0412e; --green:#3f7d3a; --gray:#8c857b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1c1a17; --surface:#26231f; --ink:#efe8dc; --muted:#a59c8f; --line:#3a352f; --amber:#e0a040; --rust:#e07a62; --green:#7fbf73; --gray:#8c857b; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:1400px; margin:0 auto; padding:20px 16px 60px; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header img { width:40px; height:40px; border-radius:50%; }
+  h1 { font-size:1.3rem; margin:0; }
+  .quem { color:var(--muted); font-size:.85rem; margin-left:auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin:18px 0; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .card .n { font-size:1.6rem; font-weight:700; font-variant-numeric:tabular-nums; }
+  .card .l { color:var(--muted); font-size:.8rem; }
+  .barra { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  .abas button { border:1px solid var(--line); background:var(--surface); color:var(--ink); padding:7px 14px; border-radius:6px; cursor:pointer; font:inherit; }
+  .abas button.on { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+  input[type=search], input[type=text] { font:inherit; padding:7px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--ink); min-width:220px; flex:1; }
+  .btn { font:inherit; border:1px solid var(--ink); background:var(--surface); color:var(--ink); padding:7px 12px; border-radius:6px; cursor:pointer; }
+  .btn.amber { background:var(--amber); border-color:var(--amber); color:#fff; }
+  .btn.rust { background:var(--rust); border-color:var(--rust); color:#fff; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .tabela { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:8px; }
+  table { border-collapse:collapse; width:100%; min-width:1100px; }
+  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  th { position:sticky; top:0; background:var(--surface); font-size:.75rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); cursor:pointer; user-select:none; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  th .seta { opacity:.6; }
+  tr:last-child td { border-bottom:0; }
+  td .sub { color:var(--muted); font-size:.8rem; }
+  .chip { display:inline-block; padding:2px 8px; border-radius:99px; font-size:.75rem; font-weight:600; }
+  .chip.ativa { background:color-mix(in srgb, var(--green) 18%, transparent); color:var(--green); }
+  .chip.morna { background:color-mix(in srgb, var(--amber) 18%, transparent); color:var(--amber); }
+  .chip.parada { background:color-mix(in srgb, var(--gray) 20%, transparent); color:var(--gray); }
+  .lixo { border:0; background:none; font-size:1.1rem; cursor:pointer; padding:2px 6px; border-radius:4px; }
+  .lixo:hover:not(:disabled) { background:color-mix(in srgb, var(--rust) 15%, transparent); }
+  .lixo:disabled { opacity:.25; cursor:not-allowed; }
+  .msg { padding:30px; text-align:center; color:var(--muted); }
+  .nota { color:var(--muted); font-size:.8rem; margin-top:10px; }
+  dialog { border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); max-width:440px; width:calc(100% - 32px); padding:20px; }
+  dialog::backdrop { background:rgba(0,0,0,.5); }
+  dialog h2 { margin:0 0 8px; font-size:1.1rem; color:var(--rust); }
+  dialog ul { padding-left:1.2em; margin:8px 0; }
+  dialog .acoes { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  dialog input { width:100%; margin-top:6px; }
+  .erro { color:var(--rust); font-size:.85rem; min-height:1.2em; margin-top:6px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/logo.png" alt="G&amp;C" />
+    <h1>Painel do administrador</h1>
+    <span class="quem" id="quem"></span>
+  </header>
+
+  <section class="cards" id="cards"></section>
+
+  <div class="barra">
+    <div class="abas">
+      <button id="abaEmp" class="on">Empresas</button>
+      <button id="abaLeads">Leads da feira</button>
+    </div>
+    <input type="search" id="busca" placeholder="Buscar empresa, dono ou e-mail…" />
+    <button class="btn" id="recarregar">↻ Atualizar</button>
+    <button class="btn amber" id="exportar">⤓ Baixar Excel</button>
+  </div>
+
+  <div class="tabela" id="tabela"><div class="msg">Carregando…</div></div>
+  <p class="nota" id="nota"></p>
+</main>
+
+<dialog id="dlg">
+  <h2>Encerrar empresa</h2>
+  <p>Vai apagar <b>de vez</b> a empresa <b id="dNome"></b>:</p>
+  <ul id="dLista"></ul>
+  <p>O registro de acessos (exigido por lei) continua, sem o nome das pessoas. <b>Não tem volta.</b></p>
+  <label>Para confirmar, digite o nome exato da empresa:
+    <input type="text" id="dInput" autocomplete="off" />
+  </label>
+  <div class="erro" id="dErro"></div>
+  <div class="acoes">
+    <button class="btn" id="dCancelar">Cancelar</button>
+    <button class="btn rust" id="dApagar" disabled>🗑 Apagar empresa</button>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  "use strict";
+  var token = null;
+  try { token = (JSON.parse(localStorage.getItem("gc-session") || "null") || {}).token || null; } catch (e) {}
+  var estado = { aba: "emp", dados: null, ordem: { col: "ultima", dir: -1 }, busca: "", alvo: null };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function data(d) { return d ? new Date(d).toLocaleDateString("pt-BR") : "—"; }
+  function dias(d) { return d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null; }
+  function relativo(d) {
+    var n = dias(d); if (n === null) return "nunca";
+    if (n === 0) return "hoje"; if (n === 1) return "ontem"; if (n < 30) return "há " + n + " dias";
+    return data(d);
+  }
+  function ultima(e) {
+    var a = e.ultimo_login ? new Date(e.ultimo_login).getTime() : 0;
+    var b = e.ultima_atividade ? new Date(e.ultima_atividade).getTime() : 0;
+    var m = Math.max(a, b); return m ? new Date(m).toISOString() : null;
+  }
+  function status(e) {
+    var n = dias(ultima(e));
+    if (n !== null && n <= 7) return { k: "ativa", t: "Ativa" };
+    if (n !== null && n <= 30) return { k: "morna", t: "Morna" };
+    return { k: "parada", t: "Parada" };
+  }
+
+  async function api(metodo, caminho, corpo) {
+    var r = await fetch(caminho, {
+      method: metodo,
+      headers: { "content-type": "application/json", authorization: "Bearer " + token },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (!r.ok || !j.ok) { var err = new Error(j.error || ("erro " + r.status)); err.status = r.status; throw err; }
+    return j;
+  }
+
+  async function carregar() {
+    if (!token) {
+      $("tabela").innerHTML = '<div class="msg">Você não está logado. <a href="/">Entre no aplicativo</a> com a conta de administrador e volte para esta página.</div>';
+      return;
+    }
+    $("tabela").innerHTML = '<div class="msg">Carregando…</div>';
+    try {
+      estado.dados = await api("GET", "/api/admin");
+      try { $("quem").textContent = (JSON.parse(localStorage.getItem("gc-session")).usuario || {}).email || ""; } catch (e) {}
+      desenhar();
+    } catch (e) {
+      $("tabela").innerHTML = '<div class="msg">' + (e.status === 403 ? "Esta conta não é de administrador." : e.status === 401 ? 'Sessão vencida. <a href="/">Entre de novo</a>.' : "Erro: " + esc(e.message)) + "</div>";
+    }
+  }
+
+  var COLS = [
+    { k: "empresa", t: "Empresa", v: function (e) { return (e.nome || "").toLowerCase(); } },
+    { k: "status", t: "Status", v: function (e) { return { ativa: 0, morna: 1, parada: 2 }[status(e).k]; } },
+    { k: "pessoas", t: "Pessoas", num: 1, v: function (e) { return e.pessoas; } },
+    { k: "ativos", t: "Ativas 30d", num: 1, v: function (e) { return e.pessoas_ativas_30d; } },
+    { k: "convites", t: "Convites", num: 1, v: function (e) { return e.convites_pendentes; } },
+    { k: "obras", t: "Obras", num: 1, v: function (e) { return e.obras; } },
+    { k: "etapas", t: "Etapas", num: 1, v: function (e) { return e.etapas; } },
+    { k: "fotos", t: "Fotos", num: 1, v: function (e) { return e.fotos; } },
+    { k: "docs", t: "Docs", num: 1, v: function (e) { return e.documentos; } },
+    { k: "obs", t: "Livro", num: 1, v: function (e) { return e.observacoes; } },
+    { k: "pedidos", t: "Pedidos", num: 1, v: function (e) { return e.pedidos; } },
+    { k: "logins", t: "Logins 7d / 30d", num: 1, v: function (e) { return e.logins_30d; } },
+    { k: "ultima", t: "Última atividade", v: function (e) { var u = ultima(e); return u ? new Date(u).getTime() : 0; } },
+    { k: "criada", t: "Criada", v: function (e) { return new Date(e.criado_em).getTime(); } },
+  ];
+
+  function filtrar(lista, campos) {
+    var q = estado.busca.trim().toLowerCase(); if (!q) return lista;
+    return lista.filter(function (x) { return campos.some(function (c) { return String(x[c] || "").toLowerCase().indexOf(q) >= 0; }); });
+  }
+
+  function desenhar() {
+    var d = estado.dados; if (!d) return;
+    var emp = d.empresas;
+    var soma = function (f) { return emp.reduce(function (s, e) { return s + (Number(e[f]) || 0); }, 0); };
+    var ativas7 = emp.filter(function (e) { return status(e).k === "ativa"; }).length;
+    $("cards").innerHTML = [
+      [emp.length, "Empresas"], [ativas7, "Ativas (7 dias)"], [soma("pessoas"), "Pessoas"],
+      [soma("pessoas_ativas_30d"), "Pessoas ativas (30 dias)"], [soma("obras_ativas"), "Obras ativas"], [d.leads.length, "Leads da feira"],
+    ].map(function (c) { return '<div class="card"><div class="n">' + c[0] + '</div><div class="l">' + c[1] + "</div></div>"; }).join("");
+
+    if (estado.aba === "leads") return desenharLeads();
+
+    var col = COLS.find(function (c) { return c.k === estado.ordem.col; }) || COLS[0];
+    var lista = filtrar(emp, ["nome", "dono_nome", "dono_email"]).slice().sort(function (a, b) {
+      var x = col.v(a), y = col.v(b); return (x > y ? 1 : x < y ? -1 : 0) * estado.ordem.dir;
+    });
+    var cab = COLS.map(function (c) {
+      var seta = c.k === estado.ordem.col ? (estado.ordem.dir === 1 ? " ▲" : " ▼") : "";
+      return '<th data-col="' + c.k + '"' + (c.num ? ' class="num"' : "") + ">" + c.t + '<span class="seta">' + seta + "</span></th>";
+    }).join("") + "<th></th>";
+    var linhas = lista.map(function (e) {
+      var s = status(e), minha = e.id === d.minhaEmpresa;
+      return "<tr>" +
+        "<td><b>" + esc(e.nome) + "</b>" + (minha ? ' <span class="sub">(sua)</span>' : "") + '<div class="sub">' + esc(e.dono_nome || "sem Dono") + " · " + esc(e.dono_email || "—") + "</div></td>" +
+        '<td><span class="chip ' + s.k + '">' + s.t + "</span></td>" +
+        '<td class="num">' + e.pessoas + '<div class="sub">' + e.chefes + " chefes</div></td>" +
+        '<td class="num">' + e.pessoas_ativas_30d + "</td>" +
+        '<td class="num">' + e.convites_pendentes + "</td>" +
+        '<td class="num">' + e.obras + '<div class="sub">' + e.obras_ativas + " ativas</div></td>" +
+        '<td class="num">' + e.etapas + '<div class="sub">' + e.etapas_concluidas + " concl.</div></td>" +
+        '<td class="num">' + e.fotos + "</td>" +
+        '<td class="num">' + e.documentos + "</td>" +
+        '<td class="num">' + e.observacoes + "</td>" +
+        '<td class="num">' + e.pedidos + "</td>" +
+        '<td class="num">' + e.logins_7d + " / " + e.logins_30d + "</td>" +
+        "<td>" + relativo(ultima(e)) + "</td>" +
+        "<td>" + data(e.criado_em) + "</td>" +
+        '<td><button class="lixo" data-id="' + e.id + '" title="' + (minha ? "Sua própria empresa" : "Encerrar empresa") + '"' + (minha ? " disabled" : "") + ">🗑</button></td>" +
+        "</tr>";
+    }).join("");
+    $("tabela").innerHTML = lista.length ? "<table><thead><tr>" + cab + "</tr></thead><tbody>" + linhas + "</tbody></table>" : '<div class="msg">Nenhuma empresa.</div>';
+    $("nota").textContent = "Status: Ativa = atividade nos últimos 7 dias · Morna = até 30 dias · Parada = mais de 30 dias. Logins contam entradas no app (a sessão dura até 30 dias, então quem não sai conta pouco); a última atividade inclui obras, etapas, fotos, documentos, livro, materiais, ferramentas e pedidos.";
+  }
+
+  function desenharLeads() {
+    var l = filtrar(estado.dados.leads, ["nome", "empresa", "contato"]);
+    $("tabela").innerHTML = l.length ? "<table style=\"min-width:600px\"><thead><tr><th>Nome</th><th>Empresa</th><th>Contato</th><th>Origem</th><th>Data</th></tr></thead><tbody>" +
+      l.map(function (x) { return "<tr><td>" + esc(x.nome) + "</td><td>" + esc(x.empresa) + "</td><td>" + esc(x.contato) + "</td><td>" + esc(x.origem) + "</td><td>" + data(x.criado_em) + "</td></tr>"; }).join("") +
+      "</tbody></table>" : '<div class="msg">Nenhum lead.</div>';
+    $("nota").textContent = "";
+  }
+
+  // Excel: CSV com ponto e vírgula e BOM (abre direto no Excel em português).
+  function exportar() {
+    var d = estado.dados; if (!d) return;
+    var linhas, nome;
+    if (estado.aba === "leads") {
+      nome = "gc-leads";
+      linhas = [["Nome", "Empresa", "Contato", "Origem", "Data"]].concat(d.leads.map(function (x) { return [x.nome, x.empresa, x.contato, x.origem, data(x.criado_em)]; }));
+    } else {
+      nome = "gc-empresas";
+      linhas = [["ID", "Empresa", "Dono", "E-mail do Dono", "Status", "Pessoas", "Chefes", "Pessoas ativas 30d", "Convites pendentes", "Obras", "Obras ativas", "Etapas", "Etapas concluídas", "Fotos", "Documentos", "Livro de obra", "Pedidos", "Logins 7d", "Logins 30d", "Último login", "Última atividade", "Criada em"]]
+        .concat(d.empresas.map(function (e) {
+          return [e.id, e.nome, e.dono_nome, e.dono_email, status(e).t, e.pessoas, e.chefes, e.pessoas_ativas_30d, e.convites_pendentes, e.obras, e.obras_ativas, e.etapas, e.etapas_concluidas, e.fotos, e.documentos, e.observacoes, e.pedidos, e.logins_7d, e.logins_30d, data(e.ultimo_login), data(ultima(e)), data(e.criado_em)];
+        }));
+    }
+    var csv = linhas.map(function (l) { return l.map(function (c) { var s = String(c == null ? "" : c); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(";"); }).join("\r\n");
+    var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = nome + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  function abrirLixo(id) {
+    var e = estado.dados.empresas.find(function (x) { return x.id === id; }); if (!e) return;
+    estado.alvo = e;
+    $("dNome").textContent = e.nome;
+    $("dLista").innerHTML = "<li>" + e.obras + " obra(s), " + e.etapas + " etapa(s), " + e.observacoes + " registro(s) do livro</li><li>" + e.fotos + " foto(s) e " + e.documentos + " documento(s)</li><li>" + e.pessoas + " conta(s), incluindo o Dono " + esc(e.dono_email || "") + "</li>";
+    $("dInput").value = ""; $("dErro").textContent = ""; $("dApagar").disabled = true;
+    $("dlg").showModal(); $("dInput").focus();
+  }
+
+  async function apagar() {
+    var e = estado.alvo; if (!e) return;
+    $("dApagar").disabled = true; $("dApagar").textContent = "Apagando…";
+    try {
+      var r = await api("DELETE", "/api/admin?empresa_id=" + e.id, { confirmar: $("dInput").value });
+      $("dlg").close();
+      alert("Empresa \"" + e.nome + "\" encerrada. Arquivos apagados: " + r.arquivosApagados + ".");
+      carregar();
+    } catch (err) {
+      $("dErro").textContent = err.message;
+      $("dApagar").disabled = false;
+    }
+    $("dApagar").textContent = "🗑 Apagar empresa";
+  }
+
+  $("abaEmp").onclick = function () { estado.aba = "emp"; $("abaEmp").className = "on"; $("abaLeads").className = ""; desenhar(); };
+  $("abaLeads").onclick = function () { estado.aba = "leads"; $("abaLeads").className = "on"; $("abaEmp").className = ""; desenhar(); };
+  $("busca").oninput = function (ev) { estado.busca = ev.target.value; desenhar(); };
+  $("recarregar").onclick = carregar;
+  $("exportar").onclick = exportar;
+  $("tabela").addEventListener("click", function (ev) {
+    var th = ev.target.closest("th[data-col]");
+    if (th) { var k = th.getAttribute("data-col"); estado.ordem = { col: k, dir: estado.ordem.col === k ? -estado.ordem.dir : -1 }; desenhar(); return; }
+    var b = ev.target.closest("button.lixo");
+    if (b && !b.disabled) abrirLixo(Number(b.getAttribute("data-id")));
+  });
+  $("dInput").oninput = function () { $("dApagar").disabled = !estado.alvo || $("dInput").value.trim() !== estado.alvo.nome.trim(); };
+  $("dCancelar").onclick = function () { $("dlg").close(); };
+  $("dApagar").onclick = apagar;
+
+  carregar();
+})();
+</script>
+</body>
+</html>
