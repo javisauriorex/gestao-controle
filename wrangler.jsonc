@@ -6,9 +6,12 @@
     "directory": "./",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/manual"]
   },
   "ai": { "binding": "AI" },
+  "send_email": [
+    { "name": "EMAIL", "destination_address": "marcelojavierbonet@gmail.com" }
+  ],
   "kv_namespaces": [
     { "binding": "ARQUIVOS", "id": "69073bc20831472287c1f4ce0a077f9d" }
   ]

@@ -18,6 +18,8 @@ import arquivoSet from "./routes/arquivo-set.js";
 import arquivoGet from "./routes/arquivo-get.js";
 import arquivoDelete from "./routes/arquivo-delete.js";
 import ajuda from "./routes/ajuda.js";
+import encerrarEmpresa from "./routes/encerrar-empresa.js";
+import manual from "./routes/manual.js";
 
 const ROTAS = {
   "/api/auth/login": login,
@@ -45,6 +47,7 @@ const ROTAS = {
   "/api/arquivo-get": arquivoGet,
   "/api/arquivo-delete": arquivoDelete,
   "/api/ajuda": ajuda,
+  "/api/encerrar-empresa": encerrarEmpresa,
 };
 
 export default {
@@ -70,6 +73,8 @@ export default {
         });
       }
     }
+
+    if (url.pathname === "/manual" || url.pathname === "/manual/") return manual(request, env);
 
     return env.ASSETS.fetch(request);
   },

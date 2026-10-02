@@ -26,6 +26,8 @@ Para voltar, use o botão ou gesto "voltar" do próprio celular (não existe bot
 
 Na barra de baixo: INÍCIO (suas obras), AJUDA (esta tela e o assistente) e CONFIG (sua conta, PIN, senha, tema escuro, Termos e Privacidade).
 
+Manual completo: na tela AJUDA (ou em CONFIG → Manual do usuário) abre o manual inteiro, com índice, para ler, imprimir ou salvar em PDF.
+
 Instalar como aplicativo: no Chrome do celular, abra o menu (⋮) e toque em "Adicionar à tela inicial" ou "Instalar app".`,
   },
   {
@@ -229,11 +231,11 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
     id: "conta",
     titulo: "Sua conta, privacidade e suporte",
     para: "todos",
-    texto: `Em CONFIG você encontra: Definir senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Termos de Uso, Privacidade, Excluir minha conta e Sair.
+    texto: `Em CONFIG você encontra: Definir senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Backup de tudo (Dono), Manual do usuário, Termos de Uso, Privacidade, Sair e, no final, Excluir minha conta.
 
 Excluir minha conta: você deixa de entrar e seus dados pessoais (nome, e-mail, CPF, telefone) são apagados. O que você registrou nas obras fica, assinado como "Usuário removido". O Dono não tem esse botão.
 
-Encerrar a empresa (apagar tudo): o Dono toca em CONFIG → "Excluir conta e encerrar empresa". O app abre um e-mail pronto para suporte@gestaoecontrole.app.br; envie a partir do e-mail da conta. Confirmamos o pedido e concluímos em até 15 dias.
+Encerrar a empresa (apagar tudo): o Dono toca em CONFIG → "Excluir conta e encerrar empresa" e confirma. O pedido vai direto para o suporte, que responde no e-mail da conta para confirmar antes de apagar. Concluímos em até 15 dias. Se o envio falhar, escreva para suporte@gestaoecontrole.app.br a partir do e-mail da conta.
 
 Privacidade, pedidos de dados e dúvidas gerais: info@gestaoecontrole.app.br.
 

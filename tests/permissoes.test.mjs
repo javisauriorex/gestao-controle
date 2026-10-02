@@ -243,6 +243,28 @@ env.AI = { async run() { throw new Error("quota"); } };
 check("ajuda: limite diário → mensagem amigável 503", (await call("POST", "/api/ajuda", D, { pergunta: "oi" })).status === 503);
 delete env.AI;
 
+// ---- Encerrar empresa (o servidor manda o e-mail ao suporte) ----
+const enviados = [];
+env.EMAIL = { async send(m) { enviados.push(m); } };
+check("encerrar: não-Dono → 403", (await call("POST", "/api/encerrar-empresa", T("chefe"))).status === 403);
+check("encerrar: GET → 405", (await call("GET", "/api/encerrar-empresa", D)).status === 405);
+const enc = await call("POST", "/api/encerrar-empresa", D);
+check("encerrar: Dono envia pedido", enc.ok && enviados.length === 1, JSON.stringify(enc));
+const raw = enviados[0]?.raw || "";
+check("encerrar: e-mail com Reply-To do Dono e Message-ID", /Reply-To: dono@x\.com/.test(raw) && /Message-ID: </.test(raw) && enviados[0].to === "marcelojavierbonet@gmail.com");
+const corpoEnc = Buffer.from(raw.split("\r\n\r\n")[1].replace(/\r\n/g, ""), "base64").toString("utf8");
+check("encerrar: corpo traz empresa, dono e contagens", /Dono: Dono/.test(corpoEnc) && /Obras: \d+/.test(corpoEnc), corpoEnc);
+env.EMAIL = { async send() { throw new Error("falhou"); } };
+check("encerrar: falha no envio → 502", (await call("POST", "/api/encerrar-empresa", D)).status === 502);
+delete env.EMAIL;
+check("encerrar: sem binding → 503", (await call("POST", "/api/encerrar-empresa", D)).status === 503);
+
+// ---- /manual (página pública gerada do manual) ----
+const rm = await worker.fetch(new Request("https://t/manual"), env);
+const htmlManual = await rm.text();
+check("manual: 200 html com índice e capítulos", rm.status === 200 && /Índice/.test(htmlManual) && /id="esqueci"/.test(htmlManual) && /<ol>/.test(htmlManual));
+check("manual: escapa HTML", !/<script(?! )/.test(htmlManual.replace(/<script>/g, "")));
+
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
 await pool.end();

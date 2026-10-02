@@ -1423,7 +1423,10 @@ function AjudaScreen({ usuarioAPI }) {
   return (
     <div>
       <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">❓ Ajuda</h2>
-      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Olá, {primeiro}! Você é <b>{RANK_LABELS[usuarioAPI.rank]}</b>.</p>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-3">Olá, {primeiro}! Você é <b>{RANK_LABELS[usuarioAPI.rank]}</b>.</p>
+      <a href="/manual" target="_blank" rel="noopener" style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="w-full border rounded-md px-3 py-2.5 mb-4 text-sm font-mono flex items-center gap-3">
+        <span className="text-base leading-none">📘</span><span className="flex-1">Manual completo <span style={{ color: C.inkMuted }}>(ler, imprimir ou salvar em PDF)</span></span>
+      </a>
 
       {dados.assistente && (
         <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-3 mb-5">
@@ -1523,12 +1526,18 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
       : <button onClick={onClick} disabled={disabled} style={estilo} className={classe}>{conteudo}</button>;
   };
   const Titulo = ({ children }) => <p style={{ color: C.inkMuted }} className="text-[10px] font-mono uppercase tracking-widest mt-4 mb-1.5 px-1">{children}</p>;
-  const encerrarEmpresa = () => {
-    const ok = window.confirm("Você é o Dono: excluir a sua conta significa ENCERRAR A EMPRESA inteira (todas as obras, fotos, documentos e contas da equipe).\n\nPor segurança, isso é feito pelo suporte: vamos abrir um e-mail para suporte@gestaoecontrole.app.br. Envie a partir deste mesmo e-mail da conta. Confirmamos o pedido e concluímos em até 15 dias.\n\nAbrir o e-mail agora?");
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const encerrarEmpresa = async () => {
+    const ok = window.confirm("Você é o Dono: excluir a sua conta significa ENCERRAR A EMPRESA inteira (todas as obras, fotos, documentos e contas da equipe).\n\nO pedido vai para o suporte, que confirma com você pelo e-mail da conta antes de apagar. Concluímos em até 15 dias.\n\nEnviar o pedido agora?");
     if (!ok) return;
-    const assunto = encodeURIComponent("Encerrar empresa no G&C");
-    const corpo = encodeURIComponent(`Olá! Quero encerrar a minha empresa no Gestão & Controle e excluir a minha conta de Dono.\n\nNome: ${usuario.nome || ""}\nE-mail da conta: ${usuario.email || ""}\nEmpresa: ${usuario.empresa_nome || ""}\n\nEstou ciente de que todas as obras, fotos, documentos e contas da equipe serão apagados.`);
-    window.location.href = `mailto:suporte@gestaoecontrole.app.br?subject=${assunto}&body=${corpo}`;
+    setEnviandoPedido(true);
+    try {
+      await apiFetch("/api/encerrar-empresa", { method: "POST", body: "{}" });
+      window.alert(`Pedido enviado ao suporte.\n\nVamos responder no e-mail ${usuario.email || "da sua conta"} para confirmar antes de apagar qualquer coisa.`);
+    } catch (err) {
+      window.alert(`Não foi possível enviar o pedido agora (${err.message}).\n\nEscreva para suporte@gestaoecontrole.app.br a partir do e-mail da conta, com o assunto "Encerrar empresa no G&C".`);
+    }
+    setEnviandoPedido(false);
   };
   const temEmpresa = usuario.rank <= 3 || usuario.rank === 1 || usuario.email === "marcelojavierbonet@gmail.com";
   return (
@@ -1570,8 +1579,9 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
             </>
           )}
 
-          <Titulo>Legal</Titulo>
+          <Titulo>Ajuda e legal</Titulo>
           <div className="flex flex-col gap-2">
+            <Item icone="📘" texto="Manual do usuário" href="/manual" />
             <Item icone="📄" texto="Termos de Uso" href="/termos" />
             <Item icone="🛡️" texto="Política de Privacidade" href="/privacidade" />
           </div>
@@ -1584,7 +1594,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
           {(usuario.rank === 1 || onExcluirConta) && (
             <div className="mt-6">
               {usuario.rank === 1
-                ? <Item icone="🚫" texto="Excluir conta e encerrar empresa" onClick={encerrarEmpresa} perigo />
+                ? <Item icone="🚫" texto={enviandoPedido ? "Enviando pedido..." : "Excluir conta e encerrar empresa"} onClick={encerrarEmpresa} disabled={enviandoPedido} perigo />
                 : <Item icone="🚫" texto="Excluir minha conta" onClick={onExcluirConta} perigo />}
             </div>
           )}
