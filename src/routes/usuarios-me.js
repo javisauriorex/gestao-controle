@@ -1,5 +1,5 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, hashSenha } from "../lib/auth.js";
+import { getUsuario, jsonResponse, hashSenha, verificarSenha, renovarSessoes } from "../lib/auth.js";
 import { limparCpf, cpfValido, problemaPin } from "./convite-link.js";
 import { TERMOS_VERSAO } from "../lib/legal.js";
 
@@ -8,7 +8,7 @@ export default async function usuariosMeHandler(req, env) {
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
 
   if (req.method === "GET") {
-    const { senha_hash, pin_hash, cpf, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
+    const { senha_hash, pin_hash, cpf, sessao_versao, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
     const cpfMascarado = cpf ? `${cpf.slice(0, 3)}.***.***-${cpf.slice(9)}` : null;
     const emp = await getSql(env)`SELECT nome FROM empresas WHERE id = ${usuario.empresa_id}`;
     return jsonResponse({ ok: true, termos_vigente: TERMOS_VERSAO, usuario: {
@@ -22,6 +22,12 @@ export default async function usuariosMeHandler(req, env) {
   // a senha no Google Password Manager.
   if (req.method === "PATCH") {
     const body = await req.json();
+
+    // "Sair de todos os aparelhos" (S8): derruba todas as sessões; este aparelho recebe um token novo.
+    if (body.sairDeTodos) {
+      const novoToken = await renovarSessoes(getSql(env), usuario.id, env);
+      return jsonResponse({ ok: true, novoToken });
+    }
 
     // Aceite dos Termos de Uso e da Política de Privacidade (versão vigente) — L4
     if (body.aceitarTermos) {
@@ -42,17 +48,25 @@ export default async function usuariosMeHandler(req, env) {
       }
       const pinHash = await hashSenha(String(body.pin));
       await sql`UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
-      return jsonResponse({ ok: true });
+      // Trocou o PIN: as outras sessões caem (S8); este aparelho segue logado com o token novo.
+      const novoToken = usuario.pin_hash ? await renovarSessoes(sql, usuario.id, env) : null;
+      return jsonResponse({ ok: true, novoToken });
     }
 
-    const { novaSenha } = body;
+    const { novaSenha, senhaAtual } = body;
     if (!novaSenha || novaSenha.length < 8) {
       return jsonResponse({ ok: false, error: "a senha precisa ter ao menos 8 caracteres" }, 400);
     }
+    // S8: quem já tem senha precisa informar a atual (um token roubado não basta para trocar a senha).
+    if (usuario.senha_hash && !(senhaAtual && (await verificarSenha(String(senhaAtual), usuario.senha_hash)))) {
+      return jsonResponse({ ok: false, error: "A senha atual não confere." }, 403);
+    }
     const sql = getSql(env);
     const senhaHash = await hashSenha(novaSenha);
-    await sql`UPDATE usuarios SET senha_hash = ${senhaHash} WHERE id = ${usuario.id}`;
-    return jsonResponse({ ok: true });
+    await sql`UPDATE usuarios SET senha_hash = ${senhaHash}, login_tentativas = 0, login_rodadas = 0, login_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
+    // Senha nova: as outras sessões caem; este aparelho segue logado com o token novo.
+    const novoToken = await renovarSessoes(sql, usuario.id, env);
+    return jsonResponse({ ok: true, novoToken });
   }
 
   // Excluir conta. DELETE sem ?id → a própria conta. DELETE ?id=X → conta de outro (só um superior dele).

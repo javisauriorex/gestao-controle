@@ -1,5 +1,6 @@
 import worker from "./src/worker.js";
 import { pool } from "./src/lib/db.js";
+import { loginOuCriarComGoogle } from "./src/lib/auth.js";
 // KV de mentira (em memória) no lugar do Cloudflare KV
 const kv = new Map();
 const ARQUIVOS = {
@@ -158,8 +159,9 @@ const obraOutra = (await call("POST", "/api/obras", D2, { cliente: "Obra da outr
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 check("arquivo-set sem login → 401", (await call("POST", "/api/arquivo-set", null, { id: uuid, payload: "{}" })).status === 401);
 check("arquivo-set com id curto → 400", (await call("POST", "/api/arquivo-set", D, { id: "abc12345", payload: "{}" })).status === 400);
-check("arquivo-set dono ok", (await call("POST", "/api/arquivo-set", D, { id: uuid, payload: '{"nome":"a.pdf"}' })).ok);
-check("arquivo-set sobrescrever → 409", (await call("POST", "/api/arquivo-set", D2, { id: uuid, payload: "{}" })).status === 409);
+const PDF = JSON.stringify({ nome: "a.pdf", tipo: "application/pdf", dataUrl: "data:application/pdf;base64,JVBERi0xLjQK" });
+check("arquivo-set dono ok", (await call("POST", "/api/arquivo-set", D, { id: uuid, payload: PDF })).ok);
+check("arquivo-set sobrescrever → 409", (await call("POST", "/api/arquivo-set", D2, { id: uuid, payload: PDF })).status === 409);
 check("outra empresa lê arquivo não vinculado → 404", (await call("GET", `/api/arquivo-get?id=${uuid}`, D2)).status === 404);
 check("quem enviou lê antes de vincular", (await call("GET", `/api/arquivo-get?id=${uuid}`, D)).ok);
 check("outra empresa tenta vincular arquivo alheio → 400", (await call("POST", "/api/documentos", D2, { obraId: obraOutra, nome: "x", arquivoId: uuid })).status === 400);
@@ -185,7 +187,7 @@ check("dono vê histórico da própria obra", (await call("GET", `/api/observaco
 check("dono de outra empresa lê histórico → 404", (await call("GET", `/api/observacoes?historico=${obsC.item.id}`, D2)).status === 404);
 // Apagar obra apaga arquivos
 const uuid2 = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
-await call("POST", "/api/arquivo-set", D, { id: uuid2, payload: "{}" });
+await call("POST", "/api/arquivo-set", D, { id: uuid2, payload: PDF });
 const et3 = await call("POST", "/api/etapas", D, { obraId: C_, texto: "Pintura" });
 check("foto vinculada à etapa", (await call("POST", "/api/etapa-fotos", D, { etapaId: et3.etapa.id, arquivoId: uuid2 })).ok);
 check("apagar obra C apaga fotos do KV", (await call("DELETE", `/api/obras?id=${C_}`, D)).ok && !kv.has(uuid2));
@@ -265,11 +267,130 @@ const htmlManual = await rm.text();
 check("manual: 200 html com índice e capítulos", rm.status === 200 && /Índice/.test(htmlManual) && /id="esqueci"/.test(htmlManual) && /<ol>/.test(htmlManual));
 check("manual: escapa HTML", !/<script(?! )/.test(htmlManual.replace(/<script>/g, "")));
 
+
+// ============================================================
+// BLOCO SEGURANÇA A (auditoria-seguranca.md)
+// ============================================================
+const d3 = await call("POST", "/api/auth/signup", null, { email: "dono3@x.com", senha: "12345678", nome: "Dono3", aceitouTermos: true });
+const D3 = d3.token;
+const o3 = (await call("POST", "/api/obras", D3, { cliente: "Obra S" })).obra.id;
+const o3b = (await call("POST", "/api/obras", D3, { cliente: "Obra S2" })).obra.id;
+const p3 = {};
+let j3 = 0;
+for (const [k, r] of Object.entries({ chefe: 2, mestre: 4, encarr: 5, almox: 6, prof: 8, prof2: 8 })) {
+  const c = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: k, rank: r, telefone: "71999990000" });
+  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(345678901 + (j3++) * 1313), pin: "8391", aceitouTermos: true });
+  check("S: aceitar " + k, a.ok, JSON.stringify(a));
+  p3[k] = { token: a.token, id: a.usuario.id };
+}
+
+// --- S1: só arquivos de verdade ---
+const novoId = () => crypto.randomUUID();
+const pay = (dataUrl) => JSON.stringify({ nome: "x.pdf", tipo: "application/pdf", dataUrl });
+check("S1: javascript: → 400", (await call("POST", "/api/arquivo-set", D3, { id: novoId(), payload: pay("javascript:alert(document.cookie)") })).status === 400);
+check("S1: data:text/html → 400", (await call("POST", "/api/arquivo-set", D3, { id: novoId(), payload: pay("data:text/html;base64,PHNjcmlwdD4=") })).status === 400);
+check("S1: SVG → 400", (await call("POST", "/api/arquivo-set", D3, { id: novoId(), payload: pay("data:image/svg+xml;base64,PHN2Zz4=") })).status === 400);
+check("S1: payload que não é JSON → 400", (await call("POST", "/api/arquivo-set", D3, { id: novoId(), payload: "lixo" })).status === 400);
+check("S1: JPEG ok", (await call("POST", "/api/arquivo-set", D3, { id: novoId(), payload: pay("data:image/jpeg;base64,/9j/4AAQ") })).ok);
+check("S1: PDF ok", (await call("POST", "/api/arquivo-set", D3, { id: novoId(), payload: pay("data:application/pdf;base64,JVBERi0x") })).ok);
+
+// --- S2: convites sem token na lista ---
+const cv = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "futuro estagiário", rank: 3 });
+check("S2: dono cria convite rank 3", cv.ok && cv.token);
+const listaChefe3 = await call("GET", "/api/convites", p3.chefe.token);
+check("S2: chefe vê o convite do Dono", listaChefe3.convites.some((c) => c.id === cv.convite.id));
+check("S2: lista NUNCA traz token nem telefone", listaChefe3.convites.every((c) => c.token === undefined && c.telefone === undefined), JSON.stringify(listaChefe3.convites[0]));
+check("S2: profissional não vê convites alheios", (await call("GET", "/api/convites", p3.prof.token)).convites.length === 0);
+const cvMestre = await call("POST", "/api/convite-link", p3.mestre.token, { obraId: o3, nome: "peão", rank: 8 });
+const listaMestre3 = await call("GET", "/api/convites", p3.mestre.token);
+check("S2: mestre vê só os que ele criou", listaMestre3.convites.length >= 1 && listaMestre3.convites.every((c) => c.criado_por === p3.mestre.id), JSON.stringify(listaMestre3.convites));
+check("S2: mestre não vê o convite do Dono", !listaMestre3.convites.some((c) => c.id === cv.convite.id));
+
+// --- S2: Novo PIN para quem não tem CPF ---
+const semCpf = (await pool.query("INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado) VALUES ('semcpf@x.com', 'Sem CPF', $1, 6, true) RETURNING id", [d3.usuario ? (await pool.query("SELECT empresa_id FROM usuarios WHERE id=$1", [d3.usuario.id])).rows[0].empresa_id : null])).rows[0].id;
+const np1 = await call("POST", "/api/convite-link", D3, { usuarioId: semCpf });
+check("S2: Novo PIN sem CPF → pede CPF", np1.status === 400 && np1.codigo === "precisa_cpf", JSON.stringify(np1));
+const cpfCerto = cpf(456789012);
+const np2 = await call("POST", "/api/convite-link", D3, { usuarioId: semCpf, cpf: cpfCerto });
+check("S2: Novo PIN com CPF do chefe → ok", np2.ok && np2.token, JSON.stringify(np2));
+check("S2: resposta do Novo PIN não devolve o CPF", np2.convite && np2.convite.cpf === undefined);
+check("S2: aceitar Novo PIN com OUTRO CPF → 400", (await call("POST", "/api/auth/aceitar-convite", null, { token: np2.token, cpf: cpf(567890123), pin: "7351", aceitouTermos: true })).status === 400);
+const np3 = await call("POST", "/api/auth/aceitar-convite", null, { token: np2.token, cpf: cpfCerto, pin: "7351", aceitouTermos: true });
+check("S2: aceitar Novo PIN com o CPF certo → entra", np3.ok && np3.usuario.id === semCpf, JSON.stringify(np3));
+// Link antigo (de antes desta versão) sem CPF fixado para conta sem CPF → recusado
+const semCpf2 = (await pool.query("INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado) SELECT 'semcpf2@x.com', 'Sem CPF 2', empresa_id, 6, true FROM usuarios WHERE id=$1 RETURNING id", [d3.usuario.id])).rows[0].id;
+await pool.query("INSERT INTO convites (empresa_id, nome, rank, criado_por, token, expira_em, usuario_id) SELECT empresa_id, 'x', 6, id, 'tokenantigo123', now() + interval '1 day', $2 FROM usuarios WHERE id=$1", [d3.usuario.id, semCpf2]);
+check("S2: link antigo sem CPF → recusado", (await call("POST", "/api/auth/aceitar-convite", null, { token: "tokenantigo123", cpf: cpf(678901234), pin: "7351", aceitouTermos: true })).status === 400);
+
+// --- S3: pré-cadastro de e-mail alheio ---
+const golpe = await call("POST", "/api/auth/signup", null, { email: "fulano@gmail.com", senha: "senhaDoGolpista", nome: "Fulano?", aceitouTermos: true });
+check("S3: golpista cadastra e-mail alheio", golpe.ok);
+const fulanoG = await loginOuCriarComGoogle("fulano@gmail.com", "Fulano", env, null);
+const fulanoRow = (await pool.query("SELECT senha_hash, email_verificado FROM usuarios WHERE email='fulano@gmail.com'")).rows[0];
+check("S3: Google assume a conta: verificada e senha do golpista apagada", fulanoRow.email_verificado === true && fulanoRow.senha_hash === null, JSON.stringify(fulanoRow));
+check("S3: sessão do golpista cai", (await call("GET", "/api/usuarios-me", golpe.token)).status === 401);
+check("S3: senha do golpista não entra mais", (await call("POST", "/api/auth/login", null, { email: "fulano@gmail.com", senha: "senhaDoGolpista" })).status === 401);
+check("S3: Fulano (Google) entra", (await call("GET", "/api/usuarios-me", fulanoG.token)).ok);
+const fulanoG2 = await loginOuCriarComGoogle("fulano@gmail.com", "Fulano", env, null);
+check("S3: segundo login Google não derruba o primeiro", (await call("GET", "/api/usuarios-me", fulanoG.token)).ok && (await call("GET", "/api/usuarios-me", fulanoG2.token)).ok);
+
+// --- S8: sessões ---
+const s8 = await call("POST", "/api/auth/signup", null, { email: "s8@x.com", senha: "senhaVelha1", nome: "S8", aceitouTermos: true });
+check("S8: trocar senha sem a atual → 403", (await call("PATCH", "/api/usuarios-me", s8.token, { novaSenha: "senhaNova12" })).status === 403);
+check("S8: trocar senha com a atual errada → 403", (await call("PATCH", "/api/usuarios-me", s8.token, { novaSenha: "senhaNova12", senhaAtual: "errada" })).status === 403);
+const troca = await call("PATCH", "/api/usuarios-me", s8.token, { novaSenha: "senhaNova12", senhaAtual: "senhaVelha1" });
+check("S8: trocar senha com a atual → ok + token novo", troca.ok && troca.novoToken);
+check("S8: token antigo cai", (await call("GET", "/api/usuarios-me", s8.token)).status === 401);
+check("S8: token novo vale", (await call("GET", "/api/usuarios-me", troca.novoToken)).ok);
+check("S8: senha nova entra", (await call("POST", "/api/auth/login", null, { email: "s8@x.com", senha: "senhaNova12" })).ok);
+const outroAparelho = (await call("POST", "/api/auth/login", null, { email: "s8@x.com", senha: "senhaNova12" })).token;
+const sairTodos = await call("PATCH", "/api/usuarios-me", troca.novoToken, { sairDeTodos: true });
+check("S8: sair de todos → token novo", sairTodos.ok && sairTodos.novoToken);
+check("S8: outro aparelho cai", (await call("GET", "/api/usuarios-me", outroAparelho)).status === 401);
+check("S8: este aparelho segue", (await call("GET", "/api/usuarios-me", sairTodos.novoToken)).ok);
+check("S8: GET usuarios-me não expõe sessao_versao", (await call("GET", "/api/usuarios-me", sairTodos.novoToken)).usuario.sessao_versao === undefined);
+const g8 = await loginOuCriarComGoogle("google8@x.com", "G8", env, null);
+check("S8: quem não tem senha define sem pedir a atual", (await call("PATCH", "/api/usuarios-me", g8.token, { novaSenha: "primeira123" })).ok);
+
+// --- S9: state no login com Google ---
+const gs = await worker.fetch(new Request("https://t/api/auth/google"), env);
+const cookieState = (gs.headers.get("set-cookie") || "").match(/gc_oauth_state=([0-9a-f]+)/);
+const stateUrl = new URL(gs.headers.get("location") || "https://x").searchParams.get("state");
+check("S9: início manda state e cookie iguais", gs.status === 302 && cookieState && cookieState[1] === stateUrl);
+const semCookie = await (await worker.fetch(new Request(`https://t/api/auth/google/callback?code=abc&state=${stateUrl}`), env)).text();
+check("S9: callback sem cookie → recusado", /expirou/.test(semCookie));
+const stateErrado = await (await worker.fetch(new Request(`https://t/api/auth/google/callback?code=abc&state=outro`, { headers: { cookie: `gc_oauth_state=${stateUrl}` } }), env)).text();
+check("S9: callback com state diferente → recusado", /expirou/.test(stateErrado));
+
+// --- S10: presença e Equipe ---
+const eq3 = (await call("GET", `/api/equipe?obra_id=${o3}`, D3)).equipe;
+const linha = (uid) => eq3.find((m) => m.usuario_id === uid).id;
+const hojeBR = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+check("S10: profissional marca a presença de OUTRO → 403", (await call("PATCH", `/api/equipe?id=${linha(p3.prof2.id)}`, p3.prof.token, { data: hojeBR })).status === 403);
+check("S10: profissional marca a SUA presença de hoje → ok", (await call("PATCH", `/api/equipe?id=${linha(p3.prof.id)}`, p3.prof.token, { data: hojeBR })).ok);
+check("S10: profissional marca a sua presença de outro dia → 403", (await call("PATCH", `/api/equipe?id=${linha(p3.prof.id)}`, p3.prof.token, { data: "2026-01-05" })).status === 403);
+check("S10: data inválida → 400", (await call("PATCH", `/api/equipe?id=${linha(p3.prof.id)}`, p3.prof.token, { data: "<script>" })).status === 400);
+check("S10: encarregado (editar) marca a de um profissional → ok", (await call("PATCH", `/api/equipe?id=${linha(p3.prof2.id)}`, p3.encarr.token, { data: "2026-01-05" })).ok);
+check("S10: encarregado NÃO marca a do mestre (superior) → 403", (await call("PATCH", `/api/equipe?id=${linha(p3.mestre.id)}`, p3.encarr.token, { data: hojeBR })).status === 403);
+const eqAlmox = (await call("GET", `/api/equipe?obra_id=${o3}`, p3.almox.token)).equipe;
+check("S10: almoxarife (Equipe = nenhum) recebe a lista sem e-mails nem presença dos outros",
+  eqAlmox.filter((m) => m.usuario_id !== p3.almox.id).every((m) => m.email === null && m.asistencias.length === 0), JSON.stringify(eqAlmox.slice(0, 2)));
+check("S10: lista da empresa sem e-mails para rank > 5", (await call("GET", "/api/equipe", p3.prof.token)).equipe.every((m) => m.email === null));
+check("S10: lista da empresa com e-mails para o Dono", (await call("GET", "/api/equipe", D3)).equipe.some((m) => m.email));
+
+// --- S12: etapa-mãe de outra obra ---
+const mae = (await call("POST", "/api/etapas", D3, { obraId: o3b, texto: "mãe em S2" })).etapa.id;
+check("S12: sub-etapa pendurada em etapa de outra obra → 400", (await call("POST", "/api/etapas", D3, { obraId: o3, parentId: mae, texto: "filha" })).status === 400);
+check("S12: sub-etapa na mesma obra → ok", (await call("POST", "/api/etapas", D3, { obraId: o3b, parentId: mae, texto: "filha" })).ok);
+
 // ---- Painel admin ----
 check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);
 check("admin: sem login → 401", (await call("GET", "/api/admin")).status === 401);
 const adm = await call("POST", "/api/auth/signup", null, { email: "marcelojavierbonet@gmail.com", senha: "12345678", nome: "Admin", aceitouTermos: true });
-const AD = adm.token;
+check("admin: e-mail do admin cadastrado com senha (não verificado) → 403", (await call("GET", "/api/admin", adm.token)).status === 403);
+// Javi entra com o Google → e-mail verificado → vira admin (e a senha cadastrada some).
+const admG = await loginOuCriarComGoogle("marcelojavierbonet@gmail.com", "Admin", env, null);
+const AD = admG.token;
 const vitima = await call("POST", "/api/auth/signup", null, { email: "vitima@x.com", senha: "12345678", nome: "Vitima", aceitouTermos: true });
 const obraV = await call("POST", "/api/obras", vitima.token, { cliente: "Obra V" });
 await ARQUIVOS.put("arq-vitima-1", "x", { metadata: { empresa: vitima.usuario.empresa_id } });

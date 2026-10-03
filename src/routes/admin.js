@@ -11,7 +11,8 @@ const ADMIN_PADRAO = "marcelojavierbonet@gmail.com";
 
 function ehAdmin(usuario, env) {
   const lista = String(env.ADMIN_EMAILS || ADMIN_PADRAO).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
-  return !!usuario?.email && lista.includes(usuario.email.toLowerCase());
+  // S3: e-mail tem que estar comprovado (Google). Senão, bastaria cadastrar o e-mail do admin com uma senha qualquer.
+  return !!usuario?.email && usuario.email_verificado === true && lista.includes(usuario.email.toLowerCase());
 }
 
 export default async function adminHandler(req, env) {

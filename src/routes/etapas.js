@@ -33,6 +33,10 @@ export default async function etapasHandler(req, env) {
     const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
+    // S12: a etapa-mãe tem que ser desta mesma obra (antes dava para pendurar sub-etapa em obra alheia).
+    if (parentId && (await obraDoRegistro(sql, "etapas", parentId)) !== Number(obraId)) {
+      return jsonResponse({ ok: false, error: "etapa-mãe inválida" }, 400);
+    }
     const rows = await sql`
       INSERT INTO etapas (obra_id, parent_id, texto, criado_por)
       VALUES (${obraId}, ${parentId || null}, ${texto}, ${usuario.id})

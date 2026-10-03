@@ -283,8 +283,21 @@ async function apiFetch(path, opts = {}) {
   if (opts.body) headers["content-type"] = "application/json";
   const res = await fetch(path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  if (!res.ok) { const e = new Error(data.error || `Erro ${res.status}`); e.codigo = data.codigo; throw e; }
+  // O servidor renovou a sessão (trocou senha/PIN, "Sair de todos os aparelhos"): guarda o token novo.
+  if (data.novoToken) { const s = getSession(); if (s) saveSession({ ...s, token: data.novoToken }); }
   return data;
+}
+
+// Só aceita arquivo que seja imagem, PDF, Word ou Excel de verdade (S1). Qualquer outra coisa
+// (ex.: "javascript:..." ou uma página HTML disfarçada) é tratada como arquivo inexistente.
+const TIPOS_ARQUIVO_OK = ["image/jpeg", "image/png", "image/webp", "application/pdf", "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"];
+function arquivoSeguro(f) {
+  if (!f || typeof f.dataUrl !== "string") return false;
+  const m = f.dataUrl.slice(0, 200).match(/^data:([a-z0-9.+\/-]+);base64,/);
+  return !!m && TIPOS_ARQUIVO_OK.includes(m[1]);
 }
 
 // El token propio dura 30 dias (definido en el backend); si el servidor lo rechaza (401),
@@ -762,12 +775,18 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
     setSalvando(false);
   };
 
-  const gerarNovoPin = async (m) => {
+  const gerarNovoPin = async (m, cpf) => {
     setErro(""); setMsg("");
     try {
-      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ usuarioId: m.usuario_id }) });
+      const r = await apiFetch("/api/convite-link", { method: "POST", body: JSON.stringify({ usuarioId: m.usuario_id, cpf }) });
       setLinkGerado({ link: linkDoConvite(r.token), nome: m.nome, telefone: r.convite.telefone || "", novoPin: true });
     } catch (err) {
+      // Pessoa sem CPF na conta: o link só vale para o CPF que o chefe informar (segurança).
+      if (err.codigo === "precisa_cpf") {
+        const digitado = window.prompt(`${err.message}\n\nCPF de ${m.nome}:`, cpf || "");
+        if (digitado) return gerarNovoPin(m, digitado);
+        return;
+      }
       setErro(err.message);
     }
   };
@@ -859,7 +878,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
           return (
             <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2">
               <div className="flex items-center gap-2">
-                <button onClick={() => podeEditar && marcarPresenca(m)} disabled={!podeEditar} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
+                <button onClick={() => (m.usuario_id === usuarioId || (podeEditar && m.rank > usuarioRank)) && marcarPresenca(m)} disabled={!(m.usuario_id === usuarioId || (podeEditar && m.rank > usuarioRank))} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
                   {presenteHoje ? "✓" : ""}
                 </button>
                 <div className="flex-1 min-w-0 truncate">
@@ -1563,7 +1582,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           <Titulo>Minha conta</Titulo>
           <div className="flex flex-col gap-2">
-            <Item icone="🔑" texto="Definir senha" onClick={onAbrirDefinirSenha} />
+            <Item icone="🔑" texto={usuario.tem_senha ? "Trocar senha" : "Definir senha"} onClick={onAbrirDefinirSenha} />
             {onAbrirMeuPin && <Item icone="📱" texto={usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"} onClick={onAbrirMeuPin} />}
             <Item icone={temaEscuro ? "☀️" : "🌙"} texto={temaEscuro ? "Modo claro" : "Modo escuro"} onClick={onAlternarTema} />
           </div>
@@ -1588,6 +1607,11 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
 
           <Titulo>Sessão</Titulo>
           <div className="flex flex-col gap-2">
+            <Item icone="📵" texto="Sair de todos os aparelhos" onClick={async () => {
+              if (!window.confirm("Fechar a sessão em TODOS os outros aparelhos (celulares, computadores) onde você entrou? Este aparelho continua logado.")) return;
+              try { await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ sairDeTodos: true }) }); window.alert("Pronto! Os outros aparelhos vão pedir para entrar de novo."); }
+              catch (err) { window.alert(err.message); }
+            }} />
             <Item icone="🔒" texto="Sair" onClick={onSair} perigo />
           </div>
 
@@ -1664,6 +1688,8 @@ function MeuPinModal({ usuario, onClose }) {
 }
 
 function DefinirSenhaModal({ usuario, onClose }) {
+  const jaTemSenha = !!usuario?.tem_senha;
+  const [senhaAtual, setSenhaAtual] = useState("");
   const [senha, setSenha] = useState("");
   const [senha2, setSenha2] = useState("");
   const [erro, setErro] = useState("");
@@ -1672,11 +1698,12 @@ function DefinirSenhaModal({ usuario, onClose }) {
 
   const salvar = async () => {
     setErro("");
+    if (jaTemSenha && !senhaAtual) { setErro("Digite a sua senha atual."); return; }
     if (senha.length < 8) { setErro("A senha precisa ter ao menos 8 caracteres."); return; }
     if (senha !== senha2) { setErro("As senhas não coincidem."); return; }
     setSalvando(true);
     try {
-      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ novaSenha: senha }) });
+      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ novaSenha: senha, senhaAtual: jaTemSenha ? senhaAtual : undefined }) });
       // Oferece salvar no gerenciador de senhas do navegador (Google Password Manager no Chrome).
       try {
         if (window.PasswordCredential) {
@@ -1695,19 +1722,25 @@ function DefinirSenhaModal({ usuario, onClose }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
         <div className="flex justify-between items-center mb-4">
-          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Definir senha</h2>
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">{jaTemSenha ? "Trocar senha" : "Definir senha"}</h2>
           <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl">×</button>
         </div>
         {ok ? (
           <>
-            <p style={{ color: C.ink }} className="text-sm">Senha salva! Agora você também pode entrar com email e senha, sem depender do Google.</p>
+            <p style={{ color: C.ink }} className="text-sm">Senha salva! Agora você também pode entrar com email e senha, sem depender do Google. Por segurança, os outros aparelhos em que você estava logado vão pedir para entrar de novo.</p>
             <button onClick={onClose} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5">Fechar</button>
           </>
         ) : (
           <>
             <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-3">Útil se você entrou com Google — assim consegue entrar mesmo sem ele.</p>
+            {jaTemSenha && (
+              <>
+                <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha atual</label>
+                <input type="password" value={senhaAtual} onChange={(e) => setSenhaAtual(e.target.value)} autoComplete="current-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus />
+              </>
+            )}
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
-            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus />
+            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus={!jaTemSenha} />
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
             <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
             {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
@@ -2787,7 +2820,9 @@ function GestorObras() {
       });
       if (res.status === 404) { setFileCache((p) => ({ ...p, [id]: "MISSING" })); return; }
       const data = await res.json();
-      setFileCache((p) => ({ ...p, [id]: data.ok ? JSON.parse(data.payload) : "MISSING" }));
+      let f = "MISSING";
+      try { if (data.ok) { const obj = JSON.parse(data.payload); if (arquivoSeguro(obj)) f = obj; } } catch (e) {}
+      setFileCache((p) => ({ ...p, [id]: f }));
     } catch (e) {
       setFileCache((p) => ({ ...p, [id]: "MISSING" }));
     }
@@ -3190,7 +3225,7 @@ function GestorObras() {
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : view === "ajuda" ? "ajuda" : ""} onAjuda={() => { if (view !== "ajuda") irParaView("ajuda"); }} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
         {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
-        {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => setShowDefinirSenha(false)} />}
+        {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => { setShowDefinirSenha(false); carregarUsuarioAPI(); }} />}
         {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
         <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
           {notificacoes.map((n) => (

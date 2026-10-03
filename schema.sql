@@ -1,6 +1,6 @@
 -- ============================================================
 -- Gestão & Controle — ESQUEMA REAL do banco (Neon, projeto raspy-forest-82462838)
--- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql).
+-- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql) + segurança A (sql/2026-10-03-seguranca-a.sql).
 --
 -- Serve de DOCUMENTAÇÃO e para montar bancos de teste. NÃO rodar no Neon
 -- de produção (as tabelas já existem). Mudanças novas vão em sql/AAAA-MM-DD-nome.sql
@@ -40,6 +40,8 @@ CREATE TABLE usuarios (
   login_tentativas integer DEFAULT 0,
   login_bloqueado_ate timestamp with time zone,
   login_rodadas integer DEFAULT 0,
+  email_verificado boolean NOT NULL DEFAULT false,
+  sessao_versao integer NOT NULL DEFAULT 0,
   CONSTRAINT usuarios_rank_check CHECK (((rank >= 1) AND (rank <= 8))),
   CONSTRAINT usuarios_empresa_id_fkey FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
   CONSTRAINT usuarios_removido_por_fkey FOREIGN KEY (removido_por) REFERENCES usuarios(id),
@@ -79,6 +81,7 @@ CREATE TABLE convites (
   telefone text,
   expira_em timestamp with time zone,
   usuario_id integer,
+  cpf text,
   CONSTRAINT convites_rank_check CHECK (((rank >= 1) AND (rank <= 8))),
   CONSTRAINT convites_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT convites_empresa_id_fkey FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
@@ -282,3 +285,4 @@ CREATE INDEX idx_pedidos_obra ON public.pedidos USING btree (obra_id);
 CREATE INDEX idx_pedidos_remetente ON public.pedidos USING btree (remetente_id);
 CREATE INDEX idx_permissoes_empresa ON public.permissoes USING btree (empresa_id);
 CREATE INDEX idx_usuarios_email ON public.usuarios USING btree (email);
+CREATE INDEX idx_usuarios_empresa ON public.usuarios USING btree (empresa_id);

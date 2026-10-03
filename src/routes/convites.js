@@ -8,8 +8,15 @@ export default async function convitesHandler(req, env) {
   const url = new URL(req.url);
 
   if (req.method === "GET") {
+    // S2: o link (token) NUNCA sai daqui — ele só aparece uma vez, para quem cria o convite.
+    // Dono e Eng. Chefe veem todos os convites pendentes; os demais, só os que eles mesmos criaram.
     const convites = await sql`
-      SELECT * FROM convites WHERE empresa_id = ${usuario.empresa_id} AND aceito = false ORDER BY id DESC
+      SELECT id, email, nome, rank, funcao, obra_id, criado_por, criado_em, expira_em,
+             (usuario_id IS NOT NULL) AS novo_pin
+      FROM convites
+      WHERE empresa_id = ${usuario.empresa_id} AND aceito = false
+        AND (${usuario.rank <= 2} OR criado_por = ${usuario.id})
+      ORDER BY id DESC
     `;
     return jsonResponse({ ok: true, convites });
   }

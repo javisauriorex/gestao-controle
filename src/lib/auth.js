@@ -62,6 +62,19 @@ export async function verifyJWT(token, secret) {
   }
 }
 
+// Sessão de 30 dias. "sv" = versão da sessão da pessoa (S8): trocar senha/PIN, "Sair de todos os
+// aparelhos" ou o Google assumir uma conta não verificada sobe usuarios.sessao_versao, e todos os
+// tokens antigos deixam de valer na hora.
+export async function emitirToken(usuario, env) {
+  return signJWT({ usuarioId: usuario.id, sv: usuario.sessao_versao || 0, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+}
+
+// Derruba todas as sessões da pessoa e devolve um token novo (para o aparelho atual seguir logado).
+export async function renovarSessoes(sql, usuarioId, env) {
+  const rows = await sql`UPDATE usuarios SET sessao_versao = sessao_versao + 1 WHERE id = ${usuarioId} RETURNING *`;
+  return emitirToken(rows[0], env);
+}
+
 // ============================================================
 // Password hashing (PBKDF2 con Web Crypto) — guardado como "salt:hash" en hex.
 // ============================================================
@@ -184,7 +197,7 @@ export async function signup(req, env) {
 
   await sql`UPDATE usuarios SET termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now() WHERE id = ${novoUsuario.id}`;
   await registrarAcesso(sql, req, novoUsuario.id, "cadastro");
-  const token = await signJWT({ usuarioId: novoUsuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+  const token = await emitirToken(novoUsuario, env);
   return jsonResponse({ ok: true, token, usuario: { id: novoUsuario.id, email: novoUsuario.email, nome: novoUsuario.nome } });
 }
 
@@ -218,7 +231,7 @@ export async function login(req, env) {
   await sql`UPDATE usuarios SET login_tentativas = 0, login_rodadas = 0, login_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
   await registrarAcesso(sql, req, usuario.id, "senha");
 
-  const token = await signJWT({ usuarioId: usuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+  const token = await emitirToken(usuario, env);
   return jsonResponse({ ok: true, token, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome } });
 }
 
@@ -239,6 +252,17 @@ export async function loginOuCriarComGoogle(email, nome, env, req) {
 
   if (existentes.length > 0) {
     usuario = existentes[0];
+    // S3: conta criada com e-mail+senha e nunca comprovada. O Google prova que o e-mail é desta pessoa:
+    // a conta passa a verificada, a senha antiga (que pode ter sido criada por outra pessoa) é apagada
+    // e todas as sessões abertas caem.
+    if (!usuario.email_verificado) {
+      const rows = await sql`
+        UPDATE usuarios SET email_verificado = true, senha_hash = NULL, login_tentativas = 0, login_rodadas = 0,
+          login_bloqueado_ate = NULL, sessao_versao = sessao_versao + 1
+        WHERE id = ${usuario.id} RETURNING *
+      `;
+      usuario = rows[0];
+    }
   } else {
     const convites = await sql`
       SELECT * FROM convites WHERE email = ${emailNorm} AND aceito = false ORDER BY id DESC LIMIT 1
@@ -246,8 +270,8 @@ export async function loginOuCriarComGoogle(email, nome, env, req) {
     if (convites.length > 0) {
       const convite = convites[0];
       const novos = await sql`
-        INSERT INTO usuarios (email, nome, empresa_id, rank)
-        VALUES (${emailNorm}, ${nome || emailNorm}, ${convite.empresa_id}, ${convite.rank})
+        INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado)
+        VALUES (${emailNorm}, ${nome || emailNorm}, ${convite.empresa_id}, ${convite.rank}, true)
         RETURNING *
       `;
       await sql`DELETE FROM convites WHERE id = ${convite.id}`;
@@ -263,8 +287,8 @@ export async function loginOuCriarComGoogle(email, nome, env, req) {
       const empresas = await sql`INSERT INTO empresas (nome) VALUES (${(nome || emailNorm) + " — empresa"}) RETURNING *`;
       const empresa = empresas[0];
       const novos = await sql`
-        INSERT INTO usuarios (email, nome, empresa_id, rank)
-        VALUES (${emailNorm}, ${nome || emailNorm}, ${empresa.id}, 1)
+        INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado)
+        VALUES (${emailNorm}, ${nome || emailNorm}, ${empresa.id}, 1, true)
         RETURNING *
       `;
       usuario = novos[0];
@@ -274,7 +298,7 @@ export async function loginOuCriarComGoogle(email, nome, env, req) {
   }
 
   if (req) await registrarAcesso(sql, req, usuario.id, "google");
-  const token = await signJWT({ usuarioId: usuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+  const token = await emitirToken(usuario, env);
   return { token, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome } };
 }
 
@@ -292,7 +316,10 @@ export async function getUsuario(req, env) {
 
   const sql = getSql(env);
   const rows = await sql`SELECT * FROM usuarios WHERE id = ${payload.usuarioId} AND removido_em IS NULL`;
-  return rows.length > 0 ? rows[0] : null;
+  if (rows.length === 0) return null;
+  // S8: token de uma "versão" anterior (senha trocada, sair de todos, etc.) não vale mais.
+  if ((payload.sv || 0) !== (rows[0].sessao_versao || 0)) return null;
+  return rows[0];
 }
 
 // --- Reglas de permiso (idénticas a las que ya tenías, no se tocan) ---

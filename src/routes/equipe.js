@@ -1,5 +1,11 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, podeCrear, podeAsignarRank, podeModificar } from "../lib/auth.js";
+import { nivelNaObra, podeVer } from "../lib/acesso.js";
+
+// Data de hoje no Brasil (AAAA-MM-DD), para a presença marcada pela própria pessoa.
+function diaBR(deslocDias = 0) {
+  return new Date(Date.now() + deslocDias * 86400000).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}
 
 // Equipe de uma obra.
 //  - Adicionar/convidar: Dono até Encarregado (rank 1-5), só para ranks abaixo do próprio.
@@ -37,6 +43,8 @@ export default async function equipeHandler(req, env) {
         WHERE empresa_id = ${usuario.empresa_id} AND removido_em IS NULL
         ORDER BY nome
       `;
+      // E-mails da empresa toda só para quem convida/gerencia (rank 1-5).
+      if (usuario.rank > 5) todos.forEach((p) => { p.email = null; });
       return jsonResponse({ ok: true, equipe: todos });
     }
     if (!(await acessoAObra(sql, usuario, obraId))) return jsonResponse({ ok: false, error: "sem acesso a esta obra" }, 403);
@@ -46,6 +54,15 @@ export default async function equipeHandler(req, env) {
       WHERE e.obra_id = ${obraId}
       ORDER BY u.removido_em NULLS FIRST, e.id
     `;
+    // Sem acesso ao módulo Equipe (ex.: Almoxarife, Profissional): a lista vem (precisa dela para pedidos),
+    // mas sem e-mails, presença e bloqueios dos outros (S10).
+    const { nivel } = await nivelNaObra(sql, usuario, obraId, "equipe", env);
+    if (!podeVer(nivel)) {
+      equipe.forEach((m) => {
+        if (m.usuario_id === usuario.id) return;
+        m.email = null; m.asistencias = []; m.excecao_modulos = null;
+      });
+    }
     return jsonResponse({ ok: true, equipe });
   }
 
@@ -162,7 +179,23 @@ export default async function equipeHandler(req, env) {
       return jsonResponse({ ok: true, membro: membros[0] });
     }
 
-    // Marcar presença do dia
+    // Marcar presença do dia (S10):
+    //  - a própria pessoa marca a SUA presença, só do dia (hoje, com 1 dia de folga por fuso horário);
+    //  - os superiores com nível "editar" em Equipe marcam a de quem está abaixo deles, qualquer dia.
+    if (typeof data !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      return jsonResponse({ ok: false, error: "data inválida" }, 400);
+    }
+    if (atual.usuario_id === usuario.id) {
+      if (![diaBR(-1), diaBR(0), diaBR(1)].includes(data)) {
+        return jsonResponse({ ok: false, error: "você só marca a sua presença do dia de hoje" }, 403);
+      }
+    } else {
+      const { nivel } = await nivelNaObra(sql, usuario, atual.obra_id, "equipe", env);
+      const alvos2 = await sql`SELECT rank FROM usuarios WHERE id = ${atual.usuario_id}`;
+      if (nivel !== "editar" || !alvos2.length || !(alvos2[0].rank > usuario.rank)) {
+        return jsonResponse({ ok: false, error: "só um superior com acesso de edição à Equipe marca a presença de outra pessoa" }, 403);
+      }
+    }
     const asistencias = Array.isArray(atual.asistencias) ? atual.asistencias : [];
     const tem = asistencias.includes(data);
     const novas = tem ? asistencias.filter((d) => d !== data) : [...asistencias, data];

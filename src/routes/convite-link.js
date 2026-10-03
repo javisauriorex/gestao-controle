@@ -1,5 +1,5 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, hashSenha, verificarSenha, signJWT } from "../lib/auth.js";
+import { getUsuario, jsonResponse, hashSenha, verificarSenha, emitirToken } from "../lib/auth.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
 
 // ============================================================
@@ -47,13 +47,13 @@ function gerarToken() {
 }
 
 async function emitirSessao(usuario, env) {
-  const token = await signJWT({ usuarioId: usuario.id, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+  const token = await emitirToken(usuario, env);
   return { ok: true, token, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome } };
 }
 
 // POST /api/convite-link
 //  Convite novo: { obraId, nome, telefone?, email?, rank, funcao? }
-//  Novo PIN:     { usuarioId }
+//  Novo PIN:     { usuarioId, cpf? }  (cpf obrigatório se a pessoa ainda não tem CPF na conta)
 export async function criarConviteLink(req, env) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
@@ -73,12 +73,23 @@ export async function criarConviteLink(req, env) {
     if (alvo.id !== usuario.id && alvo.rank <= usuario.rank) {
       return jsonResponse({ ok: false, error: "só pode gerar Novo PIN para ranks abaixo do seu" }, 403);
     }
+    if (alvo.removido_em) return jsonResponse({ ok: false, error: "conta excluída" }, 404);
+    // S2: sem CPF na conta, o link só serve para o CPF que o chefe informar agora.
+    // (Antes, quem pegasse o link podia cadastrar qualquer CPF e entrar na conta dessa pessoa.)
+    let cpfFixo = null;
+    if (!alvo.cpf) {
+      cpfFixo = limparCpf(body.cpf);
+      if (!cpfFixo) return jsonResponse({ ok: false, codigo: "precisa_cpf", error: "Esta pessoa ainda não tem CPF cadastrado. Informe o CPF dela para gerar o link." }, 400);
+      if (!cpfValido(cpfFixo)) return jsonResponse({ ok: false, codigo: "precisa_cpf", error: "CPF inválido. Confira os números." }, 400);
+      const outro = await sql`SELECT id FROM usuarios WHERE cpf = ${cpfFixo} AND id <> ${alvo.id}`;
+      if (outro.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
+    }
     // Invalida links de Novo PIN anteriores dessa pessoa
     await sql`DELETE FROM convites WHERE usuario_id = ${alvo.id}`;
     const rows = await sql`
-      INSERT INTO convites (empresa_id, email, nome, telefone, rank, funcao, obra_id, criado_por, token, expira_em, usuario_id)
-      VALUES (${usuario.empresa_id}, ${null}, ${alvo.nome}, ${alvo.telefone}, ${alvo.rank}, ${""}, ${null}, ${usuario.id}, ${token}, ${expira}, ${alvo.id})
-      RETURNING *
+      INSERT INTO convites (empresa_id, email, nome, telefone, rank, funcao, obra_id, criado_por, token, expira_em, usuario_id, cpf)
+      VALUES (${usuario.empresa_id}, ${null}, ${alvo.nome}, ${alvo.telefone}, ${alvo.rank}, ${""}, ${null}, ${usuario.id}, ${token}, ${expira}, ${alvo.id}, ${cpfFixo})
+      RETURNING id, nome, telefone, rank, expira_em, usuario_id
     `;
     return jsonResponse({ ok: true, convite: rows[0], token });
   }
@@ -123,8 +134,8 @@ export async function conviteInfo(req, env) {
     const o = await sql`SELECT cliente FROM obras WHERE id = ${convite.obra_id}`; // só o necessário (sem endereço)
     obra = o[0] || null;
   }
-  let temCpf = false;
-  if (convite.usuario_id) {
+  let temCpf = !!convite.cpf;
+  if (convite.usuario_id && !temCpf) {
     const u = await sql`SELECT cpf FROM usuarios WHERE id = ${convite.usuario_id}`;
     temCpf = !!(u[0] && u[0].cpf);
   }
@@ -159,14 +170,19 @@ export async function aceitarConvite(req, env) {
     const us = await sql`SELECT * FROM usuarios WHERE id = ${convite.usuario_id}`;
     if (us.length === 0) return jsonResponse({ ok: false, error: "Conta não encontrada." }, 404);
     const u = us[0];
-    if (u.cpf && u.cpf !== cpf) return jsonResponse({ ok: false, error: "Este CPF não é o cadastrado nesta conta." }, 400);
+    if (u.removido_em) return jsonResponse({ ok: false, error: "Conta não encontrada." }, 404);
+    // O CPF tem que ser o da conta, ou o que o chefe fixou ao gerar o link. Link sem nenhum dos dois não serve (S2).
+    const cpfEsperado = u.cpf || convite.cpf;
+    if (!cpfEsperado) return jsonResponse({ ok: false, error: "Este link é antigo. Peça um Novo PIN ao seu chefe." }, 400);
+    if (cpf !== cpfEsperado) return jsonResponse({ ok: false, error: "Este CPF não é o cadastrado nesta conta." }, 400);
     if (!u.cpf) {
       const dono = await sql`SELECT id FROM usuarios WHERE cpf = ${cpf} AND id <> ${u.id}`;
       if (dono.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
     }
+    // Novo PIN = recuperação de acesso: as sessões antigas (ex.: celular perdido) caem (S8).
     const rows = await sql`
       UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL,
-        termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now()
+        termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now(), sessao_versao = sessao_versao + 1
       WHERE id = ${u.id} RETURNING *
     `;
     await sql`DELETE FROM convites WHERE id = ${convite.id}`;

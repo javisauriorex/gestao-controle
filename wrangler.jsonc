@@ -2,6 +2,8 @@
   "name": "gestao-controle",
   "compatibility_date": "2026-09-06",
   "main": "src/worker.js",
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "directory": "./",
     "not_found_handling": "single-page-application",

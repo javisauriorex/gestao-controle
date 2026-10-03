@@ -6,10 +6,21 @@ function b64urlDecode(str) {
   return atob(str);
 }
 
+// S9: "state" aleatório guardado num cookie. Na volta, o Google devolve o mesmo state;
+// se não bater, o login não foi iniciado por este navegador (ataque de "login CSRF") e é recusado.
+const COOKIE_STATE = "gc_oauth_state";
+function lerCookie(req, nome) {
+  const m = (req.headers.get("cookie") || "").match(new RegExp("(?:^|;\\s*)" + nome + "=([^;]+)"));
+  return m ? m[1] : null;
+}
+const apagarCookieState = `${COOKIE_STATE}=; Path=/api/auth/google; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+
 // GET /api/auth/google — arranca el flujo, redirige a la pantalla de Google.
 export async function googleStart(req, env) {
   const redirectUri = `${new URL(req.url).origin}/api/auth/google/callback`;
+  const state = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const params = new URLSearchParams({
+    state,
     client_id: env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
     response_type: "code",
@@ -17,7 +28,14 @@ export async function googleStart(req, env) {
     access_type: "online",
     prompt: "select_account",
   });
-  return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`, 302);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      "set-cookie": `${COOKIE_STATE}=${state}; Path=/api/auth/google; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
+      "cache-control": "no-store",
+    },
+  });
 }
 
 // GET /api/auth/google/callback — Google vuelve acá con ?code=...
@@ -30,6 +48,10 @@ export async function googleCallback(req, env) {
 
   if (erroGoogle || !code) {
     return paginaHtml(paginaErro(erroGoogle || "Google não retornou um código de autorização."));
+  }
+  const stateCookie = lerCookie(req, COOKIE_STATE);
+  if (!stateCookie || stateCookie !== url.searchParams.get("state")) {
+    return paginaHtml(paginaErro("O login expirou ou não começou neste aparelho. Toque de novo em \"Continuar com Google\"."));
   }
 
   try {
@@ -64,7 +86,15 @@ export async function googleCallback(req, env) {
 }
 
 function paginaHtml(body) {
-  return new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(body, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "set-cookie": apagarCookieState, // o state é de uso único
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+      "x-frame-options": "DENY",
+    },
+  });
 }
 
 function paginaSucesso(token, usuario) {
