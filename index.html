@@ -1929,6 +1929,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, usuarioAPI, niveis,
   onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
   const [erroObra, setErroObra] = useState("");
+  const [erroPresenca, setErroPresenca] = useState("");
   const [transferindo, setTransferindo] = useState(false);
   const [novoResponsavel, setNovoResponsavel] = useState("");
   const { etapas, equipe, ferramentas, materiais, observacoes, documentos } = obraDetalhe;
@@ -2062,6 +2063,21 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
           ))}
         </div>
       </div>
+      {/* Presença do dia: cada um marca a sua, mesmo sem acesso ao cajón Equipe (decisão 03/10). */}
+      {meuMembro && (() => {
+        const hojeP = todayISO();
+        const presente = (meuMembro.asistencias || []).includes(hojeP);
+        return (
+          <div className="mt-3">
+            <button onClick={async () => { setErroPresenca(""); try { await onToggleHoje(meuMembro.id, hojeP); } catch (err) { setErroPresenca(err.message); } }}
+              style={{ background: presente ? C.green : C.surface, borderColor: presente ? C.green : C.border, color: presente ? "#fff" : C.ink }}
+              className="w-full border-2 rounded-md py-3 font-bold uppercase tracking-wide text-sm">
+              {presente ? "✓ Minha presença de hoje está marcada" : "✋ Marcar minha presença hoje"}
+            </button>
+            {erroPresenca && <p style={{ color: C.rust }} className="text-xs font-mono mt-1 text-center">{erroPresenca}</p>}
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -80,11 +80,13 @@ Primeiro acesso: o app pede para aceitar os Termos de Uso e a Política de Priva
     texto: `A recuperação do acesso é feita por um link no WhatsApp, enviado pelo seu chefe:
 
 1. Peça ao Dono ou ao Engenheiro Chefe um "Novo PIN".
-2. Ele abre a gaveta Equipe, toca na chave 🔑 ao lado do seu nome e te manda o link pelo WhatsApp.
+2. Ele abre a gaveta Equipe, toca na chave 🔑 ao lado do seu nome e te manda o link pelo WhatsApp. Se você ainda não tinha CPF cadastrado, ele vai precisar informar o seu CPF: o link só funciona com esse CPF.
 3. Toque no link, digite seu CPF e crie um PIN novo de 4 números.
 4. Pronto: entre com CPF + PIN.
 
 Serve também para quem entrava com e-mail e esqueceu a senha: com o link você passa a entrar com CPF + PIN. Depois, se quiser, crie uma senha nova em CONFIG → Definir senha.
+
+Ao usar um Novo PIN, os outros aparelhos em que você estava logado saem da conta (por segurança, caso o celular tenha sido perdido).
 
 Se o seu e-mail for Gmail, você também pode entrar com "Continuar com Google".
 
@@ -117,7 +119,7 @@ Avisos em tempo real: com a obra aberta, o app avisa quando alguém adiciona eta
     modulo: "equipe",
     texto: `A gaveta Equipe mostra quem trabalha nesta obra, com rank e função.
 
-Presença: toque no quadradinho ao lado do nome para marcar presença hoje. O número "Xd" mostra quantos dias a pessoa esteve presente.
+Presença: cada pessoa marca a SUA presença do dia no botão "✋ Marcar minha presença hoje", que fica embaixo das gavetas, na tela da obra. Os chefes com acesso de edição à Equipe também marcam a presença de quem está abaixo deles, tocando no quadradinho ao lado do nome. O número "Xd" mostra quantos dias a pessoa esteve presente.
 
 Adicionar pessoas (do Dono até o Encarregado, sempre para ranks abaixo do seu):
 - 📲 Novo por link: digite nome, WhatsApp (opcional), função e rank e toque em "Gerar link". Depois toque em "📲 WhatsApp" para mandar o convite, ou em "📋 Copiar link". A pessoa entra com CPF + PIN, sem e-mail.
@@ -231,7 +233,13 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
     id: "conta",
     titulo: "Sua conta, privacidade e suporte",
     para: "todos",
-    texto: `Em CONFIG você encontra: Definir senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Backup de tudo (Dono), Manual do usuário, Termos de Uso, Privacidade, Sair e, no final, Excluir minha conta.
+    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Backup de tudo (Dono), Manual do usuário, Termos de Uso, Privacidade, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
+
+Trocar senha: pede a senha atual. Ao trocar a senha ou o PIN, os outros aparelhos saem da conta; o aparelho que você está usando continua.
+
+Sair de todos os aparelhos: fecha a sessão em todos os outros celulares e computadores. Use se perdeu o celular ou entrou num aparelho que não é seu.
+
+Segurança: o G&C NUNCA pede seu PIN ou senha por WhatsApp, e-mail ou telefone. O único endereço do aplicativo é gestaoecontrole.app.br.
 
 Excluir minha conta: você deixa de entrar e seus dados pessoais (nome, e-mail, CPF, telefone) são apagados. O que você registrou nas obras fica, assinado como "Usuário removido". O Dono não tem esse botão.
 
