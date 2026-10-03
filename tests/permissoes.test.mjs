@@ -401,8 +401,10 @@ check("admin: lista empresas com números", lista.ok && linhaV && linhaV.obras =
 check("admin: traz leads", Array.isArray(lista.leads));
 check("admin: confirmação errada → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: "outra" })).status === 400);
 check("admin: não apaga a própria empresa", (await call("DELETE", `/api/admin?empresa_id=${adm.usuario.empresa_id}`, AD, { confirmar: "x" })).status === 400);
-check("admin: Dono comum não apaga → 403", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, D, { confirmar: linhaV.nome })).status === 403);
-const apg = await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: linhaV.nome });
+check("admin: Dono comum não apaga → 403", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, D, { confirmar: "ELIMINA" })).status === 403);
+check("admin: confirmar com o nome (sem ELIMINA) → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: linhaV.nome })).status === 400);
+check("admin: 'elimina' em minúsculas → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: "elimina" })).status === 400);
+const apg = await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: "ELIMINA" });
 check("admin: apaga empresa com confirmação", apg.ok && apg.arquivosApagados === 1, JSON.stringify(apg));
 const resto = await pool.query("SELECT (SELECT count(*) FROM empresas WHERE id=$1)::int AS emp, (SELECT count(*) FROM usuarios WHERE email='vitima@x.com')::int AS us, (SELECT count(*) FROM acessos WHERE usuario_id IS NULL)::int AS acessos_anon", [linhaV.id]);
 check("admin: empresa e pessoas sumiram, acessos ficam sem vínculo", resto.rows[0].emp === 0 && resto.rows[0].us === 0 && resto.rows[0].acessos_anon >= 1, JSON.stringify(resto.rows[0]));

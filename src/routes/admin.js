@@ -70,8 +70,9 @@ export default async function adminHandler(req, env) {
     try { body = await req.json(); } catch {}
     const alvo = await sql`SELECT id, nome FROM empresas WHERE id = ${empresaId}`;
     if (alvo.length === 0) return jsonResponse({ ok: false, error: "empresa não encontrada" }, 404);
-    if (String(body.confirmar || "").trim() !== alvo[0].nome.trim()) {
-      return jsonResponse({ ok: false, error: "confirmação não confere: digite o nome exato da empresa" }, 400);
+    // Confirmação simples: digitar ELIMINA (em maiúsculas).
+    if (String(body.confirmar || "").trim() !== "ELIMINA") {
+      return jsonResponse({ ok: false, error: "confirmação não confere: digite ELIMINA" }, 400);
     }
     // Arquivos no KV (fotos, documentos, foto de conclusão) — juntar ANTES de apagar as linhas.
     const arquivos = await sql`

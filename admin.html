@@ -88,7 +88,7 @@
   <p>Vai apagar <b>de vez</b> a empresa <b id="dNome"></b>:</p>
   <ul id="dLista"></ul>
   <p>O registro de acessos (exigido por lei) continua, sem o nome das pessoas. <b>Não tem volta.</b></p>
-  <label>Para confirmar, digite o nome exato da empresa:
+  <label>Para confirmar, digite <b>ELIMINA</b> (em maiúsculas):
     <input type="text" id="dInput" autocomplete="off" />
   </label>
   <div class="erro" id="dErro"></div>
@@ -284,7 +284,7 @@
     var b = ev.target.closest("button.lixo");
     if (b && !b.disabled) abrirLixo(Number(b.getAttribute("data-id")));
   });
-  $("dInput").oninput = function () { $("dApagar").disabled = !estado.alvo || $("dInput").value.trim() !== estado.alvo.nome.trim(); };
+  $("dInput").oninput = function () { $("dApagar").disabled = !estado.alvo || $("dInput").value.trim() !== "ELIMINA"; };
   $("dCancelar").onclick = function () { $("dlg").close(); };
   $("dApagar").onclick = apagar;
 
