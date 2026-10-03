@@ -124,16 +124,19 @@ function nivelDefault(rank, modulo) {
   return NIVEL_DEFAULT_POR_RANK[rank] || "nenhum";
 }
 
+// UMA consulta só para as 48 linhas (8 ranks × 6 módulos). Antes eram 48 consultas separadas:
+// somadas ao resto do cadastro passavam de 50 "subrequests", o limite do plano grátis do
+// Cloudflare Workers, e o cadastro de empresa nova (e-mail ou Google) falhava em produção.
 async function semearPermissoesDefault(sql, empresaId) {
+  const ranks = [], modulos = [], niveis = [];
   for (let rank = 1; rank <= 8; rank++) {
-    for (const modulo of MODULOS) {
-      await sql`
-        INSERT INTO permissoes (empresa_id, rank, modulo, nivel)
-        VALUES (${empresaId}, ${rank}, ${modulo}, ${nivelDefault(rank, modulo)})
-        ON CONFLICT (empresa_id, rank, modulo) DO NOTHING
-      `;
-    }
+    for (const modulo of MODULOS) { ranks.push(rank); modulos.push(modulo); niveis.push(nivelDefault(rank, modulo)); }
   }
+  await sql`
+    INSERT INTO permissoes (empresa_id, rank, modulo, nivel)
+    SELECT ${empresaId}, r, m, n FROM unnest(${ranks}::int[], ${modulos}::text[], ${niveis}::text[]) AS t(r, m, n)
+    ON CONFLICT (empresa_id, rank, modulo) DO NOTHING
+  `;
 }
 
 // ============================================================
