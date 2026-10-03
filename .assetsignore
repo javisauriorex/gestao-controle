@@ -7,5 +7,6 @@ wrangler.jsonc
 schema.sql
 netlify/
 migration_senha.sql
-   sql/
-   tests/
+sql/
+tests/
+*.md
