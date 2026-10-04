@@ -11,6 +11,7 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/manual", "/confirmar-email", "/redefinir-senha"]
   },
+  "triggers": { "crons": ["30 14 * * 6"] },
   "ai": { "binding": "AI" },
   "send_email": [
     { "name": "EMAIL", "destination_address": "marcelojavierbonet@gmail.com" }

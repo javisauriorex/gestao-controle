@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse } from "../lib/auth.js";
 import { apagarDoKV } from "../lib/arquivos.js";
+import { enviarBackup } from "../lib/backup.js";
 
 // Painel do administrador do G&C (página /admin). Só para os e-mails em ADMIN_EMAILS.
 //   GET    /api/admin                         → empresas com números de uso + leads da feira
@@ -60,6 +61,17 @@ export default async function adminHandler(req, env) {
     `;
     const leads = await sql`SELECT id, nome, empresa, contato, origem, criado_em FROM leads ORDER BY criado_em DESC`;
     return jsonResponse({ ok: true, empresas, leads, minhaEmpresa: usuario.empresa_id, agora: new Date().toISOString() });
+  }
+
+  // POST /api/admin?acao=backup → manda o backup por e-mail agora (para testar sem esperar o sábado)
+  if (req.method === "POST" && url.searchParams.get("acao") === "backup") {
+    if (!env.EMAIL) return jsonResponse({ ok: false, error: "envio de e-mail indisponível" }, 503);
+    try {
+      return jsonResponse(await enviarBackup(env, sql));
+    } catch (e) {
+      console.error("backup manual falhou", e);
+      return jsonResponse({ ok: false, error: "não foi possível gerar/enviar o backup" }, 502);
+    }
   }
 
   if (req.method === "DELETE") {

@@ -15,6 +15,7 @@
 <script src="vendor/react.production.min.js"></script>
 <script src="vendor/react-dom.production.min.js"></script>
 <script src="vendor/babel.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
 <link rel="stylesheet" href="vendor/tailwind.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1618,7 +1619,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
               <Titulo>Empresa</Titulo>
               <div className="flex flex-col gap-2">
                 {usuario.rank <= 3 && <Item icone={<img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" />} texto="Permissões" onClick={onAbrirPermissoes} />}
-                {usuario.rank === 1 && <Item icone="⤓" texto={fazendoBackup ? "Gerando..." : "Backup de tudo"} onClick={onBackupForcado} disabled={fazendoBackup} />}
+                {usuario.rank === 1 && <Item icone="⤓" texto={fazendoBackup ? (typeof fazendoBackup === "string" ? fazendoBackup : "Gerando...") : "Backup de tudo (com fotos)"} onClick={onBackupForcado} disabled={fazendoBackup} />}
                 {usuario.email === "marcelojavierbonet@gmail.com" && <Item icone="🛠" texto="Painel admin" href="/admin" />}
               </div>
             </>
@@ -3089,31 +3090,62 @@ function GestorObras() {
     setObras((prev) => prev.map((o) => (o.id === editandoObra.id ? r.obra : o)));
   };
 
+  // "Backup de tudo" do Dono (C3): um .zip com dados.json (todas as obras) + as fotos e os documentos.
+  // É montado neste aparelho (não depende de limites do servidor). Pode demorar se houver muitos arquivos.
   const backupForcado = async () => {
-    setFazendoBackup(true);
+    setFazendoBackup("Lendo as obras...");
     try {
+      const limpo = (t) => String(t || "").replace(/[\\/:*?"<>|\n\r\t]+/g, "_").slice(0, 60).trim() || "sem-nome";
       const pacote = { geradoEm: new Date().toISOString(), obras: [] };
+      const arquivos = []; // { id, caminho }
       for (const obra of obras) {
-        const [et, eq, fe, ma, ob, doc] = await Promise.all([
+        const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
           apiFetch(`/api/etapas?obra_id=${obra.id}`).catch(() => ({ etapas: [] })),
           apiFetch(`/api/equipe?obra_id=${obra.id}`).catch(() => ({ equipe: [] })),
           apiFetch(`/api/ferramentas?obra_id=${obra.id}`).catch(() => ({ ferramentas: [] })),
           apiFetch(`/api/materiais?obra_id=${obra.id}`).catch(() => ({ materiais: [] })),
           apiFetch(`/api/observacoes?obra_id=${obra.id}`).catch(() => ({ observacoes: [] })),
           apiFetch(`/api/documentos?obra_id=${obra.id}`).catch(() => ({ documentos: [] })),
+          apiFetch(`/api/etapa-fotos?obra_id=${obra.id}`).catch(() => ({ fotos: [] })),
         ]);
         pacote.obras.push({
           obra, etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
-          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
+          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos, fotos: fo.fotos,
         });
+        const pasta = `${obra.id}-${limpo(obra.cliente)}`;
+        const etapaNome = Object.fromEntries((et.etapas || []).map((e) => [e.id, limpo(e.texto)]));
+        (doc.documentos || []).forEach((d) => arquivos.push({ id: d.arquivo_id, caminho: `${pasta}/documentos/${d.id}-${limpo(d.nome)}` }));
+        (fo.fotos || []).forEach((f) => arquivos.push({ id: f.arquivo_id, caminho: `${pasta}/fotos/${etapaNome[f.etapa_id] || "etapa"}-${f.id}` }));
+        (et.etapas || []).filter((e) => e.foto_conclusao_id).forEach((e) => arquivos.push({ id: e.foto_conclusao_id, caminho: `${pasta}/fotos/${limpo(e.texto)}-conclusao` }));
       }
-      const blob = new Blob([JSON.stringify(pacote, null, 2)], { type: "application/json" });
+      const zip = new JSZip();
+      const extensao = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf" };
+      let feitos = 0, faltando = 0;
+      for (const a of arquivos) {
+        setFazendoBackup(`Arquivos ${feitos + 1}/${arquivos.length}...`);
+        try {
+          const r = await fetch(`/api/arquivo-get?id=${encodeURIComponent(a.id)}`, { headers: cabecalhoAuth() });
+          const d = await r.json();
+          const f = d.ok ? JSON.parse(d.payload) : null;
+          if (f && arquivoSeguro(f)) {
+            const m = f.dataUrl.match(/^data:([^;]+);base64,(.*)$/);
+            const ext = /\.[a-z0-9]{2,5}$/i.test(a.caminho) ? "" : (extensao[m[1]] || "");
+            zip.file(a.caminho + ext, m[2], { base64: true });
+          } else faltando++;
+        } catch (e) { faltando++; }
+        feitos++;
+      }
+      pacote.arquivos = { total: arquivos.length, incluidos: arquivos.length - faltando, faltando };
+      zip.file("dados.json", JSON.stringify(pacote, null, 2));
+      zip.file("LEIA-ME.txt", `Backup do G&C gerado em ${new Date().toLocaleString("pt-BR")}.\n\ndados.json = todas as obras (etapas, equipe, materiais, ferramentas, observações, documentos e fotos).\nAs pastas têm as fotos e os documentos de cada obra.\n${faltando ? faltando + " arquivo(s) não puderam ser incluídos (apagados ou com erro).\n" : ""}`);
+      setFazendoBackup("Compactando...");
+      const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `gc-backup-${todayISO()}.json`;
+      a.download = `gc-backup-${todayISO()}.zip`;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (err) {
       setErroGlobal(err.message);
     }

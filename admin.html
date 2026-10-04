@@ -77,6 +77,7 @@
     <input type="search" id="busca" placeholder="Buscar empresa, dono ou e-mail…" />
     <button class="btn" id="recarregar">↻ Atualizar</button>
     <button class="btn amber" id="exportar">⤓ Baixar Excel</button>
+    <button class="btn" id="backupAgora" title="Manda agora o backup da base para o seu e-mail (o automático é aos sábados 11:30)">📧 Backup agora</button>
   </div>
 
   <div class="tabela" id="tabela"><div class="msg">Carregando…</div></div>
@@ -279,6 +280,12 @@
   $("busca").oninput = function (ev) { estado.busca = ev.target.value; desenhar(); };
   $("recarregar").onclick = carregar;
   $("exportar").onclick = exportar;
+  $("backupAgora").onclick = async function () {
+    var b = $("backupAgora"); b.disabled = true; b.textContent = "Enviando…";
+    try { var r = await api("POST", "/api/admin?acao=backup"); alert("Backup enviado para o seu e-mail: " + r.arquivo + " (" + r.kb + " KB)."); }
+    catch (e) { alert("Não foi possível: " + e.message); }
+    b.disabled = false; b.textContent = "📧 Backup agora";
+  };
   $("tabela").addEventListener("click", function (ev) {
     var th = ev.target.closest("th[data-col]");
     if (th) { var k = th.getAttribute("data-col"); estado.ordem = { col: k, dir: estado.ordem.col === k ? -estado.ordem.dir : -1 }; desenhar(); return; }

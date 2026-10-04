@@ -607,6 +607,28 @@ const delR = await call("DELETE", `/api/admin?empresa_id=${empR}`, AD, { confirm
 check("reingresso: admin apaga empresa com tokens de e-mail e acessos", delR.ok, JSON.stringify(delR));
 const re2 = await call("POST", "/api/auth/signup", null, { email: "volta@x.com", senha: "senhaBoa123", nome: "Volta 2", aceitouTermos: true });
 check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
+
+// ============================================================
+// BLOCO C3 — backup semanal por e-mail
+// ============================================================
+{
+  const mandados = [];
+  env.EMAIL = { async send(m) { mandados.push(m); } };
+  const bk = await call("POST", "/api/admin?acao=backup", AD);
+  check("C3: admin manda backup agora", bk.ok && mandados.length === 1 && /gc-backup-\d{4}-\d{2}-\d{2}\.json\.gz/.test(bk.arquivo), JSON.stringify(bk));
+  const raw = mandados[0].raw;
+  const anexo = raw.split('Content-Transfer-Encoding: base64\r\n\r\n')[2].split("\r\n--")[0].replace(/\r\n/g, "");
+  const { gunzipSync } = await import("node:zlib");
+  const conteudo = JSON.parse(gunzipSync(Buffer.from(anexo, "base64")).toString("utf8"));
+  check("C3: anexo é JSON.gz com todas as tabelas e contagens certas", conteudo.versao_backup === 1 && conteudo.tabelas.usuarios.length === conteudo.contagem.usuarios && conteudo.contagem.usuarios > 5 && !("tokens_email" in conteudo.tabelas));
+  check("C3: vai só para o admin", mandados[0].to === "marcelojavierbonet@gmail.com");
+  check("C3: Dono comum não dispara backup", (await call("POST", "/api/admin?acao=backup", D3)).status === 403);
+  const ev = []; const ctx = { waitUntil: (p) => ev.push(p) };
+  await worker.scheduled({ cron: "30 14 * * 6" }, env, ctx); await Promise.all(ev);
+  check("C3: tarefa agendada (sábado) manda o backup", mandados.length === 2);
+  delete env.EMAIL;
+}
+
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
 await pool.end();

@@ -23,6 +23,8 @@ import manual from "./routes/manual.js";
 import { reenviarConfirmacao, esqueciSenha, redefinirSenha, paginaConfirmarEmail, paginaRedefinirSenha } from "./routes/conta-email.js";
 import admin from "./routes/admin.js";
 import meusDados from "./routes/meus-dados.js";
+import { enviarBackup } from "./lib/backup.js";
+import { getSql } from "./lib/db.js";
 
 const ROTAS = {
   "/api/auth/login": login,
@@ -59,6 +61,14 @@ const ROTAS = {
 };
 
 export default {
+  // Tarefa agendada (wrangler.jsonc → triggers.crons): backup semanal por e-mail, sábado 11:30 de Brasília.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(enviarBackup(env, getSql(env)).then(
+      (r) => console.log("backup semanal enviado", r.arquivo, r.kb + " KB"),
+      (e) => console.error("backup semanal FALHOU", e)
+    ));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 

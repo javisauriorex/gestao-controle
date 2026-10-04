@@ -242,6 +242,8 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
 
 Trocar senha: pede a senha atual. Ao trocar a senha ou o PIN, os outros aparelhos saem da conta; o aparelho que você está usando continua.
 
+Backup de tudo (só o Dono): baixa um arquivo .zip com todas as obras da empresa — etapas, equipe, materiais, ferramentas, observações — e também as fotos e os documentos, organizados em pastas por obra. É montado no seu aparelho: com muitas fotos pode demorar alguns minutos (não feche a tela). Guarde o arquivo num lugar seguro.
+
 Exportar meus dados: mostra tudo o que o G&C guarda sobre você (cadastro, obras, presenças, observações, pedidos, arquivos enviados e registros de acesso). Dá para ver e imprimir/salvar em PDF, ou baixar um arquivo JSON para levar a outro sistema.
 
 Sair de todos os aparelhos: fecha a sessão em todos os outros celulares e computadores. Use se perdeu o celular ou entrou num aparelho que não é seu.
