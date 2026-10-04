@@ -4,7 +4,7 @@
 
 // Versão vigente dos Termos de Uso + Política de Privacidade.
 // Mudou o texto de forma relevante? Suba a versão: todos terão que aceitar de novo.
-export const TERMOS_VERSAO = "1.1"; // 1.1 (29/09/2026): assistente de Ajuda com IA (Cloudflare Workers AI)
+export const TERMOS_VERSAO = "1.2"; // 1.1 (29/09/2026): assistente de Ajuda com IA (Cloudflare Workers AI) · 1.2 (04/10/2026): e-mails automáticos via Resend
 
 // Marco Civil art. 15: guardar IP + data/hora dos acessos por 6 meses.
 // Aproveita a chamada para fazer a faxina legal (logs velhos e convites vencidos).
@@ -23,6 +23,7 @@ async function faxina(sql) {
   await sql`DELETE FROM acessos WHERE criado_em < now() - interval '180 days'`;
   await sql`DELETE FROM convites WHERE expira_em IS NOT NULL AND expira_em < now() - interval '30 days'`;
   await sql`DELETE FROM convites WHERE expira_em IS NULL AND criado_em < now() - interval '37 days'`;
+  await sql`DELETE FROM tokens_email WHERE criado_em < now() - interval '7 days'`;
 }
 
 // Bloqueio progressivo: 5 erros → 15 min; a próxima rodada → 1 h; depois → 24 h.

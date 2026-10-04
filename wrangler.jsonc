@@ -9,7 +9,7 @@
     "directory": "./",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/manual"]
+    "run_worker_first": ["/api/*", "/manual", "/confirmar-email", "/redefinir-senha"]
   },
   "ai": { "binding": "AI" },
   "send_email": [

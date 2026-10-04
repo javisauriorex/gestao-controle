@@ -1,5 +1,6 @@
 import { getSql } from "./db.js";
 import { TERMOS_VERSAO, registrarAcesso, MAX_TENTATIVAS, duracaoBloqueioMin, textoEspera } from "./legal.js";
+import { enviarConfirmacao } from "./email.js";
 
 export function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -200,8 +201,9 @@ export async function signup(req, env) {
 
   await sql`UPDATE usuarios SET termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now() WHERE id = ${novoUsuario.id}`;
   await registrarAcesso(sql, req, novoUsuario.id, "cadastro");
-  const token = await emitirToken(novoUsuario, env);
-  return jsonResponse({ ok: true, token, usuario: { id: novoUsuario.id, email: novoUsuario.email, nome: novoUsuario.nome } });
+  // A conta só entra depois de confirmar o e-mail (decisão 04/10): aqui NÃO devolvemos sessão.
+  const enviado = await enviarConfirmacao(sql, env, novoUsuario);
+  return jsonResponse({ ok: true, confirmarEmail: true, email: novoUsuario.email, enviado });
 }
 
 // POST /api/auth/login  { email, senha }
@@ -232,6 +234,10 @@ export async function login(req, env) {
     return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
   }
   await sql`UPDATE usuarios SET login_tentativas = 0, login_rodadas = 0, login_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
+  // Senha certa, mas e-mail ainda não confirmado → não entra (só depois de conferir a senha, para não revelar contas).
+  if (!usuario.email_verificado) {
+    return jsonResponse({ ok: false, codigo: "email_nao_confirmado", error: "Falta confirmar seu e-mail. Abra o link que enviamos (olhe também o spam)." }, 403);
+  }
   await registrarAcesso(sql, req, usuario.id, "senha");
 
   const token = await emitirToken(usuario, env);

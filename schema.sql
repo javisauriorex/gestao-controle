@@ -1,6 +1,6 @@
 -- ============================================================
 -- Gestão & Controle — ESQUEMA REAL do banco (Neon, projeto raspy-forest-82462838)
--- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql) + segurança A (sql/2026-10-03-seguranca-a.sql).
+-- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql) + segurança A (sql/2026-10-03-seguranca-a.sql) + e-mail (sql/2026-10-04-email.sql).
 --
 -- Serve de DOCUMENTAÇÃO e para montar bancos de teste. NÃO rodar no Neon
 -- de produção (as tabelas já existem). Mudanças novas vão em sql/AAAA-MM-DD-nome.sql
@@ -265,7 +265,23 @@ CREATE TABLE acessos (
   CONSTRAINT acessos_pkey PRIMARY KEY (id)
 );
 
+-- Links de confirmação de e-mail e de nova senha (só o hash do token). Ver src/lib/email.js.
+CREATE TABLE tokens_email (
+  id SERIAL,
+  usuario_id integer NOT NULL,
+  tipo text NOT NULL,
+  token_hash text NOT NULL,
+  expira_em timestamp with time zone NOT NULL,
+  usado_em timestamp with time zone,
+  criado_em timestamp with time zone DEFAULT now(),
+  CONSTRAINT tokens_email_tipo_check CHECK ((tipo = ANY (ARRAY['confirmar'::text, 'senha'::text]))),
+  CONSTRAINT tokens_email_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+  CONSTRAINT tokens_email_pkey PRIMARY KEY (id),
+  CONSTRAINT tokens_email_token_hash_key UNIQUE (token_hash)
+);
+
 -- Índices
+CREATE INDEX idx_tokens_email_usuario ON public.tokens_email USING btree (usuario_id, tipo);
 CREATE INDEX idx_acessos_criado_em ON public.acessos USING btree (criado_em);
 CREATE INDEX idx_acessos_usuario ON public.acessos USING btree (usuario_id);
 CREATE INDEX idx_convites_email ON public.convites USING btree (email);

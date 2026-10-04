@@ -227,7 +227,7 @@ async function apiLogin(email, password) {
     body: JSON.stringify({ email, senha: password }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) throw new Error(data.error || "Email ou senha incorretos.");
+  if (!res.ok || !data.ok) { const e = new Error(data.error || "Email ou senha incorretos."); e.codigo = data.codigo; throw e; }
   return data;
 }
 
@@ -2238,7 +2238,33 @@ function LogoTitulo() {
   );
 }
 
+// Tela "Confirme seu e-mail" (depois do cadastro, ou ao tentar entrar sem ter confirmado).
+function ConfirmeEmailAviso({ email, enviado = true, onIrLogin }) {
+  const [msg, setMsg] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const reenviar = async () => {
+    setEnviando(true); setMsg("");
+    try { const r = await apiPublica("/api/auth/reenviar-confirmacao", { email }); setMsg(r.mensagem || "Enviado."); }
+    catch (err) { setMsg(err.message); }
+    setEnviando(false);
+  };
+  return (
+    <AuthWrap>
+      <LogoTitulo />
+      <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide text-center mb-3">📧 Confirme seu e-mail</h2>
+      {enviado
+        ? <p style={{ color: C.ink }} className="text-sm mb-3">Enviamos um link para <b>{email}</b>. Abra o e-mail e toque no link para ativar sua conta. Depois, volte aqui e entre com seu e-mail e senha.</p>
+        : <p style={{ color: C.rust }} className="text-sm mb-3">Sua conta foi criada, mas não conseguimos enviar o e-mail agora. Toque em "Reenviar" daqui a pouco.</p>}
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Não chegou? Olhe a caixa de spam ou "Promoções". O link vale 24 horas.</p>
+      <button onClick={reenviar} disabled={enviando} style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 disabled:opacity-50">{enviando ? "Enviando..." : "Reenviar e-mail"}</button>
+      {msg && <p style={{ color: C.green }} className="text-xs font-mono mt-2 text-center">{msg}</p>}
+      <button onClick={onIrLogin} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5">Já confirmei — entrar</button>
+    </AuthWrap>
+  );
+}
+
 function CadastroScreen({ onIrLogin, onCadastrado }) {
+  const [confirmar, setConfirmar] = useState(null);
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
@@ -2255,14 +2281,16 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
     if (!aceito) { setErro("Você precisa aceitar os Termos de Uso."); return; }
     setSalvando(true);
     try {
-      const authData = await apiSignup(email.trim(), senha, nome.trim(), aceito);
-      saveSession(authData);
-      onCadastrado();
+      const r = await apiSignup(email.trim(), senha, nome.trim(), aceito);
+      if (r.token) { saveSession(r); onCadastrado(); }
+      else setConfirmar({ email: r.email || email.trim().toLowerCase(), enviado: r.enviado !== false });
     } catch (err) {
       setErro(err.message);
     }
     setSalvando(false);
   };
+
+  if (confirmar) return <ConfirmeEmailAviso email={confirmar.email} enviado={confirmar.enviado} onIrLogin={onIrLogin} />;
 
   return (
     <AuthWrap>
@@ -2306,6 +2334,8 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
 }
 
 function LoginScreen({ onLogado, onIrCadastro }) {
+  const [semConfirmar, setSemConfirmar] = useState(null);
+  const [msgEsqueci, setMsgEsqueci] = useState("");
   const [modo, setModo] = useState(() => { try { return localStorage.getItem("gc-login-modo") || "email"; } catch (e) { return "email"; } });
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -2324,10 +2354,20 @@ function LoginScreen({ onLogado, onIrCadastro }) {
       saveSession(authData);
       onLogado();
     } catch (err) {
+      if (err.codigo === "email_nao_confirmado") { setSemConfirmar(email.trim().toLowerCase()); setEntrando(false); return; }
       setErro(err.message);
     }
     setEntrando(false);
   };
+
+  const esqueci = async () => {
+    setErro(""); setMsgEsqueci("");
+    if (!email.trim()) { setErro("Digite seu e-mail no campo acima e toque de novo em \"Esqueci a senha\"."); return; }
+    try { const r = await apiPublica("/api/auth/esqueci-senha", { email: email.trim() }); setMsgEsqueci((r.mensagem || "") + " O link vale 1 hora."); }
+    catch (err) { setErro(err.message); }
+  };
+
+  if (semConfirmar) return <ConfirmeEmailAviso email={semConfirmar} onIrLogin={() => setSemConfirmar(null)} />;
 
   const entrarCpf = async () => {
     setErro("");
@@ -2396,6 +2436,8 @@ function LoginScreen({ onLogado, onIrCadastro }) {
       </div>
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
       <button onClick={entrar} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
+      <button onClick={esqueci} style={{ color: C.amber }} className="w-full text-xs font-mono mt-3 underline">Esqueci a senha</button>
+      {msgEsqueci && <p style={{ color: C.green }} className="text-xs font-mono mt-1 text-center">{msgEsqueci}</p>}
       <button onClick={onIrCadastro} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">Não tenho conta — criar</button>
     </AuthWrap>
   );

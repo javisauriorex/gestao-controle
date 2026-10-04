@@ -20,6 +20,7 @@ import arquivoDelete from "./routes/arquivo-delete.js";
 import ajuda from "./routes/ajuda.js";
 import encerrarEmpresa from "./routes/encerrar-empresa.js";
 import manual from "./routes/manual.js";
+import { reenviarConfirmacao, esqueciSenha, redefinirSenha, paginaConfirmarEmail, paginaRedefinirSenha } from "./routes/conta-email.js";
 import admin from "./routes/admin.js";
 
 const ROTAS = {
@@ -29,6 +30,9 @@ const ROTAS = {
   "/api/auth/google/callback": googleCallback,
   "/api/auth/aceitar-convite": aceitarConvite,
   "/api/auth/login-cpf": loginCpf,
+  "/api/auth/reenviar-confirmacao": reenviarConfirmacao,
+  "/api/auth/esqueci-senha": esqueciSenha,
+  "/api/auth/redefinir-senha": redefinirSenha,
   "/api/convite-link": criarConviteLink,
   "/api/convite-info": conviteInfo,
   "/api/documentos": documentos,
@@ -77,6 +81,13 @@ export default {
     }
 
     if (url.pathname === "/manual" || url.pathname === "/manual/") return manual(request, env);
+    try {
+      if (url.pathname === "/confirmar-email") return await paginaConfirmarEmail(request, env);
+      if (url.pathname === "/redefinir-senha") return await paginaRedefinirSenha(request, env);
+    } catch (err) {
+      console.error("Erro em", url.pathname, err);
+      return new Response("Erro interno. Tente de novo em instantes.", { status: 500 });
+    }
 
     return env.ASSETS.fetch(request);
   },

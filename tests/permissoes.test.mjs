@@ -11,6 +11,15 @@ const ARQUIVOS = {
 };
 const env = { JWT_SECRET: "x".repeat(32), ASSETS: { fetch: () => new Response("asset") }, ARQUIVOS };
 let falhas = 0, ok = 0;
+// E-mails (Resend) de mentira: guardamos o que seria enviado.
+env.RESEND_API_KEY = "re_teste";
+const emails = [];
+const fetchOriginal = globalThis.fetch;
+globalThis.fetch = async (url, opts) => {
+  if (String(url).startsWith("https://api.resend.com")) { emails.push(JSON.parse(opts.body)); return new Response('{"id":"x"}', { status: 200 }); }
+  return fetchOriginal(url, opts);
+};
+const linkDe = (mail, caminho) => { const m = mail.text.match(new RegExp(caminho + "\\?token=([0-9a-f]{64})")); return m ? m[1] : null; };
 async function call(method, path, token, body) {
   const headers = { "content-type": "application/json" };
   if (token) headers.authorization = "Bearer " + token;
@@ -18,12 +27,20 @@ async function call(method, path, token, body) {
   const j = await r.json().catch(() => ({}));
   return { status: r.status, ...j };
 }
+// Cadastro + confirmação do e-mail (como se a pessoa tocasse no link) + login.
+async function cadastro(email, senha, nome) {
+  const c = await call("POST", "/api/auth/signup", null, { email, senha, nome, aceitouTermos: true });
+  const tk = linkDe(emails.filter((e) => e.to[0] === email).pop() || { text: "" }, "/confirmar-email");
+  await worker.fetch(new Request("https://t/confirmar-email?token=" + tk), env);
+  const l = await call("POST", "/api/auth/login", null, { email, senha });
+  return { ...l, cadastro: c };
+}
 function check(nome, cond, extra = "") { if (cond) { ok++; } else { falhas++; console.log("❌", nome, extra); } }
 function cpf(n) { const b = String(n).padStart(9, "1").slice(0, 9).split("").map(Number);
   const d = (arr) => { let s = 0; arr.forEach((x, i) => s += x * (arr.length + 1 - i)); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
   const d1 = d(b); const d2 = d([...b, d1]); return b.join("") + d1 + d2; }
 
-const dono = await call("POST", "/api/auth/signup", null, { email: "dono@x.com", senha: "12345678", nome: "Dono", aceitouTermos: true });
+const dono = await cadastro("dono@x.com", "12345678", "Dono");
 check("signup dono", dono.ok, JSON.stringify(dono));
 const D = dono.token;
 const obraA = await call("POST", "/api/obras", D, { cliente: "Obra A" });
@@ -152,7 +169,7 @@ const ets = await call("GET", `/api/etapas?obra_id=${C_}`, D);
 check("etapa mostra quem concluiu", ets.etapas.find((e) => e.id === et2.etapa.id)?.concluida_por_nome === "enc2");
 
 // --- Segurança (auditoria L1–L3, 2026-09-29) ---
-const outra = await call("POST", "/api/auth/signup", null, { email: "dono2@y.com", senha: "12345678", nome: "Dono2", aceitouTermos: true });
+const outra = await cadastro("dono2@y.com", "12345678", "Dono2");
 const D2 = outra.token;
 const obraOutra = (await call("POST", "/api/obras", D2, { cliente: "Obra da outra empresa" })).obra.id;
 // L1 arquivos
@@ -271,7 +288,7 @@ check("manual: escapa HTML", !/<script(?! )/.test(htmlManual.replace(/<script>/g
 // ============================================================
 // BLOCO SEGURANÇA A (auditoria-seguranca.md)
 // ============================================================
-const d3 = await call("POST", "/api/auth/signup", null, { email: "dono3@x.com", senha: "12345678", nome: "Dono3", aceitouTermos: true });
+const d3 = await cadastro("dono3@x.com", "12345678", "Dono3");
 const D3 = d3.token;
 const o3 = (await call("POST", "/api/obras", D3, { cliente: "Obra S" })).obra.id;
 const o3b = (await call("POST", "/api/obras", D3, { cliente: "Obra S2" })).obra.id;
@@ -328,14 +345,14 @@ check("S3: golpista cadastra e-mail alheio", golpe.ok);
 const fulanoG = await loginOuCriarComGoogle("fulano@gmail.com", "Fulano", env, null);
 const fulanoRow = (await pool.query("SELECT senha_hash, email_verificado FROM usuarios WHERE email='fulano@gmail.com'")).rows[0];
 check("S3: Google assume a conta: verificada e senha do golpista apagada", fulanoRow.email_verificado === true && fulanoRow.senha_hash === null, JSON.stringify(fulanoRow));
-check("S3: sessão do golpista cai", (await call("GET", "/api/usuarios-me", golpe.token)).status === 401);
+check("S3: golpista não recebe sessão no cadastro (e-mail não confirmado)", !golpe.token && golpe.confirmarEmail === true);
 check("S3: senha do golpista não entra mais", (await call("POST", "/api/auth/login", null, { email: "fulano@gmail.com", senha: "senhaDoGolpista" })).status === 401);
 check("S3: Fulano (Google) entra", (await call("GET", "/api/usuarios-me", fulanoG.token)).ok);
 const fulanoG2 = await loginOuCriarComGoogle("fulano@gmail.com", "Fulano", env, null);
 check("S3: segundo login Google não derruba o primeiro", (await call("GET", "/api/usuarios-me", fulanoG.token)).ok && (await call("GET", "/api/usuarios-me", fulanoG2.token)).ok);
 
 // --- S8: sessões ---
-const s8 = await call("POST", "/api/auth/signup", null, { email: "s8@x.com", senha: "senhaVelha1", nome: "S8", aceitouTermos: true });
+const s8 = await cadastro("s8@x.com", "senhaVelha1", "S8");
 check("S8: trocar senha sem a atual → 403", (await call("PATCH", "/api/usuarios-me", s8.token, { novaSenha: "senhaNova12" })).status === 403);
 check("S8: trocar senha com a atual errada → 403", (await call("PATCH", "/api/usuarios-me", s8.token, { novaSenha: "senhaNova12", senhaAtual: "errada" })).status === 403);
 const troca = await call("PATCH", "/api/usuarios-me", s8.token, { novaSenha: "senhaNova12", senhaAtual: "senhaVelha1" });
@@ -383,15 +400,81 @@ const mae = (await call("POST", "/api/etapas", D3, { obraId: o3b, texto: "mãe e
 check("S12: sub-etapa pendurada em etapa de outra obra → 400", (await call("POST", "/api/etapas", D3, { obraId: o3, parentId: mae, texto: "filha" })).status === 400);
 check("S12: sub-etapa na mesma obra → ok", (await call("POST", "/api/etapas", D3, { obraId: o3b, parentId: mae, texto: "filha" })).ok);
 
+
+// ============================================================
+// CONFIRMAÇÃO DE E-MAIL + ESQUECI A SENHA (Resend)
+// ============================================================
+emails.length = 0;
+const nc = await call("POST", "/api/auth/signup", null, { email: "Novo.Cliente@x.com", senha: "senhaBoa123", nome: "Novo", aceitouTermos: true });
+check("E: cadastro não devolve sessão e pede confirmação", nc.ok && !nc.token && nc.confirmarEmail && nc.enviado === true, JSON.stringify(nc));
+check("E: e-mail de confirmação enviado de nao-responda@ para o cliente", emails.length === 1 && emails[0].to[0] === "novo.cliente@x.com" && /nao-responda@gestaoecontrole\.app\.br/.test(emails[0].from) && emails[0].reply_to === "suporte@gestaoecontrole.app.br", JSON.stringify(emails[0]));
+const tkC = linkDe(emails[0], "/confirmar-email");
+check("E: link aponta para gestaoecontrole.app.br", /https:\/\/gestaoecontrole\.app\.br\/confirmar-email\?token=/.test(emails[0].text) && tkC);
+check("E: guardamos só o hash do token", (await pool.query("SELECT count(*)::int n FROM tokens_email WHERE token_hash = $1", [tkC])).rows[0].n === 0);
+const lNc = await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "senhaBoa123" });
+check("E: login antes de confirmar → 403 email_nao_confirmado", lNc.status === 403 && lNc.codigo === "email_nao_confirmado");
+check("E: senha errada antes de confirmar → 401 (não revela o estado da conta)", (await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "errada123" })).status === 401);
+emails.length = 0;
+const re1 = await call("POST", "/api/auth/reenviar-confirmacao", null, { email: "novo.cliente@x.com" });
+const reX = await call("POST", "/api/auth/reenviar-confirmacao", null, { email: "naoexiste@x.com" });
+check("E: reenviar responde igual exista ou não a conta", re1.ok && reX.ok && re1.mensagem === reX.mensagem);
+check("E: reenviar mandou 1 e-mail só (para quem existe)", emails.length === 1);
+const tkC2 = linkDe(emails[0], "/confirmar-email");
+const velho = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC), env)).text();
+check("E: link anterior deixou de valer ao reenviar", /inválido/.test(velho));
+const conf = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC2), env)).text();
+check("E: link novo confirma", /E-mail confirmado/.test(conf));
+const conf2 = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC2), env)).text();
+check("E: link de confirmação só serve uma vez", /inválido/.test(conf2));
+check("E: depois de confirmar, entra", (await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "senhaBoa123" })).ok);
+check("E: token lixo na página → inválido, sem erro", /inválido/.test(await (await worker.fetch(new Request("https://t/confirmar-email?token=<script>"), env)).text()));
+// limite por hora
+emails.length = 0;
+const pc = await call("POST", "/api/auth/signup", null, { email: "limite@x.com", senha: "senhaBoa123", nome: "L", aceitouTermos: true });
+for (let i = 0; i < 4; i++) await call("POST", "/api/auth/reenviar-confirmacao", null, { email: "limite@x.com" });
+check("E: no máximo 3 e-mails de confirmação por hora", emails.length === 3, String(emails.length));
+
+// Esqueci a senha
+emails.length = 0;
+const sessaoAntiga = (await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "senhaBoa123" })).token;
+const es1 = await call("POST", "/api/auth/esqueci-senha", null, { email: "NOVO.cliente@x.com " });
+const esX = await call("POST", "/api/auth/esqueci-senha", null, { email: "ninguem@x.com" });
+check("E: esqueci a senha responde igual exista ou não", es1.ok && esX.ok && es1.mensagem === esX.mensagem && emails.length === 1);
+const tkS = linkDe(emails[0], "/redefinir-senha");
+check("E: e-mail de nova senha com link", !!tkS && /Criar uma nova senha/.test(emails[0].subject));
+const pg = await worker.fetch(new Request("https://t/redefinir-senha?token=" + tkS), env);
+const pgTxt = await pg.text();
+check("E: página de nova senha abre (sem gastar o link)", pg.status === 200 && /Criar nova senha/.test(pgTxt) && pg.headers.get("x-frame-options") === "DENY");
+check("E: senha curta → 400", (await call("POST", "/api/auth/redefinir-senha", null, { token: tkS, senha: "123" })).status === 400);
+check("E: token errado → 400", (await call("POST", "/api/auth/redefinir-senha", null, { token: "a".repeat(64), senha: "outraSenha99" })).status === 400);
+check("E: redefinir com o link → ok", (await call("POST", "/api/auth/redefinir-senha", null, { token: tkS, senha: "outraSenha99" })).ok);
+check("E: link de senha só serve uma vez", (await call("POST", "/api/auth/redefinir-senha", null, { token: tkS, senha: "maisUma999" })).status === 400);
+check("E: sessão antiga caiu", (await call("GET", "/api/usuarios-me", sessaoAntiga)).status === 401);
+check("E: senha velha não entra", (await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "senhaBoa123" })).status === 401);
+check("E: senha nova entra", (await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "outraSenha99" })).ok);
+// Dono real recupera conta pré-cadastrada por golpista (sem Google)
+emails.length = 0;
+await call("POST", "/api/auth/signup", null, { email: "vitima2@hotmail.com", senha: "doGolpista1", nome: "?", aceitouTermos: true });
+await call("POST", "/api/auth/esqueci-senha", null, { email: "vitima2@hotmail.com" });
+const tkV = linkDe(emails.find((e) => /nova senha/.test(e.subject)), "/redefinir-senha");
+await call("POST", "/api/auth/redefinir-senha", null, { token: tkV, senha: "doDonoReal1" });
+check("E: dono real recupera pelo 'esqueci a senha' (conta fica confirmada)", (await call("POST", "/api/auth/login", null, { email: "vitima2@hotmail.com", senha: "doDonoReal1" })).ok);
+check("E: senha do golpista não entra", (await call("POST", "/api/auth/login", null, { email: "vitima2@hotmail.com", senha: "doGolpista1" })).status === 401);
+// sem chave do Resend: cadastro funciona, avisa que não enviou
+delete env.RESEND_API_KEY;
+const semChave = await call("POST", "/api/auth/signup", null, { email: "semchave@x.com", senha: "senhaBoa123", nome: "S", aceitouTermos: true });
+check("E: sem RESEND_API_KEY o cadastro não quebra (enviado=false)", semChave.ok && semChave.enviado === false);
+env.RESEND_API_KEY = "re_teste";
+
 // ---- Painel admin ----
 check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);
 check("admin: sem login → 401", (await call("GET", "/api/admin")).status === 401);
 const adm = await call("POST", "/api/auth/signup", null, { email: "marcelojavierbonet@gmail.com", senha: "12345678", nome: "Admin", aceitouTermos: true });
-check("admin: e-mail do admin cadastrado com senha (não verificado) → 403", (await call("GET", "/api/admin", adm.token)).status === 403);
+check("admin: cadastro com o e-mail do admin não dá sessão nem admin", !adm.token && (await call("POST", "/api/auth/login", null, { email: "marcelojavierbonet@gmail.com", senha: "12345678" })).codigo === "email_nao_confirmado");
 // Javi entra com o Google → e-mail verificado → vira admin (e a senha cadastrada some).
 const admG = await loginOuCriarComGoogle("marcelojavierbonet@gmail.com", "Admin", env, null);
 const AD = admG.token;
-const vitima = await call("POST", "/api/auth/signup", null, { email: "vitima@x.com", senha: "12345678", nome: "Vitima", aceitouTermos: true });
+const vitima = await cadastro("vitima@x.com", "12345678", "Vitima");
 const obraV = await call("POST", "/api/obras", vitima.token, { cliente: "Obra V" });
 await ARQUIVOS.put("arq-vitima-1", "x", { metadata: { empresa: vitima.usuario.empresa_id } });
 await pool.query("INSERT INTO documentos (obra_id, nome, tipo, arquivo_id, criado_por) VALUES ($1, 'planta', 'pdf', 'arq-vitima-1', $2)", [obraV.obra.id, vitima.usuario.id]);
@@ -400,7 +483,7 @@ const linhaV = (lista.empresas || []).find((e) => e.dono_email === "vitima@x.com
 check("admin: lista empresas com números", lista.ok && linhaV && linhaV.obras === 1 && linhaV.documentos === 1 && linhaV.pessoas === 1 && linhaV.logins_30d >= 1, JSON.stringify(linhaV));
 check("admin: traz leads", Array.isArray(lista.leads));
 check("admin: confirmação errada → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: "outra" })).status === 400);
-check("admin: não apaga a própria empresa", (await call("DELETE", `/api/admin?empresa_id=${adm.usuario.empresa_id}`, AD, { confirmar: "x" })).status === 400);
+check("admin: não apaga a própria empresa", (await call("DELETE", `/api/admin?empresa_id=${(await pool.query("SELECT empresa_id FROM usuarios WHERE email = 'marcelojavierbonet@gmail.com'")).rows[0].empresa_id}`, AD, { confirmar: "ELIMINA" })).status === 400);
 check("admin: Dono comum não apaga → 403", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, D, { confirmar: "ELIMINA" })).status === 403);
 check("admin: confirmar com o nome (sem ELIMINA) → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: linhaV.nome })).status === 400);
 check("admin: 'elimina' em minúsculas → 400", (await call("DELETE", `/api/admin?empresa_id=${linhaV.id}`, AD, { confirmar: "elimina" })).status === 400);

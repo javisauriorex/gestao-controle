@@ -60,7 +60,7 @@ Permissões padrão (a empresa pode mudar):
     para: "todos",
     texto: `Há três formas de entrar:
 1. CPF + PIN: para quem recebeu convite pelo WhatsApp. Digite seu CPF e o PIN de 4 números que você criou.
-2. E-mail e senha.
+2. E-mail e senha. Ao criar a conta assim, enviamos um link de confirmação ao seu e-mail: abra o e-mail e toque no link antes de entrar pela primeira vez (olhe também o spam). Não chegou? Tente entrar com e-mail e senha e toque em "Reenviar e-mail".
 3. Continuar com Google.
 
 Convite pelo WhatsApp: toque no link recebido, digite seu CPF, crie um PIN de 4 números (duas vezes), aceite os Termos e toque em Entrar. O link vale 7 dias e só pode ser usado uma vez. Se venceu, peça um novo a quem te convidou.
@@ -77,14 +77,16 @@ Primeiro acesso: o app pede para aceitar os Termos de Uso e a Política de Priva
     id: "esqueci",
     titulo: "Esqueci o PIN ou a senha",
     para: "todos",
-    texto: `A recuperação do acesso é feita por um link no WhatsApp, enviado pelo seu chefe:
+    texto: `Esqueceu a SENHA (entra com e-mail)? Na tela de entrada, digite seu e-mail e toque em "Esqueci a senha". Chega um link no seu e-mail (vale 1 hora, só funciona uma vez): toque nele e crie a senha nova. Os outros aparelhos saem da conta.
+
+Esqueceu o PIN (entra com CPF)? A recuperação é feita por um link no WhatsApp, enviado pelo seu chefe:
 
 1. Peça ao Dono ou ao Engenheiro Chefe um "Novo PIN".
 2. Ele abre a gaveta Equipe, toca na chave 🔑 ao lado do seu nome e te manda o link pelo WhatsApp. Se você ainda não tinha CPF cadastrado, ele vai precisar informar o seu CPF: o link só funciona com esse CPF.
 3. Toque no link, digite seu CPF e crie um PIN novo de 4 números.
 4. Pronto: entre com CPF + PIN.
 
-Serve também para quem entrava com e-mail e esqueceu a senha: com o link você passa a entrar com CPF + PIN. Depois, se quiser, crie uma senha nova em CONFIG → Definir senha.
+Quem entra com Google não tem senha do G&C: se perder o acesso ao Google, peça um Novo PIN ao seu chefe.
 
 Ao usar um Novo PIN, os outros aparelhos em que você estava logado saem da conta (por segurança, caso o celular tenha sido perdido).
 
