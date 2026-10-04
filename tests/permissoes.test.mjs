@@ -21,7 +21,8 @@ globalThis.fetch = async (url, opts) => {
 };
 const linkDe = (mail, caminho) => { const m = mail.text.match(new RegExp(caminho + "\\?token=([0-9a-f]{64})")); return m ? m[1] : null; };
 async function call(method, path, token, body) {
-  const headers = { "content-type": "application/json" };
+  // Cada chamada vem de um IP diferente (senão os freios por IP do Bloco B travariam as provas).
+  const headers = { "content-type": "application/json", "cf-connecting-ip": globalThis.IP_FIXO || ("10." + Math.floor(Math.random() * 250) + "." + Math.floor(Math.random() * 250) + "." + Math.floor(Math.random() * 250)) };
   if (token) headers.authorization = "Bearer " + token;
   const r = await worker.fetch(new Request("https://t" + path, { method, headers, body: body ? JSON.stringify(body) : undefined }), env);
   const j = await r.json().catch(() => ({}));
@@ -465,6 +466,51 @@ delete env.RESEND_API_KEY;
 const semChave = await call("POST", "/api/auth/signup", null, { email: "semchave@x.com", senha: "senhaBoa123", nome: "S", aceitouTermos: true });
 check("E: sem RESEND_API_KEY o cadastro não quebra (enviado=false)", semChave.ok && semChave.enviado === false);
 env.RESEND_API_KEY = "re_teste";
+
+
+// ============================================================
+// BLOCO B — limites
+// ============================================================
+// Subidas: 10 por pessoa / 20 por empresa por dia
+const lb = await cadastro("limites@x.com", "senhaBoa123", "Lim");
+const fotoOk = JSON.stringify({ nome: "f.jpg", tipo: "image/jpeg", dataUrl: "data:image/jpeg;base64,/9j/4AAQ" });
+let okUp = 0, ultimo;
+for (let i = 0; i < 11; i++) { ultimo = await call("POST", "/api/arquivo-set", lb.token, { id: crypto.randomUUID(), payload: fotoOk }); if (ultimo.ok) okUp++; }
+check("B: pessoa sobe 10 arquivos e o 11º é recusado (429)", okUp === 10 && ultimo.status === 429 && ultimo.codigo === "limite_diario", JSON.stringify(ultimo));
+const lbObra = (await call("POST", "/api/obras", lb.token, { cliente: "Obra Lim" })).obra.id;
+const conv = await call("POST", "/api/convite-link", lb.token, { obraId: lbObra, nome: "colega", rank: 4 });
+const colega = await call("POST", "/api/auth/aceitar-convite", null, { token: conv.token, cpf: cpf(789012345), pin: "8391", aceitouTermos: true });
+const conv2 = await call("POST", "/api/convite-link", lb.token, { obraId: lbObra, nome: "colega2", rank: 4 });
+const colega2 = await call("POST", "/api/auth/aceitar-convite", null, { token: conv2.token, cpf: cpf(890123456), pin: "8391", aceitouTermos: true });
+let okColega = 0;
+for (let i = 0; i < 10; i++) if ((await call("POST", "/api/arquivo-set", colega.token, { id: crypto.randomUUID(), payload: fotoOk })).ok) okColega++;
+const terceiro = await call("POST", "/api/arquivo-set", colega2.token, { id: crypto.randomUUID(), payload: fotoOk });
+check("B: empresa chega a 20 e o 21º (de outra pessoa) é recusado", okColega === 10 && terceiro.status === 429 && /empresa/.test(terceiro.error), JSON.stringify(terceiro));
+check("B: outra empresa não é afetada", (await call("POST", "/api/arquivo-set", D3, { id: crypto.randomUUID(), payload: fotoOk })).ok);
+// Uploads de ontem não contam
+await pool.query("UPDATE uploads SET criado_em = now() - interval '30 hours' WHERE usuario_id = $1", [lb.usuario.id]);
+check("B: no dia seguinte libera de novo", (await call("POST", "/api/arquivo-set", lb.token, { id: crypto.randomUUID(), payload: fotoOk })).ok);
+
+// Erros de login por IP
+globalThis.IP_FIXO = "203.0.113.7";
+let bloqueouEm = 0;
+for (let i = 1; i <= 31; i++) {
+  const r = await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(100000000 + i * 7), pin: "1234" });
+  if (r.status === 429 && /rede/.test(r.error || "")) { bloqueouEm = i; break; }
+}
+check("B: 30 erros de login da mesma rede → a 31ª tentativa é bloqueada", bloqueouEm === 31, String(bloqueouEm));
+check("B: rede bloqueada não entra nem com a senha certa", (await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123" })).status === 429);
+globalThis.IP_FIXO = "198.51.100.9";
+check("B: outra rede segue entrando normal", (await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123" })).ok);
+// Cadastros por IP
+let cad429 = false;
+for (let i = 0; i < 6; i++) { const r = await call("POST", "/api/auth/signup", null, { email: `spam${i}@x.com`, senha: "senhaBoa123", nome: "S", aceitouTermos: true }); if (r.status === 429) cad429 = i === 5; }
+check("B: 6º cadastro da mesma rede em 1 hora → 429", cad429);
+delete globalThis.IP_FIXO;
+
+// Cabeçalhos de segurança na API
+const hApi = await worker.fetch(new Request("https://t/api/usuarios-me"), env);
+check("B: API manda nosniff, DENY e HSTS", hApi.headers.get("x-content-type-options") === "nosniff" && hApi.headers.get("x-frame-options") === "DENY" && /max-age/.test(hApi.headers.get("strict-transport-security") || ""));
 
 // ---- Painel admin ----
 check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);

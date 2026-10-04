@@ -1,6 +1,6 @@
 -- ============================================================
 -- Gestão & Controle — ESQUEMA REAL do banco (Neon, projeto raspy-forest-82462838)
--- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql) + segurança A (sql/2026-10-03-seguranca-a.sql) + e-mail (sql/2026-10-04-email.sql).
+-- Gerado a partir do Neon em 2026-09-28 (bloco de ranks) + bloco legal (sql/2026-09-29-legal.sql) + segurança A (sql/2026-10-03-seguranca-a.sql) + e-mail (sql/2026-10-04-email.sql) + limites (sql/2026-10-04-limites.sql).
 --
 -- Serve de DOCUMENTAÇÃO e para montar bancos de teste. NÃO rodar no Neon
 -- de produção (as tabelas já existem). Mudanças novas vão em sql/AAAA-MM-DD-nome.sql
@@ -280,7 +280,30 @@ CREATE TABLE tokens_email (
   CONSTRAINT tokens_email_token_hash_key UNIQUE (token_hash)
 );
 
+-- Arquivos enviados por dia (limite: 20 por empresa, 10 por pessoa). Ver src/lib/limites.js.
+CREATE TABLE uploads (
+  id SERIAL,
+  usuario_id integer,
+  empresa_id integer,
+  criado_em timestamp with time zone DEFAULT now(),
+  CONSTRAINT uploads_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL,
+  CONSTRAINT uploads_empresa_id_fkey FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  CONSTRAINT uploads_pkey PRIMARY KEY (id)
+);
+
+-- Erros de login por IP (freio contra ataques em massa). Apagados após 1 dia.
+CREATE TABLE falhas_login (
+  id SERIAL,
+  ip text NOT NULL,
+  criado_em timestamp with time zone DEFAULT now(),
+  CONSTRAINT falhas_login_pkey PRIMARY KEY (id)
+);
+
 -- Índices
+CREATE INDEX idx_uploads_empresa ON public.uploads USING btree (empresa_id, criado_em);
+CREATE INDEX idx_uploads_usuario ON public.uploads USING btree (usuario_id, criado_em);
+CREATE INDEX idx_falhas_login_ip ON public.falhas_login USING btree (ip, criado_em);
+CREATE INDEX idx_acessos_ip ON public.acessos USING btree (ip, criado_em);
 CREATE INDEX idx_tokens_email_usuario ON public.tokens_email USING btree (usuario_id, tipo);
 CREATE INDEX idx_acessos_criado_em ON public.acessos USING btree (criado_em);
 CREATE INDEX idx_acessos_usuario ON public.acessos USING btree (usuario_id);

@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, hashSenha, verificarSenha, emitirToken } from "../lib/auth.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
+import { ipBloqueado, registrarFalha, MSG_IP_BLOQUEADO } from "../lib/limites.js";
 
 // ============================================================
 // Convite por link (WhatsApp) + login com CPF e PIN.
@@ -226,9 +227,10 @@ export async function loginCpf(req, env) {
   const cpf = limparCpf(cpfBruto);
   const erroGenerico = jsonResponse({ ok: false, error: "CPF ou PIN incorretos." }, 401);
   if (cpf.length !== 11 || !pin) return erroGenerico;
+  if (await ipBloqueado(sql, req)) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
 
   const rows = await sql`SELECT * FROM usuarios WHERE cpf = ${cpf} AND removido_em IS NULL`;
-  if (rows.length === 0 || !rows[0].pin_hash) return erroGenerico;
+  if (rows.length === 0 || !rows[0].pin_hash) { await registrarFalha(sql, req); return erroGenerico; }
   const u = rows[0];
 
   if (u.pin_bloqueado_ate && new Date(u.pin_bloqueado_ate) > new Date()) {
@@ -237,6 +239,7 @@ export async function loginCpf(req, env) {
 
   const ok = await verificarSenha(String(pin), u.pin_hash);
   if (!ok) {
+    await registrarFalha(sql, req);
     const tent = (u.pin_tentativas || 0) + 1;
     if (tent >= MAX_TENTATIVAS) {
       // Bloqueio progressivo: 15 min → 1 h → 24 h (zera ao acertar ou com Novo PIN).

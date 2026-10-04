@@ -1,5 +1,5 @@
 import { getSql } from "../lib/db.js";
-import { jsonResponse, hashSenha } from "../lib/auth.js";
+import { jsonResponse, hashSenha, CABECALHOS_SEGURANCA } from "../lib/auth.js";
 import { enviarConfirmacao, enviarRedefinicao, consumirToken, tokenExiste, tokenValido } from "../lib/email.js";
 
 // ============================================================
@@ -73,7 +73,7 @@ function pagina(titulo, corpo) {
   .btn{display:block;width:100%;box-sizing:border-box;text-align:center;background:#D98E04;color:#fff;border:0;border-radius:6px;padding:12px;font-size:15px;font-weight:700;margin-top:18px;text-decoration:none;cursor:pointer}
   .erro{color:#B4432B;font-size:14px;min-height:1em;margin-top:10px} .ok{color:#2E7D4F}
 </style></head><body><div class="card">${corpo}</div></body></html>`, {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-frame-options": "DENY" },
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...CABECALHOS_SEGURANCA, "referrer-policy": "no-referrer" },
   });
 }
 

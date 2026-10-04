@@ -1,4 +1,4 @@
-import { loginOuCriarComGoogle } from "../lib/auth.js";
+import { loginOuCriarComGoogle, CABECALHOS_SEGURANCA } from "../lib/auth.js";
 
 function b64urlDecode(str) {
   str = str.replace(/-/g, "+").replace(/_/g, "/");
@@ -91,8 +91,8 @@ function paginaHtml(body) {
       "content-type": "text/html; charset=utf-8",
       "set-cookie": apagarCookieState, // o state é de uso único
       "cache-control": "no-store",
+      ...CABECALHOS_SEGURANCA,
       "referrer-policy": "no-referrer",
-      "x-frame-options": "DENY",
     },
   });
 }

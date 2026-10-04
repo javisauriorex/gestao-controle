@@ -46,6 +46,7 @@ Regras gerais:
 - Convidar pessoas: do Dono até o Encarregado, sempre para ranks abaixo do seu.
 - Ninguém apaga o que foi criado por alguém de rank igual ou maior. Você apaga o que você criou, e um superior pode apagar o que você criou.
 - O que cada rank pode ver ou editar em cada gaveta é definido na tela de Permissões da empresa (pode ser diferente em cada empresa).
+- Gaveta escurecida com cadeado 🔒 = você não tem acesso a ela nesta obra. Se precisar, fale com o responsável da obra.
 
 Permissões padrão (a empresa pode mudar):
 - Dono até Encarregado: editam todas as gavetas.
@@ -193,6 +194,8 @@ Registrar ferramenta: escreva e toque em +. Apagar: quem registrou ou um superio
     texto: `A gaveta Documentos guarda arquivos da obra: plantas, projetos, orçamentos, contratos, fotos.
 
 Formatos aceitos: PDF, Word, Excel, JPG e PNG, até cerca de 4 MB. Toque para abrir ou ver a imagem.
+
+Limite por dia (fotos de avanço + documentos, somados): 10 arquivos por pessoa e 20 por empresa. Passou do limite? No dia seguinte libera de novo.
 
 Só quem tem acesso à obra consegue abrir os arquivos dela.
 

@@ -11,25 +11,14 @@
 <link rel="icon" href="icon-192.png" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <title>Gestão & Controle</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Bibliotecas em versão FIXA, servidas pelo próprio G&C (nada de unpkg/cdn). Ver src/build/LEIAME.md -->
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<link rel="stylesheet" href="vendor/tailwind.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          sans: ['"Special Elite"', 'ui-monospace', 'monospace'],
-          mono: ['"Special Elite"', 'ui-monospace', 'monospace'],
-        },
-      },
-    },
-  };
-</script>
 <style>
   html, body { margin:0; padding:0; background:#EDEAE1; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
   * { box-sizing: border-box; }
@@ -1945,7 +1934,6 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     if (exc === "visualizar" && base === "editar") return "visualizar";
     return base;
   };
-  const modulosVisiveis = MODULOS_OBRA.filter((m) => nivelDoModulo(m.key) !== "nenhum");
   const souChefe = usuarioRank <= 2;
 
   const cycleEstado = async () => {
@@ -2056,11 +2044,19 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
 
         {/* Botões invisíveis sobre cada caixa do archivero — a imagem já tem mascote + texto */}
         <div className="absolute grid grid-cols-2" style={{ left: 0, right: 0, top: "37%", bottom: 0, gridTemplateRows: "repeat(3, 1fr)" }}>
-          {modulosVisiveis.map((m) => (
-            <button key={m.key} onClick={() => onAbrirModulo(m.key)} className="relative active:bg-black/10 transition">
-              {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-4 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
-            </button>
-          ))}
+          {/* Um botão por gaveta, SEMPRE na posição do desenho. Sem acesso → gaveta "trancada" (escurecida, com cadeado). */}
+          {MODULOS_OBRA.map((m) => {
+            const liberado = nivelDoModulo(m.key) !== "nenhum";
+            return liberado ? (
+              <button key={m.key} onClick={() => onAbrirModulo(m.key)} className="relative active:bg-black/10 transition">
+                {contagens[m.key] != null && <div style={{ background: "rgba(0,0,0,0.75)" }} className="absolute top-2 right-4 text-white text-[11px] font-extrabold rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center shadow">{contagens[m.key]}</div>}
+              </button>
+            ) : (
+              <button key={m.key} disabled title="Sem acesso a esta gaveta" aria-label={`${m.label}: sem acesso`} style={{ background: "rgba(20,18,15,0.62)" }} className="relative flex items-center justify-center cursor-not-allowed">
+                <span className="text-2xl opacity-90">🔒</span>
+              </button>
+            );
+          })}
         </div>
       </div>
       {/* Presença do dia: cada um marca a sua, mesmo sem acesso ao cajón Equipe (decisão 03/10). */}

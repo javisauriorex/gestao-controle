@@ -1,11 +1,19 @@
 import { getSql } from "./db.js";
 import { TERMOS_VERSAO, registrarAcesso, MAX_TENTATIVAS, duracaoBloqueioMin, textoEspera } from "./legal.js";
 import { enviarConfirmacao } from "./email.js";
+import { ipBloqueado, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO } from "./limites.js";
 
+// Respostas da API: nunca guardar em cache, nunca "adivinhar" o tipo, nunca abrir dentro de outra página.
+export const CABECALHOS_SEGURANCA = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "same-origin",
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+};
 export function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "cache-control": "no-store", ...CABECALHOS_SEGURANCA },
   });
 }
 
@@ -156,6 +164,7 @@ export async function signup(req, env) {
   if (String(senha).length < 8) return jsonResponse({ ok: false, error: "A senha precisa ter ao menos 8 caracteres." }, 400);
   const email = rawEmail.toLowerCase();
 
+  if (await cadastrosDemaisDoIp(sql, req)) return jsonResponse({ ok: false, error: "Muitos cadastros a partir desta rede. Tente de novo daqui a 1 hora." }, 429);
   const existentes = await sql`SELECT id FROM usuarios WHERE email = ${email}`;
   if (existentes.length > 0) return jsonResponse({ ok: false, error: "e-mail já cadastrado" }, 409);
 
@@ -213,14 +222,16 @@ export async function login(req, env) {
   if (!rawEmail || !senha) return jsonResponse({ ok: false, error: "email e senha são obrigatórios" }, 400);
   const email = rawEmail.toLowerCase();
 
+  if (await ipBloqueado(sql, req)) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
   const rows = await sql`SELECT * FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
-  if (rows.length === 0 || !rows[0].senha_hash) return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
+  if (rows.length === 0 || !rows[0].senha_hash) { await registrarFalha(sql, req); return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401); }
   const usuario = rows[0];
   if (usuario.login_bloqueado_ate && new Date(usuario.login_bloqueado_ate) > new Date()) {
     return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(usuario.login_bloqueado_ate)}.` }, 429);
   }
   const ok = await verificarSenha(senha, usuario.senha_hash);
   if (!ok) {
+    await registrarFalha(sql, req);
     // Bloqueio progressivo: 5 erros → 15 min, depois 1 h, depois 24 h.
     const tent = (usuario.login_tentativas || 0) + 1;
     if (tent >= MAX_TENTATIVAS) {

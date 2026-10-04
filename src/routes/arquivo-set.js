@@ -1,5 +1,7 @@
 import { getUsuario, jsonResponse } from "../lib/auth.js";
 import { problemaNoPayload } from "../lib/arquivos.js";
+import { getSql } from "../lib/db.js";
+import { problemaLimiteUpload, registrarUpload } from "../lib/limites.js";
 
 export default async function arquivoSetHandler(req, env) {
   if (req.method !== "POST") return jsonResponse({ ok: false, error: "method not allowed" }, 405);
@@ -16,9 +18,14 @@ export default async function arquivoSetHandler(req, env) {
   if (payload.length > 6 * 1024 * 1024) return jsonResponse({ ok: false, error: "arquivo grande demais" }, 413);
   const problema = problemaNoPayload(payload);
   if (problema) return jsonResponse({ ok: false, error: problema }, 400);
+  // Limite diário (fotos + documentos): 20 por empresa, 10 por pessoa.
+  const sql = getSql(env);
+  const limite = await problemaLimiteUpload(sql, usuario);
+  if (limite) return jsonResponse({ ok: false, codigo: "limite_diario", error: limite }, 429);
 
   // O frontend já manda `payload` como string JSON pronta; gravamos tal qual.
   // metadata: quem enviou e de que empresa (usado para autorizar a leitura antes de vincular).
   await env.ARQUIVOS.put(id, payload, { metadata: { por: usuario.id, empresa: usuario.empresa_id } });
+  await registrarUpload(sql, usuario);
   return jsonResponse({ ok: true });
 }

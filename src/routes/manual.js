@@ -1,4 +1,5 @@
 import { SECOES } from "../lib/ajuda-conhecimento.js";
+import { CABECALHOS_SEGURANCA } from "../lib/auth.js";
 
 // GET /manual — o Manual do Usuário completo, numa página para ler, imprimir ou salvar em PDF.
 // Sai do MESMO texto da tela Ajuda e do assistente (src/lib/ajuda-conhecimento.js):
@@ -104,5 +105,5 @@ export default async function manualHandler() {
 </main>
 </body>
 </html>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" } });
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", ...CABECALHOS_SEGURANCA } });
 }
