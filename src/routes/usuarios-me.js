@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, hashSenha, verificarSenha, renovarSessoes } from "../lib/auth.js";
 import { limparCpf, cpfValido, problemaPin } from "./convite-link.js";
+import { camposCpf, temCpf, cpfConfere, hashPin, mascaraDe } from "../lib/cpf.js";
 import { TERMOS_VERSAO } from "../lib/legal.js";
 
 export default async function usuariosMeHandler(req, env) {
@@ -8,8 +9,8 @@ export default async function usuariosMeHandler(req, env) {
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
 
   if (req.method === "GET") {
-    const { senha_hash, pin_hash, cpf, sessao_versao, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
-    const cpfMascarado = cpf ? `${cpf.slice(0, 3)}.***.***-${cpf.slice(9)}` : null;
+    const { senha_hash, pin_hash, cpf, cpf_hash, cpf_mascarado, sessao_versao, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
+    const cpfMascarado = mascaraDe(usuario);
     const emp = await getSql(env)`SELECT nome FROM empresas WHERE id = ${usuario.empresa_id}`;
     return jsonResponse({ ok: true, termos_vigente: TERMOS_VERSAO, usuario: {
       ...publico, empresa_nome: emp[0] ? emp[0].nome : null, cpf_mascarado: cpfMascarado, tem_senha: !!senha_hash, tem_pin: !!pin_hash,
@@ -38,16 +39,22 @@ export default async function usuariosMeHandler(req, env) {
     // Criar/trocar meu PIN (para também entrar com CPF + PIN). Quem já tem CPF não troca o CPF.
     if (body.pin !== undefined) {
       const sql = getSql(env);
-      const cpf = usuario.cpf || limparCpf(body.cpf);
+      // Quem já tem CPF confirma o CPF (prova de que é a pessoa e permite conferir que o PIN não é parte dele).
+      const cpf = limparCpf(body.cpf);
       if (!cpfValido(cpf)) return jsonResponse({ ok: false, error: "CPF inválido. Confira os números." }, 400);
+      if (temCpf(usuario) && !(await cpfConfere(env, usuario, cpf))) {
+        return jsonResponse({ ok: false, error: "Este CPF não é o cadastrado na sua conta." }, 400);
+      }
       const prob = problemaPin(body.pin, cpf);
       if (prob) return jsonResponse({ ok: false, error: prob }, 400);
-      if (!usuario.cpf) {
-        const dono = await sql`SELECT id FROM usuarios WHERE cpf = ${cpf} AND id <> ${usuario.id}`;
+      const campos = await camposCpf(env, cpf);
+      if (!temCpf(usuario)) {
+        const dono = await sql`SELECT id FROM usuarios WHERE (cpf_hash = ${campos.cpf_hash} OR cpf = ${cpf}) AND id <> ${usuario.id}`;
         if (dono.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
       }
-      const pinHash = await hashSenha(String(body.pin));
-      await sql`UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
+      const pinHash = await hashPin(env, body.pin);
+      await sql`UPDATE usuarios SET cpf = ${campos.cpf}, cpf_hash = ${campos.cpf_hash}, cpf_mascarado = ${campos.cpf_mascarado},
+        pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
       // Trocou o PIN: as outras sessões caem (S8); este aparelho segue logado com o token novo.
       const novoToken = usuario.pin_hash ? await renovarSessoes(sql, usuario.id, env) : null;
       return jsonResponse({ ok: true, novoToken });
@@ -104,7 +111,7 @@ export default async function usuariosMeHandler(req, env) {
     q.push(sql`
       UPDATE usuarios SET
         removido_em = now(), removido_por = ${usuario.id}, nome = 'Usuário removido',
-        email = NULL, cpf = NULL, senha_hash = NULL, pin_hash = NULL, telefone = NULL, excecao_modulos = NULL
+        email = NULL, cpf = NULL, cpf_hash = NULL, cpf_mascarado = NULL, senha_hash = NULL, pin_hash = NULL, telefone = NULL, excecao_modulos = NULL
       WHERE id = ${alvo.id}
     `);
     await sql.transaction(q);

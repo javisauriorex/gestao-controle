@@ -47,7 +47,7 @@
 <tr><th>Categoria</th><th>Dados</th><th>Como obtemos</th></tr>
 <tr><td>Cadastro</td><td>Nome, e-mail, senha (guardada só como hash) e se o e-mail já foi confirmado</td><td>Você informa. Para ativar a conta, enviamos um link de confirmação ao seu e-mail</td></tr>
 <tr><td>Login com Google</td><td>Nome e e-mail da sua conta Google</td><td>Google, com sua autorização (escopos openid, email, profile). Não guardamos foto de perfil nem acessamos outros dados da sua conta Google</td></tr>
-<tr><td>Acesso por CPF</td><td>CPF, PIN (guardado só como hash), tentativas erradas e bloqueio temporário</td><td>Você informa ao aceitar o convite ou criar seu PIN</td></tr>
+<tr><td>Acesso por CPF</td><td>CPF — <strong>não guardamos o número completo</strong>: só uma "impressão digital" criptográfica (para reconhecer você no login) e a versão mascarada (ex.: 123.***.***-45) —, PIN (guardado só como hash, com chave secreta), tentativas erradas e bloqueio temporário</td><td>Você informa ao aceitar o convite ou criar seu PIN</td></tr>
 <tr><td>Aceite dos Termos</td><td>Versão aceita e data/hora do aceite</td><td>Registrado quando você aceita</td></tr>
 <tr><td>Registros de acesso</td><td>Endereço IP, data e hora, navegador e forma de entrada (senha, CPF, Google, convite)</td><td>Registrados a cada entrada no aplicativo</td></tr>
 <tr><td>Convites</td><td>Nome, rank, função e, opcionalmente, telefone e e-mail da pessoa convidada; obra</td><td><strong>Informados por quem convida</strong>, antes de a pessoa entrar no G&amp;C</td></tr>
@@ -143,7 +143,8 @@ Ao abrir o G&amp;C, seu navegador se conecta a esses serviços, que podem recebe
 <li>bloqueio temporário e progressivo após tentativas erradas de senha ou PIN (15 minutos, depois 1 hora, depois 24 horas);</li>
 <li>sessões com validade de 30 dias, que caem em todos os aparelhos ao trocar a senha ou o PIN;</li>
 <li>confirmação do e-mail antes do primeiro acesso com senha, e links de nova senha de uso único, válidos por 1 hora;</li>
-<li>CPF exibido de forma mascarada no aplicativo;</li>
+<li>CPF guardado só como "impressão digital" criptográfica e versão mascarada, nunca o número completo;</li>
+<li>PIN e senha protegidos com hash e, no caso do PIN, também com uma chave secreta guardada fora do banco de dados;</li>
 <li>separação de dados por empresa;</li>
 <li>controle de acesso por rank e por obra, inclusive para fotos e documentos.</li>
 </ul>

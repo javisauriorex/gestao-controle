@@ -2,6 +2,7 @@ import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse } from "../lib/auth.js";
 import { apagarDoKV } from "../lib/arquivos.js";
 import { enviarBackup } from "../lib/backup.js";
+import { camposCpf } from "../lib/cpf.js";
 
 // Painel do administrador do G&C (página /admin). Só para os e-mails em ADMIN_EMAILS.
 //   GET    /api/admin                         → empresas com números de uso + leads da feira
@@ -72,6 +73,24 @@ export default async function adminHandler(req, env) {
       console.error("backup manual falhou", e);
       return jsonResponse({ ok: false, error: "não foi possível gerar/enviar o backup" }, 502);
     }
+  }
+
+  // POST /api/admin?acao=migrar-cpf → troca todos os CPFs em claro por huella + máscara (C4). Pode repetir sem problema.
+  if (req.method === "POST" && url.searchParams.get("acao") === "migrar-cpf") {
+    if (!env.PIN_PEPPER) return jsonResponse({ ok: false, error: "Falta a chave secreta PIN_PEPPER no Cloudflare." }, 503);
+    const us = await sql`SELECT id, cpf FROM usuarios WHERE cpf IS NOT NULL`;
+    const cs = await sql`SELECT id, cpf FROM convites WHERE cpf IS NOT NULL`;
+    const ids = [], hs = [], ms = [];
+    for (const u of us) { const c = await camposCpf(env, u.cpf); ids.push(u.id); hs.push(c.cpf_hash); ms.push(c.cpf_mascarado); }
+    const cids = [], chs = [];
+    for (const c of cs) { cids.push(c.id); chs.push((await camposCpf(env, c.cpf)).cpf_hash); }
+    await sql.transaction([
+      sql`UPDATE usuarios u SET cpf = NULL, cpf_hash = t.h, cpf_mascarado = t.m
+          FROM unnest(${ids}::int[], ${hs}::text[], ${ms}::text[]) AS t(id, h, m) WHERE u.id = t.id`,
+      sql`UPDATE convites c SET cpf = NULL, cpf_hash = t.h FROM unnest(${cids}::int[], ${chs}::text[]) AS t(id, h) WHERE c.id = t.id`,
+    ]);
+    const [{ restam }] = await sql`SELECT count(*)::int AS restam FROM usuarios WHERE cpf IS NOT NULL`;
+    return jsonResponse({ ok: true, usuarios: ids.length, convites: cids.length, restam });
   }
 
   if (req.method === "DELETE") {

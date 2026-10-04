@@ -629,6 +629,44 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   delete env.EMAIL;
 }
 
+
+// ============================================================
+// BLOCO C4 — CPF protegido + PIN com chave secreta
+// ============================================================
+{
+  // Antes da chave: conta criada no modo antigo (CPF em claro, PIN sem pepper)
+  const cv4 = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "Velho", rank: 8 });
+  const cpfVelho = cpf(612345678);
+  const velho = await call("POST", "/api/auth/aceitar-convite", null, { token: cv4.token, cpf: cpfVelho, pin: "7351", aceitouTermos: true });
+  check("C4: sem chave, cadastro segue no modo antigo", velho.ok && (await pool.query("SELECT cpf FROM usuarios WHERE id=$1", [velho.usuario.id])).rows[0].cpf === cpfVelho);
+  env.PIN_PEPPER = "chave-secreta-de-teste-0123456789";
+  const l1 = await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "7351" });
+  const rowV = (await pool.query("SELECT cpf, cpf_hash, cpf_mascarado, pin_hash FROM usuarios WHERE id=$1", [velho.usuario.id])).rows[0];
+  check("C4: login antigo funciona e já converte (CPF some, fica huella; PIN vira v2)", l1.ok && rowV.cpf === null && /^[0-9a-f]{64}$/.test(rowV.cpf_hash) && rowV.cpf_mascarado === cpfVelho.slice(0, 3) + ".***.***-" + cpfVelho.slice(9) && rowV.pin_hash.startsWith("v2$"), JSON.stringify(rowV));
+  check("C4: segundo login (formato novo) funciona", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "7351" })).ok);
+  check("C4: PIN errado não entra", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "7352" })).status === 401);
+  // Cadastro novo já nasce protegido
+  const cv5 = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "Novo", rank: 8 });
+  const cpfNovo = cpf(623456789);
+  const novo4 = await call("POST", "/api/auth/aceitar-convite", null, { token: cv5.token, cpf: cpfNovo, pin: "7351", aceitouTermos: true });
+  const rowN = (await pool.query("SELECT cpf, cpf_hash, pin_hash FROM usuarios WHERE id=$1", [novo4.usuario.id])).rows[0];
+  check("C4: conta nova não guarda CPF completo", novo4.ok && rowN.cpf === null && rowN.cpf_hash && rowN.pin_hash.startsWith("v2$"));
+  const cv6 = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "Repetido", rank: 8 });
+  check("C4: CPF repetido continua bloqueado (pela huella)", (await call("POST", "/api/auth/aceitar-convite", null, { token: cv6.token, cpf: cpfNovo, pin: "7351", aceitouTermos: true })).status === 409);
+  // Trocar PIN pede o CPF certo
+  check("C4: trocar PIN com CPF errado → 400", (await call("PATCH", "/api/usuarios-me", novo4.token, { cpf: cpf(634567890), pin: "2580" })).status === 400);
+  const troca4 = await call("PATCH", "/api/usuarios-me", novo4.token, { cpf: cpfNovo, pin: "2580" });
+  check("C4: trocar PIN com o CPF certo → ok e o PIN novo entra", troca4.ok && (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfNovo, pin: "2580" })).ok);
+  check("C4: usuarios-me mostra CPF mascarado e não a huella", (await call("GET", "/api/usuarios-me", troca4.novoToken)).usuario.cpf_mascarado === cpfNovo.slice(0, 3) + ".***.***-" + cpfNovo.slice(9));
+  // Migração em massa pelo admin
+  const antes = (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf IS NOT NULL")).rows[0].n;
+  const mig = await call("POST", "/api/admin?acao=migrar-cpf", AD);
+  check("C4: admin protege todos os CPFs de uma vez", mig.ok && mig.usuarios === antes && mig.restam === 0 && antes > 3, JSON.stringify(mig));
+  check("C4: Dono comum não migra", (await call("POST", "/api/admin?acao=migrar-cpf", D3)).status === 403);
+  check("C4: depois da migração, login de conta antiga segue funcionando", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391" })).ok);
+  check("C4: base não tem mais nenhum CPF em claro", (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf IS NOT NULL")).rows[0].n === 0);
+}
+
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
 await pool.end();

@@ -1,5 +1,6 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse } from "../lib/auth.js";
+import { mascaraDe } from "../lib/cpf.js";
 
 // ============================================================
 // GET /api/meus-dados — "Exportar meus dados" (LGPD art. 18, II e V: acesso e portabilidade).
@@ -55,7 +56,7 @@ export default async function meusDadosHandler(req, env) {
     SELECT criado_em AS quando, metodo AS como, ip FROM acessos WHERE usuario_id = ${u.id} ORDER BY id DESC LIMIT 500
   `;
 
-  const cpfMascarado = u.cpf ? `${u.cpf.slice(0, 3)}.***.***-${u.cpf.slice(9)}` : (u.cpf_mascarado || null);
+  const cpfMascarado = mascaraDe(u);
   return jsonResponse({
     ok: true,
     gerado_em: new Date().toISOString(),

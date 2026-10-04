@@ -77,6 +77,7 @@
     <input type="search" id="busca" placeholder="Buscar empresa, dono ou e-mail…" />
     <button class="btn" id="recarregar">↻ Atualizar</button>
     <button class="btn amber" id="exportar">⤓ Baixar Excel</button>
+    <button class="btn" id="migrarCpf" title="Troca os CPFs guardados por uma huella protegida (só precisa uma vez)">🔐 Proteger CPFs</button>
     <button class="btn" id="backupAgora" title="Manda agora o backup da base para o seu e-mail (o automático é aos sábados 11:30)">📧 Backup agora</button>
   </div>
 
@@ -280,6 +281,13 @@
   $("busca").oninput = function (ev) { estado.busca = ev.target.value; desenhar(); };
   $("recarregar").onclick = carregar;
   $("exportar").onclick = exportar;
+  $("migrarCpf").onclick = async function () {
+    if (!confirm("Trocar todos os CPFs guardados por uma huella protegida? (Faça isso depois de cadastrar a chave PIN_PEPPER no Cloudflare.)")) return;
+    var b = $("migrarCpf"); b.disabled = true; b.textContent = "Protegendo…";
+    try { var r = await api("POST", "/api/admin?acao=migrar-cpf"); alert("Pronto! CPFs protegidos: " + r.usuarios + " conta(s) e " + r.convites + " convite(s). Restam em claro: " + r.restam + "."); }
+    catch (e) { alert("Não foi possível: " + e.message); }
+    b.disabled = false; b.textContent = "🔐 Proteger CPFs";
+  };
   $("backupAgora").onclick = async function () {
     var b = $("backupAgora"); b.disabled = true; b.textContent = "Enviando…";
     try { var r = await api("POST", "/api/admin?acao=backup"); alert("Backup enviado para o seu e-mail: " + r.arquivo + " (" + r.kb + " KB)."); }

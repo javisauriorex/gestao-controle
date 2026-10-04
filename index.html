@@ -1667,7 +1667,7 @@ function MeuPinModal({ usuario, onClose }) {
   const jaTemCpf = !!usuario.cpf_mascarado;
   const salvar = async () => {
     setErro("");
-    if (!jaTemCpf && !cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
+    if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
     if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
     if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
     setSalvando(true);
@@ -1689,14 +1689,9 @@ function MeuPinModal({ usuario, onClose }) {
         ) : (
           <>
             <p style={{ color: C.inkMuted }} className="text-xs mb-3">Para entrar com CPF + PIN, sem precisar de email nem Google.</p>
-            {jaTemCpf ? (
-              <p style={{ color: C.ink }} className="text-sm font-mono mb-3">CPF: {usuario.cpf_mascarado}</p>
-            ) : (
-              <>
-                <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Seu CPF</label>
-                <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none tracking-wider" />
-              </>
-            )}
+            {/* Quem já tem CPF confirma digitando de novo (o G&C não guarda mais o CPF completo). */}
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">{jaTemCpf ? `Confirme seu CPF (${usuario.cpf_mascarado})` : "Seu CPF"}</label>
+            <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none tracking-wider" />
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
             <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none text-xl tracking-[0.5em] text-center" />
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
