@@ -137,16 +137,44 @@ function nivelDefault(rank, modulo) {
 // UMA consulta só para as 48 linhas (8 ranks × 6 módulos). Antes eram 48 consultas separadas:
 // somadas ao resto do cadastro passavam de 50 "subrequests", o limite do plano grátis do
 // Cloudflare Workers, e o cadastro de empresa nova (e-mail ou Google) falhava em produção.
-async function semearPermissoesDefault(sql, empresaId) {
+function consultaPermissoesDefault(sql, empresaId) {
   const ranks = [], modulos = [], niveis = [];
   for (let rank = 1; rank <= 8; rank++) {
     for (const modulo of MODULOS) { ranks.push(rank); modulos.push(modulo); niveis.push(nivelDefault(rank, modulo)); }
   }
-  await sql`
+  return sql`
     INSERT INTO permissoes (empresa_id, rank, modulo, nivel)
     SELECT ${empresaId}, r, m, n FROM unnest(${ranks}::int[], ${modulos}::text[], ${niveis}::text[]) AS t(r, m, n)
     ON CONFLICT (empresa_id, rank, modulo) DO NOTHING
   `;
+}
+
+// Reserva os números (ids) antes, para poder gravar tudo numa TRANSAÇÃO só (C1):
+// ou nasce empresa + Dono + permissões, ou não nasce nada (antes podia sobrar empresa sem dono).
+export async function reservarIds(sql, ...tabelas) {
+  const ids = [];
+  for (const t of tabelas) {
+    const [r] = t === "empresas"
+      ? await sql`SELECT nextval(pg_get_serial_sequence('empresas', 'id'))::int AS id`
+      : await sql`SELECT nextval(pg_get_serial_sequence('usuarios', 'id'))::int AS id`;
+    ids.push(r.id);
+  }
+  return ids;
+}
+
+async function criarEmpresaComDono(sql, { email, nome, senhaHash = null, emailVerificado = false, aceitouTermos = false }) {
+  const [empresaId, usuarioId] = await reservarIds(sql, "empresas", "usuarios");
+  const r = await sql.transaction([
+    sql`INSERT INTO empresas (id, nome, dono_usuario_id) VALUES (${empresaId}, ${(nome || email) + " — empresa"}, ${usuarioId})`,
+    sql`
+      INSERT INTO usuarios (id, email, nome, empresa_id, rank, senha_hash, email_verificado, termos_versao, termos_aceito_em)
+      VALUES (${usuarioId}, ${email}, ${nome || email}, ${empresaId}, 1, ${senhaHash}, ${emailVerificado},
+              ${aceitouTermos ? TERMOS_VERSAO : null}, ${aceitouTermos ? new Date().toISOString() : null})
+      RETURNING *
+    `,
+    consultaPermissoesDefault(sql, empresaId),
+  ]);
+  return r[1][0];
 }
 
 // ============================================================
@@ -180,37 +208,7 @@ export async function signup(req, env) {
        return jsonResponse({ ok: false, error: "Este email tem um convite pendente. Use o link do convite que você recebeu, ou toque em \"Entrar com Google\"." }, 409);
      }
 
-  let novoUsuario;
-  if (convites.length > 0) {
-    const convite = convites[0];
-    const novos = await sql`
-      INSERT INTO usuarios (email, nome, empresa_id, rank, senha_hash)
-      VALUES (${email}, ${nome || email}, ${convite.empresa_id}, ${convite.rank}, ${senhaHash})
-      RETURNING *
-    `;
-    await sql`DELETE FROM convites WHERE id = ${convite.id}`;
-    novoUsuario = novos[0];
-    if (convite.obra_id) {
-      await sql`
-        INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
-        VALUES (${convite.obra_id}, ${novoUsuario.id}, ${convite.funcao || ""}, ${convite.criado_por})
-        ON CONFLICT (obra_id, usuario_id) DO NOTHING
-      `;
-    }
-  } else {
-    const empresas = await sql`INSERT INTO empresas (nome) VALUES (${(nome || email) + " — empresa"}) RETURNING *`;
-    const empresa = empresas[0];
-    const novos = await sql`
-      INSERT INTO usuarios (email, nome, empresa_id, rank, senha_hash)
-      VALUES (${email}, ${nome || email}, ${empresa.id}, 1, ${senhaHash})
-      RETURNING *
-    `;
-    novoUsuario = novos[0];
-    await sql`UPDATE empresas SET dono_usuario_id = ${novoUsuario.id} WHERE id = ${empresa.id}`;
-    await semearPermissoesDefault(sql, empresa.id);
-  }
-
-  await sql`UPDATE usuarios SET termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now() WHERE id = ${novoUsuario.id}`;
+  const novoUsuario = await criarEmpresaComDono(sql, { email, nome, senhaHash, aceitouTermos: true });
   await registrarAcesso(sql, req, novoUsuario.id, "cadastro");
   // A conta só entra depois de confirmar o e-mail (decisão 04/10): aqui NÃO devolvemos sessão.
   const enviado = await enviarConfirmacao(sql, env, novoUsuario);
@@ -296,31 +294,26 @@ export async function loginOuCriarComGoogle(email, nome, env, req) {
     `;
     if (convites.length > 0) {
       const convite = convites[0];
-      const novos = await sql`
-        INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado)
-        VALUES (${emailNorm}, ${nome || emailNorm}, ${convite.empresa_id}, ${convite.rank}, true)
-        RETURNING *
-      `;
-      await sql`DELETE FROM convites WHERE id = ${convite.id}`;
-      usuario = novos[0];
+      // Tudo ou nada: conta + saída do convite + entrada na equipe (C1).
+      const [uid] = await reservarIds(sql, "usuarios");
+      const q = [
+        sql`
+          INSERT INTO usuarios (id, email, nome, empresa_id, rank, email_verificado)
+          VALUES (${uid}, ${emailNorm}, ${nome || emailNorm}, ${convite.empresa_id}, ${convite.rank}, true)
+          RETURNING *
+        `,
+        sql`DELETE FROM convites WHERE id = ${convite.id}`,
+      ];
       if (convite.obra_id) {
-        await sql`
+        q.push(sql`
           INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
-          VALUES (${convite.obra_id}, ${usuario.id}, ${convite.funcao || ""}, ${convite.criado_por})
+          VALUES (${convite.obra_id}, ${uid}, ${convite.funcao || ""}, ${convite.criado_por})
           ON CONFLICT (obra_id, usuario_id) DO NOTHING
-        `;
+        `);
       }
+      usuario = (await sql.transaction(q))[0][0];
     } else {
-      const empresas = await sql`INSERT INTO empresas (nome) VALUES (${(nome || emailNorm) + " — empresa"}) RETURNING *`;
-      const empresa = empresas[0];
-      const novos = await sql`
-        INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado)
-        VALUES (${emailNorm}, ${nome || emailNorm}, ${empresa.id}, 1, true)
-        RETURNING *
-      `;
-      usuario = novos[0];
-      await sql`UPDATE empresas SET dono_usuario_id = ${usuario.id} WHERE id = ${empresa.id}`;
-      await semearPermissoesDefault(sql, empresa.id);
+      usuario = await criarEmpresaComDono(sql, { email: emailNorm, nome, emailVerificado: true });
     }
   }
 

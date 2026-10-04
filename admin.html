@@ -240,7 +240,8 @@
           return [e.id, e.nome, e.dono_nome, e.dono_email, status(e).t, e.pessoas, e.chefes, e.pessoas_ativas_30d, e.convites_pendentes, e.obras, e.obras_ativas, e.etapas, e.etapas_concluidas, e.fotos, e.documentos, e.observacoes, e.pedidos, e.logins_7d, e.logins_30d, data(e.ultimo_login), data(ultima(e)), data(e.criado_em)];
         }));
     }
-    var csv = linhas.map(function (l) { return l.map(function (c) { var s = String(c == null ? "" : c); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(";"); }).join("\r\n");
+    // Célula que começa com = + - @ (ou tab/enter) vira texto: o Excel/Sheets não executa como fórmula.
+    var csv = linhas.map(function (l) { return l.map(function (c) { var s = String(c == null ? "" : c); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(";"); }).join("\r\n");
     var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);

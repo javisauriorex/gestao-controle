@@ -82,8 +82,11 @@ export default async function adminHandler(req, env) {
     `;
     // Ordem importa: obras primeiro (leva equipe, etapas, fotos, documentos, pedidos, observações),
     // depois a empresa (leva pessoas, convites, permissões). Acessos ficam, sem vínculo (ON DELETE SET NULL).
-    await sql`DELETE FROM obras WHERE empresa_id = ${empresaId}`;
-    await sql`DELETE FROM empresas WHERE id = ${empresaId}`;
+    // Tudo ou nada (C1): se algo falhar no meio, nada é apagado.
+    await sql.transaction([
+      sql`DELETE FROM obras WHERE empresa_id = ${empresaId}`,
+      sql`DELETE FROM empresas WHERE id = ${empresaId}`,
+    ]);
     await apagarDoKV(env, arquivos.map((r) => r.id));
     console.log("admin: empresa encerrada", { empresaId, nome: alvo[0].nome, arquivos: arquivos.length, por: usuario.email });
     return jsonResponse({ ok: true, arquivosApagados: arquivos.length });

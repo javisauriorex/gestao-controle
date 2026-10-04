@@ -3100,7 +3100,9 @@ function GestorObras() {
       return m ? m.nome : "Alguém";
     };
 
+    // Atualização automática: a cada 30 s, e só com a tela visível (aba em segundo plano/celular bloqueado = pausa).
     const interval = setInterval(async () => {
+      if (document.hidden) return;
       const atual = obraDetalheRef.current;
       if (!atual) return;
       try {
@@ -3149,7 +3151,7 @@ function GestorObras() {
           materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos,
         });
       } catch (e) { /* rede falhou nessa rodada, tenta de novo no próximo ciclo */ }
-    }, 15000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [view, selectedId, usuarioAPI]);

@@ -1,5 +1,5 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, hashSenha, verificarSenha, emitirToken } from "../lib/auth.js";
+import { getUsuario, jsonResponse, hashSenha, verificarSenha, emitirToken, reservarIds } from "../lib/auth.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
 import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, MSG_IP_BLOQUEADO } from "../lib/limites.js";
 import { turnstileOk, MSG_TURNSTILE, FALHAS_PARA_PEDIR_TURNSTILE } from "../lib/turnstile.js";
@@ -182,12 +182,14 @@ export async function aceitarConvite(req, env) {
       if (dono.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
     }
     // Novo PIN = recuperação de acesso: as sessões antigas (ex.: celular perdido) caem (S8).
-    const rows = await sql`
-      UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL,
-        termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now(), sessao_versao = sessao_versao + 1
-      WHERE id = ${u.id} RETURNING *
-    `;
-    await sql`DELETE FROM convites WHERE id = ${convite.id}`;
+    const [rows] = await sql.transaction([
+      sql`
+        UPDATE usuarios SET cpf = ${cpf}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL,
+          termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now(), sessao_versao = sessao_versao + 1
+        WHERE id = ${u.id} RETURNING *
+      `,
+      sql`DELETE FROM convites WHERE id = ${convite.id}`,
+    ]);
     await registrarAcesso(sql, req, u.id, "convite");
     return jsonResponse(await emitirSessao(rows[0], env));
   }
@@ -201,22 +203,34 @@ export async function aceitarConvite(req, env) {
     const porEmail = await sql`SELECT id FROM usuarios WHERE email = ${convite.email}`;
     if (porEmail.length > 0) return jsonResponse({ ok: false, error: "Este email já tem conta. Entre normalmente." }, 409);
   }
-  const novos = await sql`
-    INSERT INTO usuarios (email, nome, empresa_id, rank, cpf, pin_hash, telefone, termos_versao, termos_aceito_em)
-    VALUES (${convite.email}, ${convite.nome || "Sem nome"}, ${convite.empresa_id}, ${convite.rank}, ${cpf}, ${pinHash}, ${convite.telefone}, ${TERMOS_VERSAO}, now())
-    RETURNING *
-  `;
-  const novo = novos[0];
-  // Convite usado não serve mais: apagado (guardava nome/telefone/email).
-  await sql`DELETE FROM convites WHERE id = ${convite.id}`;
-  await registrarAcesso(sql, req, novo.id, "convite");
+  // Tudo ou nada (C1): conta nova + entrada na equipe + convite apagado (guardava nome/telefone/email).
+  const [uid] = await reservarIds(sql, "usuarios");
+  const q = [
+    sql`
+      INSERT INTO usuarios (id, email, nome, empresa_id, rank, cpf, pin_hash, telefone, termos_versao, termos_aceito_em)
+      VALUES (${uid}, ${convite.email}, ${convite.nome || "Sem nome"}, ${convite.empresa_id}, ${convite.rank}, ${cpf}, ${pinHash}, ${convite.telefone}, ${TERMOS_VERSAO}, now())
+      RETURNING *
+    `,
+    sql`DELETE FROM convites WHERE id = ${convite.id}`,
+  ];
   if (convite.obra_id) {
-    await sql`
+    q.push(sql`
       INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
-      VALUES (${convite.obra_id}, ${novo.id}, ${convite.funcao || ""}, ${convite.criado_por})
+      VALUES (${convite.obra_id}, ${uid}, ${convite.funcao || ""}, ${convite.criado_por})
       ON CONFLICT (obra_id, usuario_id) DO NOTHING
-    `;
+    `);
   }
+  let novo;
+  try {
+    novo = (await sql.transaction(q))[0][0];
+  } catch (e) {
+    // Dois toques ao mesmo tempo no mesmo link: o segundo esbarra no CPF/e-mail único e não cria conta duplicada.
+    if (String(e.code || e.message).includes("23505") || /duplicate key/i.test(String(e.message))) {
+      return jsonResponse({ ok: false, error: "Esta conta já foi criada. Entre com CPF e PIN." }, 409);
+    }
+    throw e;
+  }
+  await registrarAcesso(sql, req, novo.id, "convite");
   return jsonResponse(await emitirSessao(novo, env));
 }
 

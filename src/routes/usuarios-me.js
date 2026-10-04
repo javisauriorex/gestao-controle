@@ -90,21 +90,24 @@ export default async function usuariosMeHandler(req, env) {
     // Obras em que ele era responsável passam para o Dono da empresa.
     const empresas = await sql`SELECT dono_usuario_id FROM empresas WHERE id = ${usuario.empresa_id}`;
     const donoId = empresas[0] && empresas[0].dono_usuario_id;
+    // Tudo ou nada (C1): a conta não fica "meio excluída".
+    const q = [];
     if (donoId && donoId !== alvo.id) {
-      await sql`UPDATE obras SET responsavel_id = ${donoId} WHERE responsavel_id = ${alvo.id} AND empresa_id = ${usuario.empresa_id}`;
-      await sql`
+      q.push(sql`UPDATE obras SET responsavel_id = ${donoId} WHERE responsavel_id = ${alvo.id} AND empresa_id = ${usuario.empresa_id}`);
+      q.push(sql`
         INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
         SELECT id, ${donoId}, '', ${usuario.id} FROM obras WHERE responsavel_id = ${donoId} AND empresa_id = ${usuario.empresa_id}
         ON CONFLICT (obra_id, usuario_id) DO NOTHING
-      `;
+      `);
     }
-    await sql`DELETE FROM convites WHERE usuario_id = ${alvo.id}`;
-    await sql`
+    q.push(sql`DELETE FROM convites WHERE usuario_id = ${alvo.id}`);
+    q.push(sql`
       UPDATE usuarios SET
         removido_em = now(), removido_por = ${usuario.id}, nome = 'Usuário removido',
         email = NULL, cpf = NULL, senha_hash = NULL, pin_hash = NULL, telefone = NULL, excecao_modulos = NULL
       WHERE id = ${alvo.id}
-    `;
+    `);
+    await sql.transaction(q);
     return jsonResponse({ ok: true, propria });
   }
 

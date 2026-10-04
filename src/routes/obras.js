@@ -29,20 +29,22 @@ export default async function obrasHandler(req, env) {
     if (responsavelId && !(await ativoNaEmpresa(sql, responsavelId, usuario.empresa_id))) {
       return jsonResponse({ ok: false, error: "responsável inválido" }, 400);
     }
+    // Uma consulta só (C1): a obra nasce já com quem criou e o responsável na equipe
+    // (senão deixariam de ver a obra) — ou não nasce.
+    const membros = [...new Set([usuario.id, Number(responsavelId || usuario.id)])];
     const rows = await sql`
-      INSERT INTO obras (empresa_id, cliente, endereco, tipo, data_inicio, estado, criado_por, responsavel_id)
-      VALUES (${usuario.empresa_id}, ${cliente}, ${endereco || ""}, ${tipo || ""}, ${dataInicio || null}, 'ativa', ${usuario.id}, ${responsavelId || usuario.id})
-      RETURNING *
-    `;
-    // Quem cria e o responsável entram na equipe automaticamente (senão deixariam de ver a obra).
-    const obra = rows[0];
-    for (const uid of new Set([usuario.id, obra.responsavel_id])) {
-      await sql`
+      WITH o AS (
+        INSERT INTO obras (empresa_id, cliente, endereco, tipo, data_inicio, estado, criado_por, responsavel_id)
+        VALUES (${usuario.empresa_id}, ${cliente}, ${endereco || ""}, ${tipo || ""}, ${dataInicio || null}, 'ativa', ${usuario.id}, ${responsavelId || usuario.id})
+        RETURNING *
+      ), e AS (
         INSERT INTO equipe (obra_id, usuario_id, funcao, criado_por)
-        VALUES (${obra.id}, ${uid}, ${""}, ${usuario.id})
+        SELECT o.id, m, '', ${usuario.id} FROM o, unnest(${membros}::int[]) AS m
         ON CONFLICT (obra_id, usuario_id) DO NOTHING
-      `;
-    }
+      )
+      SELECT * FROM o
+    `;
+    const obra = rows[0];
     return jsonResponse({ ok: true, obra });
   }
 

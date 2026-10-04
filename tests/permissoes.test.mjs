@@ -536,6 +536,27 @@ check("T: CPF com Turnstile entra", (await call("POST", "/api/auth/login-cpf", n
 delete globalThis.IP_FIXO;
 delete env.TURNSTILE_SECRET;
 
+
+// ============================================================
+// BLOCO C1 — transações
+// ============================================================
+const c1 = await cadastro("c1@x.com", "senhaBoa123", "C1");
+const c1u = (await pool.query("SELECT u.id, u.empresa_id, e.dono_usuario_id, (SELECT count(*)::int FROM permissoes p WHERE p.empresa_id = u.empresa_id) AS perms FROM usuarios u JOIN empresas e ON e.id = u.empresa_id WHERE u.email = 'c1@x.com'")).rows[0];
+check("C1: empresa nasce com dono e as 48 permissões", c1u.dono_usuario_id === c1u.id && c1u.perms === 48, JSON.stringify(c1u));
+const c1o = await call("POST", "/api/obras", c1.token, { cliente: "Obra C1" });
+const c1eq = (await pool.query("SELECT count(*)::int n FROM equipe WHERE obra_id = $1", [c1o.obra.id])).rows[0].n;
+check("C1: obra nasce com quem criou na equipe", c1o.ok && c1eq === 1);
+const c1cv = await call("POST", "/api/convite-link", c1.token, { obraId: c1o.obra.id, nome: "Duplo", rank: 8 });
+const cpfDuplo = cpf(901234567);
+const [r1, r2] = await Promise.all([
+  call("POST", "/api/auth/aceitar-convite", null, { token: c1cv.token, cpf: cpfDuplo, pin: "7351", aceitouTermos: true }),
+  call("POST", "/api/auth/aceitar-convite", null, { token: c1cv.token, cpf: cpfDuplo, pin: "7351", aceitouTermos: true }),
+]);
+const nDuplo = (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf = $1", [cpfDuplo])).rows[0].n;
+check("C1: dois toques simultâneos no mesmo convite → uma conta só", nDuplo === 1 && [r1, r2].filter((r) => r.ok).length >= 1, JSON.stringify([r1.status, r2.status]));
+const nEq = (await pool.query("SELECT count(*)::int n FROM equipe e JOIN usuarios u ON u.id = e.usuario_id WHERE u.cpf = $1", [cpfDuplo])).rows[0].n;
+check("C1: e entrou na equipe uma vez", nEq === 1);
+
 // ---- Painel admin ----
 check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);
 check("admin: sem login → 401", (await call("GET", "/api/admin")).status === 401);
