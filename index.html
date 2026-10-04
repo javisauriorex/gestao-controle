@@ -198,22 +198,58 @@ const biometriaSuportada = () => typeof window !== "undefined" && !!window.Publi
 
 // --- Login propio (JWT contra /api/auth/*), reemplaza a Netlify Identity ---
 
-async function apiSignup(email, password, nome, aceitouTermos) {
+// --- Turnstile (Cloudflare): "não sou um robô" sem semáforos. Quase sempre invisível; às vezes um tilde. ---
+const TURNSTILE_SITE_KEY = "0x4AAAAAAFNL0jzkVfLaOEHc";
+let turnstileScript = null;
+function carregarTurnstile() {
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  if (!turnstileScript) {
+    turnstileScript = new Promise((ok, falha) => {
+      const sc = document.createElement("script");
+      sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      sc.async = true;
+      sc.onload = () => ok(window.turnstile);
+      sc.onerror = () => { turnstileScript = null; falha(new Error("Turnstile não carregou")); };
+      document.head.appendChild(sc);
+    });
+  }
+  return turnstileScript;
+}
+// onToken(token) é chamado quando a verificação passa ("" quando vence). Trocar "chave" refaz a verificação.
+function Turnstile({ onToken, chave = 0 }) {
+  const ref = useRef(null);
+  const [erro, setErro] = useState("");
+  useEffect(() => {
+    let id = null, vivo = true;
+    onToken("");
+    carregarTurnstile().then((ts) => {
+      if (!vivo || !ref.current) return;
+      id = ts.render(ref.current, {
+        sitekey: TURNSTILE_SITE_KEY, language: "pt-br", appearance: "interaction-only",
+        callback: (t) => onToken(t), "expired-callback": () => onToken(""), "error-callback": () => onToken(""),
+      });
+    }).catch(() => setErro("Não foi possível carregar a verificação. Confira sua internet e recarregue a página."));
+    return () => { vivo = false; try { if (id !== null && window.turnstile) window.turnstile.remove(id); } catch (e) {} };
+  }, [chave]);
+  return <div className="mt-3 flex flex-col items-center"><div ref={ref} />{erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-1 text-center">{erro}</p>}</div>;
+}
+
+async function apiSignup(email, password, nome, aceitouTermos, turnstile) {
   const res = await fetch("/api/auth/signup", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, senha: password, nome, aceitouTermos }),
+    body: JSON.stringify({ email, senha: password, nome, aceitouTermos, turnstile }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) throw new Error(data.error || "Não foi possível criar a conta.");
+  if (!res.ok || !data.ok) { const e = new Error(data.error || "Não foi possível criar a conta."); e.codigo = data.codigo; throw e; }
   return data;
 }
 
-async function apiLogin(email, password) {
+async function apiLogin(email, password, turnstile) {
   const res = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, senha: password }),
+    body: JSON.stringify({ email, senha: password, turnstile }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) { const e = new Error(data.error || "Email ou senha incorretos."); e.codigo = data.codigo; throw e; }
@@ -241,7 +277,7 @@ function urlWhatsApp(telefone, texto) {
 async function apiPublica(path, body) {
   const res = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) throw new Error(data.error || "Algo deu errado. Tente de novo.");
+  if (!res.ok || !data.ok) { const e = new Error(data.error || "Algo deu errado. Tente de novo."); e.codigo = data.codigo; throw e; }
   return data;
 }
 
@@ -2266,6 +2302,8 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
   const [senha, setSenha] = useState("");
   const [senha2, setSenha2] = useState("");
   const [aceito, setAceito] = useState(false);
+  const [tsToken, setTsToken] = useState("");
+  const [tsChave, setTsChave] = useState(0);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
@@ -2277,11 +2315,13 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
     if (!aceito) { setErro("Você precisa aceitar os Termos de Uso."); return; }
     setSalvando(true);
     try {
-      const r = await apiSignup(email.trim(), senha, nome.trim(), aceito);
+      if (!tsToken) { setErro("Aguarde a verificação \"não sou um robô\" terminar."); setSalvando(false); return; }
+      const r = await apiSignup(email.trim(), senha, nome.trim(), aceito, tsToken);
       if (r.token) { saveSession(r); onCadastrado(); }
       else setConfirmar({ email: r.email || email.trim().toLowerCase(), enviado: r.enviado !== false });
     } catch (err) {
       setErro(err.message);
+      setTsChave((k) => k + 1); // o token do Turnstile vale uma vez só: refaz a verificação
     }
     setSalvando(false);
   };
@@ -2321,6 +2361,7 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
           <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
           <span>Tenho 18 anos ou mais, li e aceito os <a href="/termos" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Termos de Uso</a> e a <a href="/privacidade" target="_blank" rel="noopener" style={{ color: C.amber }} className="underline">Política de Privacidade</a>.</span>
         </label>
+        <Turnstile onToken={setTsToken} chave={tsChave} />
         {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
       </div>
       <button onClick={cadastrar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Criando..." : "Criar conta"}</button>
@@ -2331,6 +2372,9 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
 
 function LoginScreen({ onLogado, onIrCadastro }) {
   const [semConfirmar, setSemConfirmar] = useState(null);
+  const [pedeTs, setPedeTs] = useState(false);
+  const [tsToken, setTsToken] = useState("");
+  const [tsChave, setTsChave] = useState(0);
   const [esqueciAberto, setEsqueciAberto] = useState(false);
   const [emailEsqueci, setEmailEsqueci] = useState("");
   const [msgEsqueci, setMsgEsqueci] = useState("");
@@ -2350,11 +2394,14 @@ function LoginScreen({ onLogado, onIrCadastro }) {
     setErro("");
     setEntrando(true);
     try {
-      const authData = await apiLogin(email.trim(), senha);
+      if (pedeTs && !tsToken) { setErro("Aguarde a verificação \"não sou um robô\" e toque em Entrar de novo."); setEntrando(false); return; }
+      const authData = await apiLogin(email.trim(), senha, tsToken || undefined);
       saveSession(authData);
       onLogado();
     } catch (err) {
       if (err.codigo === "email_nao_confirmado") { setSemConfirmar(email.trim().toLowerCase()); setEntrando(false); return; }
+      if (err.codigo === "turnstile") setPedeTs(true);
+      if (pedeTs || err.codigo === "turnstile") setTsChave((k) => k + 1);
       setErro(err.message);
     }
     setEntrando(false);
@@ -2378,10 +2425,13 @@ function LoginScreen({ onLogado, onIrCadastro }) {
     if (!/^\d{4}$/.test(pin)) { setErro("O PIN tem 4 números."); return; }
     setEntrando(true);
     try {
-      const authData = await apiPublica("/api/auth/login-cpf", { cpf: limparCpf(cpf), pin });
+      if (pedeTs && !tsToken) { setErro("Aguarde a verificação \"não sou um robô\" e toque em Entrar de novo."); setEntrando(false); return; }
+      const authData = await apiPublica("/api/auth/login-cpf", { cpf: limparCpf(cpf), pin, turnstile: tsToken || undefined });
       saveSession(authData);
       onLogado();
     } catch (err) {
+      if (err.codigo === "turnstile") setPedeTs(true);
+      if (pedeTs || err.codigo === "turnstile") setTsChave((k) => k + 1);
       setErro(err.message);
     }
     setEntrando(false);
@@ -2406,6 +2456,7 @@ function LoginScreen({ onLogado, onIrCadastro }) {
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
           <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && entrarCpf()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
         </div>
+        {pedeTs && <Turnstile onToken={setTsToken} chave={tsChave} />}
         {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
         <button onClick={entrarCpf} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-3 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono text-center mt-3">Esqueceu o PIN? Peça um "Novo PIN" ao seu chefe.</p>
@@ -2437,6 +2488,7 @@ function LoginScreen({ onLogado, onIrCadastro }) {
         <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
         <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
       </div>
+      {pedeTs && <Turnstile onToken={setTsToken} chave={tsChave} />}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
       <button onClick={entrar} disabled={entrando} style={{ background: C.green }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
       <button onClick={onIrCadastro} style={{ background: C.amber }} className="w-full mt-2 text-white font-bold uppercase tracking-wide rounded py-2.5">Criar conta</button>

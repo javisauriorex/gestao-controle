@@ -1,7 +1,8 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, hashSenha, verificarSenha, emitirToken } from "../lib/auth.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
-import { ipBloqueado, registrarFalha, MSG_IP_BLOQUEADO } from "../lib/limites.js";
+import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, MSG_IP_BLOQUEADO } from "../lib/limites.js";
+import { turnstileOk, MSG_TURNSTILE, FALHAS_PARA_PEDIR_TURNSTILE } from "../lib/turnstile.js";
 
 // ============================================================
 // Convite por link (WhatsApp) + login com CPF e PIN.
@@ -223,11 +224,15 @@ export async function aceitarConvite(req, env) {
 export async function loginCpf(req, env) {
   if (req.method !== "POST") return jsonResponse({ ok: false, error: "method not allowed" }, 405);
   const sql = getSql(env);
-  const { cpf: cpfBruto, pin } = await req.json();
+  const { cpf: cpfBruto, pin, turnstile } = await req.json();
   const cpf = limparCpf(cpfBruto);
   const erroGenerico = jsonResponse({ ok: false, error: "CPF ou PIN incorretos." }, 401);
   if (cpf.length !== 11 || !pin) return erroGenerico;
-  if (await ipBloqueado(sql, req)) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
+  const falhas = await falhasDoIp(sql, req);
+  if (falhas >= LIMITE_FALHAS_IP_HORA) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
+  if (falhas >= FALHAS_PARA_PEDIR_TURNSTILE && !(await turnstileOk(env, req, turnstile))) {
+    return jsonResponse({ ok: false, codigo: "turnstile", error: MSG_TURNSTILE }, 403);
+  }
 
   const rows = await sql`SELECT * FROM usuarios WHERE cpf = ${cpf} AND removido_em IS NULL`;
   if (rows.length === 0 || !rows[0].pin_hash) { await registrarFalha(sql, req); return erroGenerico; }

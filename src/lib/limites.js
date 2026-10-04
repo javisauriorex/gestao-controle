@@ -34,6 +34,11 @@ export async function registrarUpload(sql, usuario) {
   await sql`INSERT INTO uploads (usuario_id, empresa_id) VALUES (${usuario.id}, ${usuario.empresa_id})`;
 }
 
+export async function falhasDoIp(sql, req) {
+  const [r] = await sql`SELECT count(*)::int AS n FROM falhas_login WHERE ip = ${ipDe(req)} AND criado_em > now() - interval '1 hour'`;
+  return r.n;
+}
+
 export async function ipBloqueado(sql, req) {
   const [r] = await sql`SELECT count(*)::int AS n FROM falhas_login WHERE ip = ${ipDe(req)} AND criado_em > now() - interval '1 hour'`;
   return r.n >= LIMITE_FALHAS_IP_HORA;

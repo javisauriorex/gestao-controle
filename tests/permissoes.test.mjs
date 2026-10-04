@@ -16,6 +16,7 @@ env.RESEND_API_KEY = "re_teste";
 const emails = [];
 const fetchOriginal = globalThis.fetch;
 globalThis.fetch = async (url, opts) => {
+  if (String(url).startsWith("https://challenges.cloudflare.com/turnstile")) { const b = JSON.parse(opts.body); return new Response(JSON.stringify({ success: b.response === "ts-ok" && b.secret === "ts-secreto" }), { status: 200 }); }
   if (String(url).startsWith("https://api.resend.com")) { emails.push(JSON.parse(opts.body)); return new Response('{"id":"x"}', { status: 200 }); }
   return fetchOriginal(url, opts);
 };
@@ -511,6 +512,29 @@ delete globalThis.IP_FIXO;
 // Cabeçalhos de segurança na API
 const hApi = await worker.fetch(new Request("https://t/api/usuarios-me"), env);
 check("B: API manda nosniff, DENY e HSTS", hApi.headers.get("x-content-type-options") === "nosniff" && hApi.headers.get("x-frame-options") === "DENY" && /max-age/.test(hApi.headers.get("strict-transport-security") || ""));
+
+
+// ============================================================
+// TURNSTILE ("não sou um robô")
+// ============================================================
+env.TURNSTILE_SECRET = "ts-secreto";
+check("T: cadastro sem Turnstile → 403", (await call("POST", "/api/auth/signup", null, { email: "ts1@x.com", senha: "senhaBoa123", nome: "T", aceitouTermos: true })).codigo === "turnstile");
+check("T: cadastro com token inválido → 403", (await call("POST", "/api/auth/signup", null, { email: "ts1@x.com", senha: "senhaBoa123", nome: "T", aceitouTermos: true, turnstile: "falso" })).status === 403);
+check("T: cadastro com token válido → ok", (await call("POST", "/api/auth/signup", null, { email: "ts1@x.com", senha: "senhaBoa123", nome: "T", aceitouTermos: true, turnstile: "ts-ok" })).ok);
+check("T: lead sem Turnstile → 403", (await call("POST", "/api/leads", null, { nome: "L", contato: "l@x.com" })).status === 403);
+check("T: lead com Turnstile → ok", (await call("POST", "/api/leads", null, { nome: "L", contato: "l@x.com", turnstile: "ts-ok" })).ok);
+check("T: lead com texto gigante → 400", (await call("POST", "/api/leads", null, { nome: "x".repeat(500), contato: "l@x.com", turnstile: "ts-ok" })).status === 400);
+// Login: só pede Turnstile depois de 5 erros da mesma rede
+globalThis.IP_FIXO = "192.0.2.50";
+check("T: login normal não pede Turnstile", (await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123" })).ok);
+for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", null, { email: "naoexiste" + i + "@x.com", senha: "errada" + i });
+const semTs = await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123" });
+check("T: depois de 5 erros, login sem Turnstile → 403 turnstile", semTs.status === 403 && semTs.codigo === "turnstile", JSON.stringify(semTs));
+check("T: com Turnstile entra", (await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123", turnstile: "ts-ok" })).ok);
+check("T: CPF também pede Turnstile nessa rede", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391" })).codigo === "turnstile");
+check("T: CPF com Turnstile entra", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391", turnstile: "ts-ok" })).ok);
+delete globalThis.IP_FIXO;
+delete env.TURNSTILE_SECRET;
 
 // ---- Painel admin ----
 check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);

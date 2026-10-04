@@ -67,6 +67,7 @@
     <label for="contato">E-mail ou WhatsApp</label>
     <input id="contato" type="text" placeholder="seu@email.com ou (71) 9xxxx-xxxx" autocomplete="email" />
 
+    <div id="ts" style="margin-top:12px;display:flex;justify-content:center;"></div>
     <button class="enviar" id="btnEnviar" onclick="enviar()">Cadastrar</button>
     <p class="sub" style="margin:12px 0 0;font-size:11px;">Usaremos seus dados só para falar com você sobre o Gestão &amp; Controle. Você pode pedir a exclusão a qualquer momento em info@gestaoecontrole.app.br. <a href="/privacidade" style="color:inherit;">Política de Privacidade</a>.</p>
     <p class="erro" id="erro" style="display:none;"></p>
@@ -82,7 +83,16 @@
   <footer>Gestão & Controle — ConstruNordeste 2026</footer>
 </div>
 
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=iniciarTs&render=explicit" async defer></script>
 <script>
+  // "Não sou um robô" (Cloudflare Turnstile): quase sempre invisível; às vezes um tilde.
+  var tsToken = "", tsId = null;
+  function iniciarTs() {
+    tsId = turnstile.render("#ts", {
+      sitekey: "0x4AAAAAAFNL0jzkVfLaOEHc", language: "pt-br", appearance: "interaction-only",
+      callback: function (t) { tsToken = t; }, "expired-callback": function () { tsToken = ""; }, "error-callback": function () { tsToken = ""; }
+    });
+  }
   async function enviar() {
     const nome = document.getElementById('nome').value.trim();
     const empresa = document.getElementById('empresa').value.trim();
@@ -97,6 +107,12 @@
       return;
     }
 
+    if (!tsToken) {
+      erroEl.textContent = 'Aguarde um instante a verificação "não sou um robô" e toque de novo.';
+      erroEl.style.display = 'block';
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'Enviando...';
 
@@ -104,7 +120,7 @@
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ nome, empresa, contato }),
+        body: JSON.stringify({ nome, empresa, contato, turnstile: tsToken }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Não foi possível enviar.');
@@ -116,6 +132,7 @@
       erroEl.style.display = 'block';
       btn.disabled = false;
       btn.textContent = 'Cadastrar';
+      tsToken = ""; try { turnstile.reset(tsId); } catch (e) {}
     }
   }
 </script>

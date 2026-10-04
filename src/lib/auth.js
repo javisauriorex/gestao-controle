@@ -1,7 +1,8 @@
 import { getSql } from "./db.js";
 import { TERMOS_VERSAO, registrarAcesso, MAX_TENTATIVAS, duracaoBloqueioMin, textoEspera } from "./legal.js";
 import { enviarConfirmacao } from "./email.js";
-import { ipBloqueado, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO } from "./limites.js";
+import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO } from "./limites.js";
+import { turnstileOk, MSG_TURNSTILE, FALHAS_PARA_PEDIR_TURNSTILE } from "./turnstile.js";
 
 // Respostas da API: nunca guardar em cache, nunca "adivinhar" o tipo, nunca abrir dentro de outra página.
 export const CABECALHOS_SEGURANCA = {
@@ -158,12 +159,13 @@ async function semearPermissoesDefault(sql, empresaId) {
 // si no, crea empresa nueva y queda como Dono (rank 1).
 export async function signup(req, env) {
   const sql = getSql(env);
-  const { email: rawEmail, senha, nome, aceitouTermos } = await req.json();
+  const { email: rawEmail, senha, nome, aceitouTermos, turnstile } = await req.json();
   if (!rawEmail || !senha) return jsonResponse({ ok: false, error: "email e senha são obrigatórios" }, 400);
   if (!aceitouTermos) return jsonResponse({ ok: false, error: "É preciso aceitar os Termos de Uso e a Política de Privacidade." }, 400);
   if (String(senha).length < 8) return jsonResponse({ ok: false, error: "A senha precisa ter ao menos 8 caracteres." }, 400);
   const email = rawEmail.toLowerCase();
 
+  if (!(await turnstileOk(env, req, turnstile))) return jsonResponse({ ok: false, codigo: "turnstile", error: MSG_TURNSTILE }, 403);
   if (await cadastrosDemaisDoIp(sql, req)) return jsonResponse({ ok: false, error: "Muitos cadastros a partir desta rede. Tente de novo daqui a 1 hora." }, 429);
   const existentes = await sql`SELECT id FROM usuarios WHERE email = ${email}`;
   if (existentes.length > 0) return jsonResponse({ ok: false, error: "e-mail já cadastrado" }, 409);
@@ -218,11 +220,16 @@ export async function signup(req, env) {
 // POST /api/auth/login  { email, senha }
 export async function login(req, env) {
   const sql = getSql(env);
-  const { email: rawEmail, senha } = await req.json();
+  const { email: rawEmail, senha, turnstile } = await req.json();
   if (!rawEmail || !senha) return jsonResponse({ ok: false, error: "email e senha são obrigatórios" }, 400);
   const email = rawEmail.toLowerCase();
 
-  if (await ipBloqueado(sql, req)) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
+  // Freios por rede: muitos erros → bloqueio de 1 h; alguns erros → passa a pedir o "não sou um robô".
+  const falhas = await falhasDoIp(sql, req);
+  if (falhas >= LIMITE_FALHAS_IP_HORA) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
+  if (falhas >= FALHAS_PARA_PEDIR_TURNSTILE && !(await turnstileOk(env, req, turnstile))) {
+    return jsonResponse({ ok: false, codigo: "turnstile", error: MSG_TURNSTILE }, 403);
+  }
   const rows = await sql`SELECT * FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
   if (rows.length === 0 || !rows[0].senha_hash) { await registrarFalha(sql, req); return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401); }
   const usuario = rows[0];
