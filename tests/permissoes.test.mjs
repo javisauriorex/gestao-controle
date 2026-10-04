@@ -557,6 +557,19 @@ check("C1: dois toques simultâneos no mesmo convite → uma conta só", nDuplo 
 const nEq = (await pool.query("SELECT count(*)::int n FROM equipe e JOIN usuarios u ON u.id = e.usuario_id WHERE u.cpf = $1", [cpfDuplo])).rows[0].n;
 check("C1: e entrou na equipe uma vez", nEq === 1);
 
+
+// ============================================================
+// BLOCO C2 — Exportar meus dados
+// ============================================================
+check("C2: sem login → 401", (await call("GET", "/api/meus-dados")).status === 401);
+await call("POST", "/api/observacoes", c1.token, { obraId: c1o.obra.id, texto: "minha obs <b>x</b>" });
+const md = await call("GET", "/api/meus-dados", c1.token);
+check("C2: traz cadastro, obras, observações e acessos", md.ok && md.cadastro.email === "c1@x.com" && md.obras.length === 1 && md.observacoes.length === 1 && md.registros_de_acesso.length >= 1, JSON.stringify(md).slice(0, 300));
+check("C2: não traz hashes nem CPF completo", !JSON.stringify(md).includes("senha_hash") && !JSON.stringify(md).includes("pin_hash"));
+const mdProf = await call("GET", "/api/meus-dados", p3.prof.token);
+check("C2: CPF aparece mascarado", /^\d{3}\.\*\*\*\.\*\*\*-\d{2}$/.test(mdProf.cadastro.cpf || ""), mdProf.cadastro.cpf);
+check("C2: só dados da própria pessoa (não vê observação do outro)", !JSON.stringify(mdProf).includes("minha obs"));
+
 // ---- Painel admin ----
 check("admin: Dono comum → 403", (await call("GET", "/api/admin", D)).status === 403);
 check("admin: sem login → 401", (await call("GET", "/api/admin")).status === 401);

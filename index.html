@@ -1559,7 +1559,7 @@ function BottomNav({ onInicio, onConfig, onAjuda, active }) {
   );
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirMeusDados, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
   // Todos os itens com o mesmo formato: ícone à esquerda, texto alinhado, mesma altura.
   const Item = ({ icone, texto, onClick, href, perigo, disabled }) => {
     const estilo = { borderColor: perigo ? C.rust : C.border, color: perigo ? C.rust : C.ink };
@@ -1609,6 +1609,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
           <div className="flex flex-col gap-2">
             <Item icone="🔑" texto={usuario.tem_senha ? "Trocar senha" : "Definir senha"} onClick={onAbrirDefinirSenha} />
             {onAbrirMeuPin && <Item icone="📱" texto={usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"} onClick={onAbrirMeuPin} />}
+            {onAbrirMeusDados && <Item icone="📥" texto="Exportar meus dados" onClick={onAbrirMeusDados} />}
             <Item icone={temaEscuro ? "☀️" : "🌙"} texto={temaEscuro ? "Modo claro" : "Modo escuro"} onClick={onAlternarTema} />
           </div>
 
@@ -1705,6 +1706,84 @@ function MeuPinModal({ usuario, onClose }) {
               <button onClick={onClose} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Cancelar</button>
               <button onClick={salvar} disabled={salvando} style={{ background: C.teal }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5 disabled:opacity-50">{salvando ? "..." : "Salvar"}</button>
             </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// "Exportar meus dados" (LGPD): página legível para ler/imprimir/salvar em PDF + arquivo JSON.
+function escHtml(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function dataBR(v) { if (!v) return ""; const d = new Date(v); return isNaN(d) ? escHtml(v) : d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }); }
+function htmlMeusDados(d) {
+  const tabela = (titulo, linhas, colunas) => {
+    if (!linhas || !linhas.length) return `<h2>${titulo}</h2><p class="vazio">Nada registrado.</p>`;
+    return `<h2>${titulo} <small>(${linhas.length})</small></h2><table><tr>${colunas.map((c) => `<th>${c[0]}</th>`).join("")}</tr>` +
+      linhas.map((l) => `<tr>${colunas.map((c) => `<td>${c[1](l)}</td>`).join("")}</tr>`).join("") + `</table>`;
+  };
+  const c = d.cadastro || {};
+  const RANKS = ["", "Dono", "Eng. Chefe de Obra", "Eng. Estagiário", "Mestre de Obra", "Encarregado", "Almoxarife", "Chefe de Turma", "Profissional"];
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Meus dados — G&amp;C</title>
+<style>body{font-family:system-ui,sans-serif;color:#1A1815;max-width:900px;margin:0 auto;padding:20px;font-size:14px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:26px 0 8px;border-bottom:2px solid #D98E04;padding-bottom:4px}small{color:#777;font-weight:normal}
+table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;vertical-align:top}th{background:#f3efe6}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px}dt{color:#666}.vazio{color:#888}.meta{color:#666;font-size:12px}
+.barra{position:sticky;top:0;background:#fff;padding:8px 0;margin-bottom:8px}.barra button{background:#D98E04;color:#fff;border:0;border-radius:6px;padding:9px 14px;font-weight:700;cursor:pointer}@media print{.barra{display:none}}</style></head><body>
+<div class="barra"><button onclick="window.print()">🖨 Imprimir / salvar em PDF</button></div>
+<h1>Meus dados no Gestão &amp; Controle</h1><p class="meta">Gerado em ${dataBR(d.gerado_em)} · ${escHtml(d.sobre)}</p>
+<h2>Cadastro</h2><dl>
+<dt>Nome</dt><dd>${escHtml(c.nome)}</dd><dt>E-mail</dt><dd>${escHtml(c.email || "—")}${c.email ? (c.email_confirmado ? " (confirmado)" : " (não confirmado)") : ""}</dd>
+<dt>CPF</dt><dd>${escHtml(c.cpf || "—")}</dd><dt>Telefone</dt><dd>${escHtml(c.telefone || "—")}</dd>
+<dt>Empresa</dt><dd>${escHtml(c.empresa || "—")}</dd><dt>Rank</dt><dd>${escHtml(RANKS[c.rank] || c.rank)}</dd>
+<dt>Conta criada em</dt><dd>${dataBR(c.conta_criada_em)}</dd><dt>Formas de entrar</dt><dd>${[c.entra_com_senha && "e-mail e senha", c.entra_com_pin && "CPF e PIN"].filter(Boolean).join(", ") || "Google"}</dd>
+<dt>Termos aceitos</dt><dd>${c.termos_aceitos ? `versão ${escHtml(c.termos_aceitos.versao)} em ${dataBR(c.termos_aceitos.em)}` : "—"}</dd></dl>
+${tabela("Obras em que participa", d.obras, [["Obra", (l) => escHtml(l.obra)], ["Endereço", (l) => escHtml(l.endereco)], ["Função", (l) => escHtml(l.funcao)], ["Situação", (l) => escHtml(l.estado)], ["Dias de presença", (l) => (Array.isArray(l.presencas) ? l.presencas.length : 0) + (Array.isArray(l.presencas) && l.presencas.length ? `<br><small>${l.presencas.map(escHtml).join(", ")}</small>` : "")]])}
+${tabela("Observações (livro de obra) que você escreveu", d.observacoes, [["Obra", (l) => escHtml(l.obra)], ["Texto", (l) => escHtml(l.texto) + (l.versoes_anteriores && l.versoes_anteriores.length ? `<br><small>Versões anteriores: ${l.versoes_anteriores.map((v) => `“${escHtml(v.texto)}” (${dataBR(v.substituido_em)})`).join(" · ")}</small>` : "")], ["Escrita em", (l) => dataBR(l.criado_em)]])}
+${tabela("Pedidos e entregas", d.pedidos, [["Obra", (l) => escHtml(l.obra)], ["Você", (l) => escHtml(l.papel)], ["Outra pessoa", (l) => escHtml(l.outra_pessoa)], ["Tipo", (l) => escHtml(l.tipo)], ["Descrição", (l) => escHtml(l.descricao) + (l.quantidade ? ` (${escHtml(l.quantidade)})` : "")], ["Situação", (l) => escHtml(l.status)], ["Data", (l) => dataBR(l.criado_em)]])}
+${tabela("Etapas", d.etapas, [["Obra", (l) => escHtml(l.obra)], ["Etapa", (l) => escHtml(l.texto)], ["Criada por você", (l) => (l.criada_por_voce ? "sim" : "")], ["Concluída por você em", (l) => dataBR(l.concluida_por_voce_em)]])}
+${tabela("Materiais e ferramentas que você registrou", d.materiais_e_ferramentas, [["Tipo", (l) => escHtml(l.tipo)], ["Obra", (l) => escHtml(l.obra)], ["Item", (l) => escHtml(l.texto)], ["Data", (l) => dataBR(l.criado_em)]])}
+${tabela("Fotos e documentos que você enviou", d.arquivos_enviados, [["Tipo", (l) => escHtml(l.tipo)], ["Obra", (l) => escHtml(l.obra)], ["Nome / etapa", (l) => escHtml(l.nome)], ["Data", (l) => dataBR(l.criado_em)]])}
+${tabela("Registros de acesso (últimos 6 meses)", d.registros_de_acesso, [["Quando", (l) => dataBR(l.quando)], ["Como", (l) => escHtml(l.como)], ["IP", (l) => escHtml(l.ip)]])}
+</body></html>`;
+}
+
+function MeusDadosModal({ onClose }) {
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState("");
+  useEffect(() => { apiFetch("/api/meus-dados").then(setDados).catch((e) => setErro(e.message)); }, []);
+  const verPagina = () => {
+    const w = window.open("", "_blank");
+    if (!w) { setErro("O navegador bloqueou a nova aba. Permita pop-ups para este site e tente de novo."); return; }
+    w.document.open(); w.document.write(htmlMeusDados(dados)); w.document.close();
+  };
+  const baixarJson = () => {
+    const { ok, ...conteudo } = dados;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(conteudo, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a"); a.href = url; a.download = `meus-dados-gc-${todayISO()}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  const n = (k) => (dados && Array.isArray(dados[k]) ? dados[k].length : 0);
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-3">
+          <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">📥 Meus dados</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl leading-none">×</button>
+        </div>
+        {!dados && !erro && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Reunindo seus dados...</p>}
+        {erro && <p style={{ color: C.rust }} className="text-xs font-mono">{erro}</p>}
+        {dados && (
+          <>
+            <p style={{ color: C.ink }} className="text-sm mb-2">Tudo o que o G&C guarda sobre você:</p>
+            <ul style={{ color: C.inkMuted }} className="text-xs font-mono mb-4 space-y-0.5">
+              <li>• Cadastro e formas de entrar</li>
+              <li>• {n("obras")} obra(s) e suas presenças</li>
+              <li>• {n("observacoes")} observação(ões) · {n("pedidos")} pedido(s) · {n("etapas")} etapa(s)</li>
+              <li>• {n("arquivos_enviados")} foto(s)/documento(s) enviados</li>
+              <li>• {n("registros_de_acesso")} registro(s) de acesso</li>
+            </ul>
+            <button onClick={verPagina} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">📄 Ver e imprimir (PDF)</button>
+            <button onClick={baixarJson} style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mt-2">⤓ Baixar arquivo (JSON)</button>
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-3">O arquivo JSON serve para levar seus dados a outro sistema (portabilidade, LGPD).</p>
           </>
         )}
       </div>
@@ -2771,6 +2850,7 @@ function GestorObras() {
   const [showConfig, setShowConfig] = useState(false);
   const [showDefinirSenha, setShowDefinirSenha] = useState(false);
   const [showMeuPin, setShowMeuPin] = useState(false);
+  const [showMeusDados, setShowMeusDados] = useState(false);
   const [termosVigente, setTermosVigente] = useState(null);
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
@@ -3361,8 +3441,9 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : view === "ajuda" ? "ajuda" : ""} onAjuda={() => { if (view !== "ajuda") irParaView("ajuda"); }} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onAbrirMeusDados={() => { setShowConfig(false); setShowMeusDados(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => { setShowDefinirSenha(false); carregarUsuarioAPI(); }} />}
+        {showMeusDados && <MeusDadosModal onClose={() => setShowMeusDados(false)} />}
         {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
         <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
           {notificacoes.map((n) => (

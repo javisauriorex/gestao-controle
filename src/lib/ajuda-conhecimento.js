@@ -238,9 +238,11 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
     id: "conta",
     titulo: "Sua conta, privacidade e suporte",
     para: "todos",
-    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Backup de tudo (Dono), Manual do usuário, Termos de Uso, Privacidade, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
+    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Backup de tudo (Dono), Manual do usuário, Termos de Uso, Privacidade, Exportar meus dados, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
 
 Trocar senha: pede a senha atual. Ao trocar a senha ou o PIN, os outros aparelhos saem da conta; o aparelho que você está usando continua.
+
+Exportar meus dados: mostra tudo o que o G&C guarda sobre você (cadastro, obras, presenças, observações, pedidos, arquivos enviados e registros de acesso). Dá para ver e imprimir/salvar em PDF, ou baixar um arquivo JSON para levar a outro sistema.
 
 Sair de todos os aparelhos: fecha a sessão em todos os outros celulares e computadores. Use se perdeu o celular ou entrou num aparelho que não é seu.
 

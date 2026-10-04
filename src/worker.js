@@ -22,6 +22,7 @@ import encerrarEmpresa from "./routes/encerrar-empresa.js";
 import manual from "./routes/manual.js";
 import { reenviarConfirmacao, esqueciSenha, redefinirSenha, paginaConfirmarEmail, paginaRedefinirSenha } from "./routes/conta-email.js";
 import admin from "./routes/admin.js";
+import meusDados from "./routes/meus-dados.js";
 
 const ROTAS = {
   "/api/auth/login": login,
@@ -54,6 +55,7 @@ const ROTAS = {
   "/api/ajuda": ajuda,
   "/api/encerrar-empresa": encerrarEmpresa,
   "/api/admin": admin,
+  "/api/meus-dados": meusDados,
 };
 
 export default {
