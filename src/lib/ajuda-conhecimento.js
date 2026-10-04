@@ -61,7 +61,7 @@ Permissões padrão (a empresa pode mudar):
     texto: `Há três formas de entrar:
 1. CPF + PIN: para quem recebeu convite pelo WhatsApp. Digite seu CPF e o PIN de 4 números que você criou.
 2. E-mail e senha. Ao criar a conta assim, enviamos um link de confirmação ao seu e-mail: abra o e-mail e toque no link antes de entrar pela primeira vez (olhe também o spam). Não chegou? Tente entrar com e-mail e senha e toque em "Reenviar e-mail".
-3. Continuar com Google.
+3. Entrar com Google (botão branco com o "G" colorido).
 
 Convite pelo WhatsApp: toque no link recebido, digite seu CPF, crie um PIN de 4 números (duas vezes), aceite os Termos e toque em Entrar. O link vale 7 dias e só pode ser usado uma vez. Se venceu, peça um novo a quem te convidou.
 
@@ -90,7 +90,7 @@ Quem entra com Google não tem senha do G&C: se perder o acesso ao Google, peça
 
 Ao usar um Novo PIN, os outros aparelhos em que você estava logado saem da conta (por segurança, caso o celular tenha sido perdido).
 
-Se o seu e-mail for Gmail, você também pode entrar com "Continuar com Google".
+Se o seu e-mail for Gmail, você também pode usar o botão "Entrar com Google".
 
 O Dono não tem chefe para pedir: se o Dono perder o acesso, deve escrever para suporte@gestaoecontrole.app.br a partir do e-mail da conta.
 

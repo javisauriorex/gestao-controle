@@ -166,7 +166,7 @@ export async function signup(req, env) {
        // Segurança: um convite por email NÃO pode ser reclamado só digitando o email.
      // Tem que usar o link do convite (WhatsApp) ou "Continuar com Google".
      if (convites.length > 0) {
-       return jsonResponse({ ok: false, error: "Este email tem um convite pendente. Use o link do convite que você recebeu, ou entre com o Google." }, 409);
+       return jsonResponse({ ok: false, error: "Este email tem um convite pendente. Use o link do convite que você recebeu, ou toque em \"Entrar com Google\"." }, 409);
      }
 
   let novoUsuario;

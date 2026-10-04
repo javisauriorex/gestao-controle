@@ -494,6 +494,15 @@ check("admin: empresa e pessoas sumiram, acessos ficam sem vínculo", resto.rows
 check("admin: arquivo apagado do KV", !kv.has("arq-vitima-1"));
 check("admin: outras empresas intactas", (await call("GET", "/api/obras", D)).obras.length >= 1);
 
+// Reingresso: empresa apagada pelo admin libera o e-mail para um cadastro novo
+const re = await cadastro("volta@x.com", "senhaBoa123", "Volta");
+await call("POST", "/api/obras", re.token, { cliente: "Obra R" });
+await call("POST", "/api/auth/esqueci-senha", null, { email: "volta@x.com" });
+const empR = (await pool.query("SELECT empresa_id FROM usuarios WHERE email='volta@x.com'")).rows[0].empresa_id;
+const delR = await call("DELETE", `/api/admin?empresa_id=${empR}`, AD, { confirmar: "ELIMINA" });
+check("reingresso: admin apaga empresa com tokens de e-mail e acessos", delR.ok, JSON.stringify(delR));
+const re2 = await call("POST", "/api/auth/signup", null, { email: "volta@x.com", senha: "senhaBoa123", nome: "Volta 2", aceitouTermos: true });
+check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
 await pool.end();

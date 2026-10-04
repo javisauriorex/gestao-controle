@@ -2296,8 +2296,8 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
     <AuthWrap>
       <LogoTitulo />
       <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center mb-5">Criar conta</p>
-      <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
-        <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
+      <a href="/api/auth/google" aria-label="Entrar com Google" className="block mb-4 active:opacity-80">
+        <img src="google-login.png" alt="Entrar com Google" className="mx-auto h-14 w-auto" draggable="false" />
       </a>
       <div className="flex items-center gap-2 mb-4">
         <div style={{ borderColor: C.border }} className="flex-1 border-t" />
@@ -2335,7 +2335,11 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
 
 function LoginScreen({ onLogado, onIrCadastro }) {
   const [semConfirmar, setSemConfirmar] = useState(null);
+  const [esqueciAberto, setEsqueciAberto] = useState(false);
+  const [emailEsqueci, setEmailEsqueci] = useState("");
   const [msgEsqueci, setMsgEsqueci] = useState("");
+  const [erroEsqueci, setErroEsqueci] = useState("");
+  const [enviandoEsqueci, setEnviandoEsqueci] = useState(false);
   const [modo, setModo] = useState(() => { try { return localStorage.getItem("gc-login-modo") || "email"; } catch (e) { return "email"; } });
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -2360,11 +2364,14 @@ function LoginScreen({ onLogado, onIrCadastro }) {
     setEntrando(false);
   };
 
-  const esqueci = async () => {
-    setErro(""); setMsgEsqueci("");
-    if (!email.trim()) { setErro("Digite seu e-mail no campo acima e toque de novo em \"Esqueci a senha\"."); return; }
-    try { const r = await apiPublica("/api/auth/esqueci-senha", { email: email.trim() }); setMsgEsqueci((r.mensagem || "") + " O link vale 1 hora."); }
-    catch (err) { setErro(err.message); }
+  const abrirEsqueci = () => { setEmailEsqueci(email.trim()); setMsgEsqueci(""); setErroEsqueci(""); setEsqueciAberto(true); };
+  const enviarEsqueci = async () => {
+    setErroEsqueci(""); setMsgEsqueci("");
+    if (!/^\S+@\S+\.\S+$/.test(emailEsqueci.trim())) { setErroEsqueci("Digite um e-mail válido."); return; }
+    setEnviandoEsqueci(true);
+    try { const r = await apiPublica("/api/auth/esqueci-senha", { email: emailEsqueci.trim() }); setMsgEsqueci((r.mensagem || "") + " O link vale 1 hora."); }
+    catch (err) { setErroEsqueci(err.message); }
+    setEnviandoEsqueci(false);
   };
 
   if (semConfirmar) return <ConfirmeEmailAviso email={semConfirmar} onIrLogin={() => setSemConfirmar(null)} />;
@@ -2418,8 +2425,8 @@ function LoginScreen({ onLogado, onIrCadastro }) {
         <button onClick={() => trocarModo("cpf")} style={abaEstilo(false)} className="flex-1 border rounded-l py-2 text-xs font-bold uppercase">CPF + PIN</button>
         <button onClick={() => trocarModo("email")} style={abaEstilo(true)} className="flex-1 border rounded-r py-2 text-xs font-bold uppercase">Email / Google</button>
       </div>
-      <a href="/api/auth/google" style={{ borderColor: C.border, color: C.ink }} className="w-full border font-bold uppercase tracking-wide text-sm rounded py-2.5 mb-4 flex items-center justify-center gap-2 no-underline">
-        <span style={{ color: "#4285F4" }}>G</span> Continuar com Google
+      <a href="/api/auth/google" aria-label="Entrar com Google" className="block mb-4 active:opacity-80">
+        <img src="google-login.png" alt="Entrar com Google" className="mx-auto h-14 w-auto" draggable="false" />
       </a>
       <div className="flex items-center gap-2 mb-4">
         <div style={{ borderColor: C.border }} className="flex-1 border-t" />
@@ -2435,10 +2442,32 @@ function LoginScreen({ onLogado, onIrCadastro }) {
         <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
       </div>
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
-      <button onClick={entrar} disabled={entrando} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
-      <button onClick={esqueci} style={{ color: C.amber }} className="w-full text-xs font-mono mt-3 underline">Esqueci a senha</button>
-      {msgEsqueci && <p style={{ color: C.green }} className="text-xs font-mono mt-1 text-center">{msgEsqueci}</p>}
-      <button onClick={onIrCadastro} style={{ color: C.inkMuted }} className="w-full text-xs font-mono uppercase mt-2">Não tenho conta — criar</button>
+      <button onClick={entrar} disabled={entrando} style={{ background: C.green }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{entrando ? "Entrando..." : "Entrar"}</button>
+      <button onClick={onIrCadastro} style={{ background: C.amber }} className="w-full mt-2 text-white font-bold uppercase tracking-wide rounded py-2.5">Criar conta</button>
+      <button onClick={abrirEsqueci} style={{ color: C.inkMuted }} className="w-full text-xs font-mono mt-3 underline">Esqueci a senha</button>
+      {esqueciAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setEsqueciAberto(false)}>
+          <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide">Esqueci a senha</h2>
+              <button onClick={() => setEsqueciAberto(false)} style={{ color: C.inkMuted }} className="text-xl leading-none">×</button>
+            </div>
+            {msgEsqueci ? (
+              <>
+                <p style={{ color: C.green }} className="text-sm">📧 {msgEsqueci}</p>
+                <button onClick={() => setEsqueciAberto(false)} style={{ background: C.green }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5">Fechar</button>
+              </>
+            ) : (
+              <>
+                <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">E-mail da sua conta</label>
+                <input type="email" value={emailEsqueci} onChange={(e) => setEmailEsqueci(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enviarEsqueci()} autoFocus style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="voce@exemplo.com" />
+                {erroEsqueci && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erroEsqueci}</p>}
+                <button onClick={enviarEsqueci} disabled={enviandoEsqueci} style={{ background: C.amber }} className="w-full mt-4 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{enviandoEsqueci ? "Enviando..." : "Enviar link por e-mail"}</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </AuthWrap>
   );
 }

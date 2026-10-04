@@ -51,7 +51,7 @@ export async function googleCallback(req, env) {
   }
   const stateCookie = lerCookie(req, COOKIE_STATE);
   if (!stateCookie || stateCookie !== url.searchParams.get("state")) {
-    return paginaHtml(paginaErro("O login expirou ou não começou neste aparelho. Toque de novo em \"Continuar com Google\"."));
+    return paginaHtml(paginaErro("O login expirou ou não começou neste aparelho. Toque de novo em \"Entrar com Google\"."));
   }
 
   try {
