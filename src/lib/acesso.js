@@ -6,11 +6,15 @@ import { getNivel, nivelEfetivo, jsonResponse } from "./auth.js";
 // o bloqueio por obra que o responsável da obra define no ⚙ de Equipe.
 //
 //   - Obra de outra empresa → nenhum.
-//   - Rank 3..8 que não está na equipe da obra → nenhum.
-//   - Dono e Eng. Chefe (rank 1-2) acessam todas as obras da empresa.
+//   - Rank 4..8 que não está na equipe da obra → nenhum (cada um vê SÓ as suas obras).
+//   - Dono, Eng. Chefe e Eng. Estagiário (rank 1-3) acessam todas as obras da empresa
+//     (o Estagiário só vê: a matriz padrão dele é "visualizar").
 // ============================================================
 
-const ORDEM = { nenhum: 0, visualizar: 1, editar: 2 };
+const ORDEM = { nenhum: 0, visualizar: 1, receber: 2, editar: 3 };
+
+// Dono, Eng. Chefe e Eng. Estagiário veem todas as obras; do Mestre para baixo, só as suas.
+export const veTodasAsObras = (usuario) => usuario.rank <= 3;
 
 export async function nivelNaObra(sql, usuario, obraId, modulo, env) {
   if (!obraId) return { nivel: "nenhum", membro: false };
@@ -18,7 +22,7 @@ export async function nivelNaObra(sql, usuario, obraId, modulo, env) {
   if (obras.length === 0) return { nivel: "nenhum", membro: false };
   const membros = await sql`SELECT excecao_modulos FROM equipe WHERE obra_id = ${obraId} AND usuario_id = ${usuario.id}`;
   const membro = membros.length > 0;
-  if (usuario.rank > 2 && !membro) return { nivel: "nenhum", membro: false };
+  if (!veTodasAsObras(usuario) && !membro) return { nivel: "nenhum", membro: false };
   let nivel = await getNivel(usuario.empresa_id, usuario.rank, modulo, env);
   if (membro) nivel = nivelEfetivo(nivel, membros[0].excecao_modulos, modulo);
   return { nivel, membro, obra: obras[0] };
@@ -26,6 +30,8 @@ export async function nivelNaObra(sql, usuario, obraId, modulo, env) {
 
 export const podeVer = (nivel) => ORDEM[nivel] >= 1;
 export const podeEditar = (nivel) => nivel === "editar";
+// "receber": vê, faz pedidos e confirma o que recebeu (Ferramentas/Materiais).
+export const podeReceber = (nivel) => ORDEM[nivel] >= 2;
 
 export const semAcesso = () => jsonResponse({ ok: false, error: "sem acesso a esta obra" }, 403);
 export const soVisualizar = () => jsonResponse({ ok: false, error: "seu nível neste módulo é só visualizar" }, 403);
@@ -40,6 +46,7 @@ export async function obraDoRegistro(sql, tabela, id) {
     observacoes: sql`SELECT obra_id FROM observacoes WHERE id = ${id}`,
     etapa_fotos: sql`SELECT e.obra_id FROM etapa_fotos f JOIN etapas e ON e.id = f.etapa_id WHERE f.id = ${id}`,
     etapa: sql`SELECT obra_id FROM etapas WHERE id = ${id}`,
+    pedidos: sql`SELECT obra_id FROM pedidos WHERE id = ${id}`,
   }[tabela];
   const rows = await q;
   return rows.length ? rows[0].obra_id : null;

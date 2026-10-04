@@ -1,5 +1,6 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse, podeCrear } from "../lib/auth.js";
+import { veTodasAsObras } from "../lib/acesso.js";
 import { apagarDoKV } from "../lib/arquivos.js";
 
 export default async function obrasHandler(req, env) {
@@ -8,10 +9,10 @@ export default async function obrasHandler(req, env) {
   const sql = getSql(env);
 
   if (req.method === "GET") {
-    // Dono e Eng. Chefe (rank 1-2) veem todas as obras da empresa; os demais, só as obras em que estão na equipe.
-    // (Estava invertido — resto da época em que o Dono era rank 8.)
+    // Dono, Eng. Chefe e Eng. Estagiário (rank 1-3) veem todas as obras da empresa;
+    // do Mestre para baixo, só as obras em que estão na equipe.
     const obras =
-      usuario.rank <= 2
+      veTodasAsObras(usuario)
         ? await sql`SELECT * FROM obras WHERE empresa_id = ${usuario.empresa_id} ORDER BY id DESC`
         : await sql`
             SELECT o.* FROM obras o
@@ -23,7 +24,8 @@ export default async function obrasHandler(req, env) {
   }
 
   if (req.method === "POST") {
-    if (!podeCrear(4, usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+    // Criar obra: Dono, Eng. Chefe e Mestre de Obra (o Estagiário só acompanha).
+    if (![1, 2, 4].includes(usuario.rank)) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
     const { cliente, endereco, tipo, dataInicio, responsavelId } = await req.json();
     if (!cliente) return jsonResponse({ ok: false, error: "cliente é obrigatório" }, 400);
     if (responsavelId && !(await ativoNaEmpresa(sql, responsavelId, usuario.empresa_id))) {

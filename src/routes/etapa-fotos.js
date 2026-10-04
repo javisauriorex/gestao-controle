@@ -45,7 +45,7 @@ export default async function etapaFotosHandler(req, env) {
     const meta = (await env.ARQUIVOS.getWithMetadata(arquivoId, "text")).metadata;
     if (!meta || meta.por !== usuario.id) return jsonResponse({ ok: false, error: "arquivo inválido" }, 400);
     const rows = await sql`
-      INSERT INTO etapa_fotos (etapa_id, arquivo_id, criado_por) VALUES (${etapaId}, ${arquivoId}, ${usuario.id}) RETURNING *
+      INSERT INTO etapa_fotos (etapa_id, arquivo_id, criado_por, rank_autor) VALUES (${etapaId}, ${arquivoId}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;
     return jsonResponse({ ok: true, foto: rows[0] });
   }
@@ -59,7 +59,7 @@ export default async function etapaFotosHandler(req, env) {
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
     const alvos = await sql`
-      SELECT f.*, u.rank as rank_criador FROM etapa_fotos f JOIN usuarios u ON u.id = f.criado_por WHERE f.id = ${id}
+      SELECT f.*, COALESCE(f.rank_autor, u.rank) as rank_criador FROM etapa_fotos f JOIN usuarios u ON u.id = f.criado_por WHERE f.id = ${id}
     `;
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);

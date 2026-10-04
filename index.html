@@ -749,8 +749,11 @@ function DocumentosSection({ obraId, documentos, onAdd, onDelete, fileCache, loa
   );
 }
 
-function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExcecao, usuarioRank, usuarioId, responsavelId, podeEditar = true }) {
+function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExcecao, usuarioRank, usuarioId, usuarioNome, donoPrincipal = false, responsavelId, podeEditar = true }) {
   const souResponsavel = usuarioId != null && usuarioId === responsavelId;
+  // Hierarquia (05/10): superior estrito; entre dois Donos, o principal fica acima.
+  const souSuperiorDe = (m) => m.usuario_id !== usuarioId && (usuarioRank < m.rank || (usuarioRank === 1 && m.rank === 1 && donoPrincipal));
+  const possoMudarRanks = [1, 2, 4].includes(usuarioRank);
   const [email, setEmail] = useState("");
   const [funcao, setFuncao] = useState("");
   const [rank, setRank] = useState(usuarioRank + 1 <= 8 ? usuarioRank + 1 : 8);
@@ -768,7 +771,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   const list = equipe;
   const hoje = todayISO();
   const funcoesHistoricas = [...new Set([...FUNCOES, ...equipe.map((m) => m.funcao).filter(Boolean)])];
-  const ranksDisponiveis = [2, 3, 4, 5, 6, 7, 8].filter((r) => r > usuarioRank);
+  const ranksDisponiveis = [1, 2, 3, 4, 5, 6, 7, 8].filter((r) => r > usuarioRank || (r === 1 && usuarioRank === 1 && donoPrincipal));
 
   const submit = async () => {
     if (!email.trim()) return;
@@ -857,7 +860,7 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
   const salvarMembro = async (m) => {
     setErro(""); setMsg("");
     const campos = { funcao: edicao.funcao };
-    if (usuarioRank <= 2 && Number(edicao.rank) !== m.rank) campos.rank = Number(edicao.rank);
+    if (possoMudarRanks && souSuperiorDe(m) && m.rank !== 1 && Number(edicao.rank) !== m.rank) campos.rank = Number(edicao.rank);
     try { await onSetExcecao(m.id, campos); setMsg(`${m.nome} atualizado.`); setExcecaoAberta(null); }
     catch (err) { setErro(err.message); }
   };
@@ -887,6 +890,9 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
       <div className="space-y-2 mb-3">
         {list.map((m) => {
           const presenteHoje = m.asistencias?.includes(hoje);
+          const anotacaoHoje = m.presencas_por?.[hoje] || null;
+          // Presença: cada um a sua; um superior com "editar" só ANOTA (e só desfaz o que foi anotado, não o que a pessoa marcou).
+          const podeMarcar = m.usuario_id === usuarioId || (podeEditar && souSuperiorDe(m) && (!presenteHoje || !!anotacaoHoje));
           const temExcecao = m.excecao_modulos && Object.keys(m.excecao_modulos).length > 0;
           const ausente = !!m.removido_em;
           if (ausente) {
@@ -897,33 +903,33 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                   <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">conta excluída · {RANK_LABELS[m.rank]}</div>
                 </div>
                 <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
-                {podeEditar && <button onClick={() => remover(m)} title="Tirar da lista desta obra" style={{ color: C.inkMuted }} className="shrink-0">×</button>}
+                {podeEditar && souSuperiorDe(m) && <button onClick={() => remover(m)} title="Tirar da lista desta obra" style={{ color: C.inkMuted }} className="shrink-0">×</button>}
               </div>
             );
           }
           return (
             <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2">
               <div className="flex items-center gap-2">
-                <button onClick={() => (m.usuario_id === usuarioId || (podeEditar && m.rank > usuarioRank)) && marcarPresenca(m)} disabled={!(m.usuario_id === usuarioId || (podeEditar && m.rank > usuarioRank))} title="Marcar presença hoje" style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? C.green : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
+                <button onClick={() => podeMarcar && marcarPresenca(m)} disabled={!podeMarcar} title={m.usuario_id === usuarioId ? "Marcar minha presença hoje" : anotacaoHoje ? `Anotada por ${anotacaoHoje.nome}` : presenteHoje ? "Marcada pela própria pessoa" : "Anotar presença (fica registrado que foi você)"} style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? (anotacaoHoje ? C.amber : C.green) : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
                   {presenteHoje ? "✓" : ""}
                 </button>
                 <div className="flex-1 min-w-0 truncate">
                   {/* Título: o rank. Para Profissional, o ofício (Pedreiro, Pintor...) quando informado. */}
                   <span style={{ color: C.ink }} className="font-semibold text-sm">{m.nome}</span> <span style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">· {m.rank === 8 && m.funcao ? m.funcao : RANK_LABELS[m.rank]}</span>
-                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.rank === 8 ? (m.funcao ? `${RANK_LABELS[8]} · ` : "") : (m.funcao ? `${m.funcao} · ` : "")}{m.email || "entra com CPF"}{temExcecao ? " · acesso personalizado" : ""}</div>
+                  <div style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{m.rank === 8 ? (m.funcao ? `${RANK_LABELS[8]} · ` : "") : (m.funcao ? `${m.funcao} · ` : "")}{m.email || (m.usuario_id === usuarioId || souSuperiorDe(m) ? "entra com CPF" : "")}{temExcecao ? " · acesso personalizado" : ""}{anotacaoHoje ? ` · presença anotada por ${anotacaoHoje.nome}` : ""}</div>
                 </div>
                 <span style={{ color: C.inkMuted }} className="text-xs font-mono shrink-0">{m.asistencias?.length || 0}d</span>
                 {podeEditar && <button onClick={() => abrirPainel(m)} style={{ color: temExcecao ? C.amber : C.inkMuted }} title="Editar rank, função e acesso" className="shrink-0">⚙</button>}
                 {podeEditar && usuarioRank <= 2 && m.rank > usuarioRank && <button onClick={() => gerarNovoPin(m)} title="Novo PIN (manda link por WhatsApp)" style={{ color: C.inkMuted }} className="shrink-0">🔑</button>}
-                {podeEditar && <button onClick={() => remover(m)} style={{ color: C.inkMuted }} className="shrink-0">×</button>}
+                {podeEditar && souSuperiorDe(m) && m.usuario_id !== responsavelId && <button onClick={() => remover(m)} title="Tirar desta obra" style={{ color: C.inkMuted }} className="shrink-0">×</button>}
               </div>
               {excecaoAberta === m.id && (
                 <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t">
-                  {(usuarioRank <= 2 && m.usuario_id !== usuarioId && (m.rank > usuarioRank || (usuarioRank === 2 && m.rank === 2))) || (souResponsavel && m.rank > usuarioRank) ? (
+                  {(possoMudarRanks && souSuperiorDe(m) && m.rank !== 1) || (souResponsavel && souSuperiorDe(m)) ? (
                     <div className="mb-3">
                       <div className="flex flex-wrap gap-2 items-center">
-                        <select value={edicao.rank} disabled={usuarioRank > 2} onChange={(e) => setEdicao({ ...edicao, rank: Number(e.target.value) })} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white">
-                          {[2, 3, 4, 5, 6, 7, 8].filter((r) => (usuarioRank === 2 && m.rank === 2 ? r >= 2 : r > usuarioRank)).map((r) => <option key={r} value={r}>{RANK_LABELS[r]}</option>)}
+                        <select value={edicao.rank} disabled={!possoMudarRanks || m.rank === 1} onChange={(e) => setEdicao({ ...edicao, rank: Number(e.target.value) })} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-1 py-1.5 text-xs outline-none bg-white">
+                          {[...new Set([m.rank, ...ranksDisponiveis])].sort((a, b) => a - b).map((r) => <option key={r} value={r}>{RANK_LABELS[r]}{r === 1 ? " (co-Dono)" : ""}</option>)}
                         </select>
                         <input value={edicao.funcao} onChange={(e) => setEdicao({ ...edicao, funcao: e.target.value })} placeholder={edicao.rank === 8 ? "Ofício (ex.: Pedreiro)" : "Função nesta obra"} list="funcoes-equipe" style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-[7rem] border rounded px-2 py-1.5 text-xs outline-none" />
                         <button onClick={() => salvarMembro(m)} style={{ background: C.teal }} className="text-white rounded px-3 py-1.5 text-xs font-bold uppercase">Salvar</button>
@@ -931,9 +937,9 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
                       <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">O rank vale para todas as obras; a função, só para esta.</p>
                     </div>
                   ) : (
-                    <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">Só Dono e Engenheiro Chefe podem mudar o rank de quem está abaixo deles.</p>
+                    <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">{m.rank === 1 ? "Mudar ou excluir um Dono é feito pelo suporte (suporte@gestaoecontrole.app.br)." : "Só Dono, Engenheiro Chefe e Mestre de Obra mudam o rank, e só de quem está abaixo deles."}</p>
                   )}
-                  {souResponsavel && m.rank > usuarioRank ? (<>
+                  {souResponsavel && souSuperiorDe(m) ? (<>
                   <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-1.5">Bloquear acesso NESTA obra a (você é o responsável):</p>
                   <div className="flex flex-wrap gap-2">
                     {MODULOS_OBRA.map((mod) => {
@@ -1134,7 +1140,11 @@ function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa,
   );
 }
 
-function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
+// Pedidos e entregas (05/10): pedido → "pendente"; quem fornece entrega → "aguardando";
+// quem recebe confirma → "atendido" (ou contesta → volta a "pendente"). Uma entrega direta já nasce "aguardando".
+// Pedir e confirmar: nível "receber" ou "editar". Entregar direto: "editar".
+const ORDEM_NIVEL = { nenhum: 0, visualizar: 1, receber: 2, editar: 3 };
+function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI, nivel = "editar" }) {
   const [pedidos, setPedidos] = useState(null);
   const [mostrarForm, setMostrarForm] = useState(null); // "pedir" | "entregar" | null
   const [descricao, setDescricao] = useState("");
@@ -1142,6 +1152,8 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
   const [pessoaId, setPessoaId] = useState("");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const podePedir = ORDEM_NIVEL[nivel] >= 2;
+  const podeEntregar = nivel === "editar";
 
   const carregar = async () => {
     try {
@@ -1174,30 +1186,36 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
   };
 
   const responder = async (id, status) => {
-    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); await carregar(); } catch (e) {}
+    setErro("");
+    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); await carregar(); } catch (e) { setErro(e.message); }
   };
 
   const cancelar = async (id) => {
     if (!window.confirm("Cancelar este pedido?")) return;
-    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "DELETE" }); await carregar(); } catch (e) {}
+    setErro("");
+    try { await apiFetch(`/api/pedidos?id=${id}`, { method: "DELETE" }); await carregar(); } catch (e) { setErro(e.message); }
   };
 
   if (pedidos === null) return null;
 
-  const recebidos = pedidos.filter((p) => p.remetente_id === usuarioAPI.id && p.status === "pendente");
-  const historico = pedidos.filter((p) => !(p.remetente_id === usuarioAPI.id && p.status === "pendente")).slice(0, 8);
+  const paraEntregar = pedidos.filter((p) => p.remetente_id === usuarioAPI.id && p.status === "pendente");
+  const paraConfirmar = pedidos.filter((p) => p.destinatario_id === usuarioAPI.id && p.status === "aguardando");
+  const destaque = new Set([...paraEntregar, ...paraConfirmar].map((p) => p.id));
+  const historico = pedidos.filter((p) => !destaque.has(p.id)).slice(0, 10);
+  const SIMBOLO = { atendido: "✓", recusado: "✕", aguardando: "🚚", pendente: "…" };
+  const LEGENDA = { atendido: "recebido", recusado: "recusado", aguardando: "entregue, falta confirmar", pendente: "pedido" };
 
   return (
     <div style={{ borderColor: C.border, background: C.surface }} className="border rounded-md p-3 mb-4">
       <p style={{ color: C.ink }} className="text-xs font-extrabold uppercase tracking-wide mb-2">📋 Pedidos de {tipoLabel}</p>
 
-      {recebidos.length > 0 && (
+      {paraEntregar.length > 0 && (
         <div className="mb-3 space-y-2">
-          {recebidos.map((p) => (
+          {paraEntregar.map((p) => (
             <div key={p.id} style={{ borderColor: C.amber, background: C.bg }} className="border rounded p-2">
               <p style={{ color: C.ink }} className="text-sm"><b>{p.destinatario_nome}</b> pediu: {p.descricao}{p.quantidade ? ` (${p.quantidade})` : ""}</p>
               <div className="flex gap-2 mt-1.5">
-                <button onClick={() => responder(p.id, "atendido")} style={{ background: C.green }} className="text-white text-[11px] font-bold uppercase rounded px-2 py-1">✓ Atender</button>
+                <button onClick={() => responder(p.id, "entregue")} style={{ background: C.green }} className="text-white text-[11px] font-bold uppercase rounded px-2 py-1">🚚 Entreguei</button>
                 <button onClick={() => responder(p.id, "recusado")} style={{ color: C.rust, borderColor: C.rust }} className="border text-[11px] font-bold uppercase rounded px-2 py-1">Recusar</button>
               </div>
             </div>
@@ -1205,9 +1223,25 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
         </div>
       )}
 
+      {paraConfirmar.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {paraConfirmar.map((p) => (
+            <div key={p.id} style={{ borderColor: C.green, background: C.bg }} className="border rounded p-2">
+              <p style={{ color: C.ink }} className="text-sm"><b>{p.remetente_nome}</b> entregou para você: {p.descricao}{p.quantidade ? ` (${p.quantidade})` : ""}</p>
+              {podePedir ? (
+                <div className="flex gap-2 mt-1.5">
+                  <button onClick={() => responder(p.id, "atendido")} style={{ background: C.green }} className="text-white text-[11px] font-bold uppercase rounded px-2 py-1">✓ Recebi</button>
+                  <button onClick={() => responder(p.id, "contestar")} style={{ color: C.rust, borderColor: C.rust }} className="border text-[11px] font-bold uppercase rounded px-2 py-1">Não recebi</button>
+                </div>
+              ) : <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Seu nível neste módulo é só visualizar.</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
       {mostrarForm ? (
         <div style={{ borderColor: C.border }} className="border rounded p-2 mb-2">
-          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase mb-1.5">{mostrarForm === "pedir" ? "Pedir a alguém acima" : "Entregar a alguém abaixo"}</p>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase mb-1.5">{mostrarForm === "pedir" ? "Pedir a alguém acima" : "Entregar a alguém abaixo (ele confirma que recebeu)"}</p>
           <select value={pessoaId} onChange={(e) => setPessoaId(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none bg-white mb-1.5">
             <option value="">{mostrarForm === "pedir" ? "Pedir a quem?" : "Entregar a quem?"}</option>
             {(mostrarForm === "pedir" ? superiores : subordinados).map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome} ({RANK_LABELS[m.rank]})</option>)}
@@ -1216,7 +1250,6 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
           {tipo !== "documento" && (
             <input value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="Quantidade (opcional)" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-2 py-1.5 text-sm outline-none mb-1.5" />
           )}
-          {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mb-1.5">{erro}</p>}
           <div className="flex gap-2">
             <button onClick={enviar} disabled={salvando} style={{ background: C.amber }} className="text-white text-xs font-bold uppercase rounded px-3 py-1.5 disabled:opacity-50">{salvando ? "..." : "Confirmar"}</button>
             <button onClick={() => setMostrarForm(null)} style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Cancelar</button>
@@ -1224,19 +1257,20 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI }) {
         </div>
       ) : (
         <div className="flex gap-2 mb-2">
-          {superiores.length > 0 && <button onClick={() => abrirForm("pedir")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Pedir</button>}
-          {subordinados.length > 0 && <button onClick={() => abrirForm("entregar")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Entregar</button>}
+          {podePedir && superiores.length > 0 && <button onClick={() => abrirForm("pedir")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Pedir</button>}
+          {podeEntregar && subordinados.length > 0 && <button onClick={() => abrirForm("entregar")} style={{ borderColor: C.border, color: C.ink }} className="border rounded px-3 py-1.5 text-xs font-mono uppercase">+ Entregar</button>}
         </div>
       )}
+      {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mb-1.5">{erro}</p>}
 
       {historico.length > 0 && (
         <div className="mt-2 space-y-1">
           {historico.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
-              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">
-                {p.status === "atendido" ? "✓" : p.status === "recusado" ? "✕" : "…"} {p.remetente_nome} → {p.destinatario_nome}: {p.descricao}
+              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate" title={LEGENDA[p.status]}>
+                {SIMBOLO[p.status] || "…"} {p.remetente_nome} → {p.destinatario_nome}: {p.descricao}{p.status === "aguardando" ? " · falta confirmar" : ""}
               </p>
-              {p.criado_por === usuarioAPI.id && p.status === "pendente" && (
+              {(p.criado_por === usuarioAPI.id || p.rank_autor > usuarioAPI.rank) && ["pendente", "aguardando"].includes(p.status) && (
                 <button onClick={() => cancelar(p.id)} style={{ color: C.rust }} className="text-[11px] shrink-0">cancelar</button>
               )}
             </div>
@@ -1296,8 +1330,9 @@ function ObservacoesSection({ items, onAdd, onDelete, onEdit, usuarioAPI, podeEd
       <div className="space-y-2">
         {items.map((item) => {
           const souAutor = item.criado_por === eu.id;
-          const rankAutorAtual = item.autor_rank_atual ?? item.rank_autor;
-          const souSuperior = eu.rank === 1 || (rankAutorAtual != null && eu.rank < rankAutorAtual);
+          // Protege pelo rank que o autor tinha ao escrever (05/10). Entre Donos, o principal fica acima.
+          const rankAutor = item.rank_autor ?? item.autor_rank_atual;
+          const souSuperior = !souAutor && rankAutor != null && (eu.rank < rankAutor || (eu.rank === 1 && rankAutor === 1 && !!eu.dono_principal));
           const rankNaFirma = item.rank_autor ?? item.autor_rank_atual;
           return (
             <div key={item.id} style={{ background: C.surface, borderLeftColor: C.teal }} className="border-l-4 rounded-r-md p-3 shadow-sm">
@@ -2055,12 +2090,29 @@ function PermissoesScreen({ onBack, usuarioRank = 8 }) {
     return row ? row.nivel : "nenhum";
   };
 
-  const ciclo = { nenhum: "visualizar", visualizar: "editar", editar: "nenhum" };
-  const corDe = { nenhum: C.inkMuted, visualizar: C.blue, editar: C.green };
-  const labelNivel = { nenhum: "Nenhum", visualizar: "Ver", editar: "Editar" };
+  // "Receber" (ver + pedir + confirmar o que recebeu) só existe em Ferramentas e Materiais.
+  const comReceber = (modulo) => modulo === "ferramentas" || modulo === "materiais";
+  const proximo = (nivel, modulo) => {
+    const ordem = comReceber(modulo) ? ["nenhum", "visualizar", "receber", "editar"] : ["nenhum", "visualizar", "editar"];
+    return ordem[(ordem.indexOf(nivel) + 1) % ordem.length] || "nenhum";
+  };
+  const corDe = { nenhum: C.inkMuted, visualizar: C.blue, receber: C.amber, editar: C.green };
+  const labelNivel = { nenhum: "Nenhum", visualizar: "Ver", receber: "Receber", editar: "Editar" };
+  const [sugestaoAberta, setSugestaoAberta] = useState(false);
+  const [sugestao, setSugestao] = useState("");
+  const [sugestaoMsg, setSugestaoMsg] = useState("");
+  const [enviandoSugestao, setEnviandoSugestao] = useState(false);
+  const enviarSugestao = async () => {
+    setSugestaoMsg(""); setEnviandoSugestao(true);
+    try {
+      await apiFetch("/api/sugestao", { method: "POST", body: JSON.stringify({ texto: sugestao }) });
+      setSugestao(""); setSugestaoMsg("✓ Enviado! Obrigado — lemos todas as sugestões.");
+    } catch (err) { setSugestaoMsg(err.message); }
+    setEnviandoSugestao(false);
+  };
 
   const toggle = async (rank, modulo) => {
-    const novo = ciclo[nivelDe(rank, modulo)];
+    const novo = proximo(nivelDe(rank, modulo), modulo);
     const key = `${rank}-${modulo}`;
     setSalvandoCelda(key);
     setErro("");
@@ -2080,7 +2132,7 @@ function PermissoesScreen({ onBack, usuarioRank = 8 }) {
   return (
     <div>
       <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">🔑 Permissões</h2>
-      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Toque numa célula para alternar: Nenhum → Ver → Editar. Você só altera os ranks abaixo do seu (as linhas apagadas estão travadas).</p>
+      <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">{usuarioRank <= 2 ? "Toque numa célula para alternar: Nenhum → Ver → (Receber) → Editar. Você só altera os ranks abaixo do seu (as linhas apagadas estão travadas)." : "Só o Dono e o Engenheiro Chefe alteram esta tabela. Aqui você vê o que cada rank pode fazer."}</p>
       <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-xs border-collapse">
           <thead>
@@ -2098,7 +2150,7 @@ function PermissoesScreen({ onBack, usuarioRank = 8 }) {
                   const key = `${rank}-${m.key}`;
                   return (
                     <td key={m.key} className="p-1 text-center">
-                      <button onClick={() => toggle(rank, m.key)} disabled={salvandoCelda === key || rank <= usuarioRank || usuarioRank > 3}
+                      <button onClick={() => toggle(rank, m.key)} disabled={salvandoCelda === key || rank <= usuarioRank || usuarioRank > 2}
                         style={{ borderColor: corDe[nivel], color: corDe[nivel] }}
                         className="border rounded w-14 py-1 text-[10px] font-mono uppercase disabled:opacity-50">
                         {salvandoCelda === key ? "..." : labelNivel[nivel]}
@@ -2112,6 +2164,40 @@ function PermissoesScreen({ onBack, usuarioRank = 8 }) {
         </table>
       </div>
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-3">{erro}</p>}
+      <p style={{ color: C.inkMuted }} className="text-[10px] font-mono mt-2">Ver = só olha · Receber = olha, pede e confirma o que recebeu · Editar = cria, entrega, altera.</p>
+
+      <div style={{ borderColor: C.border, background: C.surface }} className="border rounded-md p-3 mt-5">
+        <p style={{ color: C.ink }} className="text-xs font-extrabold uppercase tracking-wide mb-2">📏 Regras fixas da hierarquia</p>
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">Valem sempre, além da tabela acima. Não se mudam aqui.</p>
+        <ul style={{ color: C.ink }} className="text-xs space-y-1.5 list-disc pl-4">
+          <li><b>A autoridade só desce:</b> você altera ou apaga o que é seu e o que é de quem está abaixo de você. Nunca o de um igual ou de um superior.</li>
+          <li><b>Livro de obra (Observações):</b> o autor não apaga o que escreveu; só um superior dele.</li>
+          <li><b>Obras visíveis:</b> Dono, Eng. Chefe e Eng. Estagiário veem todas as obras; do Mestre para baixo, só as obras em que estão na equipe.</li>
+          <li><b>Criar obra:</b> Dono, Eng. Chefe e Mestre de Obra.</li>
+          <li><b>Convidar e adicionar:</b> quem tem "Editar" na Equipe, sempre para ranks abaixo do seu. <b>Tirar da obra:</b> só um superior (o responsável da obra sai só depois de transferir).</li>
+          <li><b>Mudar rank:</b> Dono, Eng. Chefe e Mestre de Obra, só de quem está abaixo e só para ranks abaixo do seu. O Dono principal pode nomear um co-Dono; mudar ou excluir um Dono é pelo suporte.</li>
+          <li><b>Presença:</b> cada um marca a sua, só de hoje. Um superior pode anotar a de alguém de baixo, e fica registrado quem anotou.</li>
+          <li><b>Pedidos e entregas:</b> quem fornece marca "entreguei" e quem recebe confirma "recebi". Cancelar: quem criou ou um superior dele.</li>
+          <li><b>Etapa concluída:</b> só quem concluiu (ou um superior dele) desmarca.</li>
+          <li><b>Esta tabela:</b> só Dono e Eng. Chefe alteram, e só as linhas abaixo do seu rank.</li>
+        </ul>
+        <button onClick={() => { setSugestaoAberta(true); setSugestaoMsg(""); }} style={{ color: C.amber }} className="text-xs font-mono underline mt-3">💡 Sugestões de fluxo de informação?</button>
+      </div>
+
+      {sugestaoAberta && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setSugestaoAberta(false)}>
+          <div style={{ background: C.surface }} className="rounded-lg p-5 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <h2 style={{ color: C.ink }} className="text-base font-extrabold uppercase tracking-wide">💡 Sugestão</h2>
+              <button onClick={() => setSugestaoAberta(false)} style={{ color: C.inkMuted }} className="text-xl leading-none">×</button>
+            </div>
+            <p style={{ color: C.inkMuted }} className="text-xs mb-2">Como a informação deveria circular na sua obra? Quem deveria ver, pedir ou aprovar o quê? Sua mensagem vai direto para a equipe do G&C.</p>
+            <textarea value={sugestao} onChange={(e) => setSugestao(e.target.value)} rows={5} maxLength={3000} placeholder="Ex.: o Almoxarife deveria ver a Equipe para saber a quem entregar." style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 text-sm outline-none" />
+            {sugestaoMsg && <p style={{ color: sugestaoMsg.startsWith("✓") ? C.green : C.rust }} className="text-xs font-mono mt-1">{sugestaoMsg}</p>}
+            <button onClick={enviarSugestao} disabled={enviandoSugestao || sugestao.trim().length < 5} style={{ background: C.amber }} className="w-full mt-3 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{enviandoSugestao ? "Enviando..." : "Enviar"}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2143,8 +2229,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   const nivelDoModulo = (key) => {
     const base = niveis?.[key] || "nenhum";
     const exc = meuMembro?.excecao_modulos?.[key];
-    if (exc === "nenhum") return "nenhum";
-    if (exc === "visualizar" && base === "editar") return "visualizar";
+    if (exc && ORDEM_NIVEL[exc] < ORDEM_NIVEL[base]) return exc;
     return base;
   };
   const souChefe = usuarioRank <= 2;
@@ -2187,13 +2272,13 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
     return (
       <div>
         <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-4 flex flex-wrap items-center gap-2"><img src={mod.icone} alt="" className="w-8 h-8 rounded-full object-cover" draggable="false" /> {mod.label}<AjudaModulo modulo={modulo} /></h2>
-        {modulo === "documentos" && <PedidosPanel obraId={obra.id} tipo="documento" tipoLabel="Documentos" equipe={equipe} usuarioAPI={usuarioAPI} />}
+        {modulo === "documentos" && <PedidosPanel obraId={obra.id} tipo="documento" tipoLabel="Documentos" equipe={equipe} usuarioAPI={usuarioAPI} nivel={nivelDoModulo("documentos")} />}
         {modulo === "documentos" && <DocumentosSection obraId={obra.id} documentos={documentos} onAdd={onAddDoc} onDelete={onDeleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} podeEditar={podeEditar} />}
-        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} usuarioId={usuarioAPI?.id} responsavelId={obra.responsavel_id} podeEditar={podeEditar} />}
+        {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} usuarioId={usuarioAPI?.id} usuarioNome={usuarioAPI?.nome} donoPrincipal={!!usuarioAPI?.dono_principal} responsavelId={obra.responsavel_id} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFotoEtapa} onDeleteFoto={onDeleteFotoEtapa} podeEditar={podeEditar} />}
-        {modulo === "ferramentas" && <PedidosPanel obraId={obra.id} tipo="ferramenta" tipoLabel="Ferramentas" equipe={equipe} usuarioAPI={usuarioAPI} />}
+        {modulo === "ferramentas" && <PedidosPanel obraId={obra.id} tipo="ferramenta" tipoLabel="Ferramentas" equipe={equipe} usuarioAPI={usuarioAPI} nivel={nivelDoModulo("ferramentas")} />}
         {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
-        {modulo === "materiais" && <PedidosPanel obraId={obra.id} tipo="material" tipoLabel="Materiais" equipe={equipe} usuarioAPI={usuarioAPI} />}
+        {modulo === "materiais" && <PedidosPanel obraId={obra.id} tipo="material" tipoLabel="Materiais" equipe={equipe} usuarioAPI={usuarioAPI} nivel={nivelDoModulo("materiais")} />}
         {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
         {modulo === "observacoes" && (
           <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-4">
@@ -3484,7 +3569,7 @@ function GestorObras() {
   };
   const toggleHoje = async (id, hoje) => {
     const r = await apiFetch(`/api/equipe?id=${id}`, { method: "PATCH", body: JSON.stringify({ data: hoje }) });
-    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? r.equipe : m)) }));
+    setObraDetalhe((d) => ({ ...d, equipe: d.equipe.map((m) => (m.id === id ? { ...m, asistencias: r.equipe.asistencias, presencas_por: r.equipe.presencas_por } : m)) }));
   };
   // Edita integrante: { rank }, { funcao } e/ou { excecaoModulos }
   const setExcecao = async (id, campos) => {
@@ -3543,7 +3628,7 @@ function GestorObras() {
           </div>
           <BoasVindas usuarioAPI={usuarioAPI} onAbrirAjuda={() => irParaView("ajuda")} />
           <div className="flex flex-wrap gap-2 mb-4">
-            {usuarioAPI.rank <= 4 && <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>}
+            {[1, 2, 4].includes(usuarioAPI.rank) && <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>}
             <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
             <button onClick={() => irParaView("report")} style={{ borderColor: C.ink, color: C.ink }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">📅 Relatório semanal</button>
           </div>

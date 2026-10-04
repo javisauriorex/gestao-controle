@@ -1,5 +1,6 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, emitirToken, reservarIds } from "../lib/auth.js";
+import { getUsuario, jsonResponse, emitirToken, reservarIds, podeAsignarRank } from "../lib/auth.js";
+import { nivelNaObra } from "../lib/acesso.js";
 import { cpfHash, camposCpf, temCpf, cpfConfere, hashPin, conferirPin } from "../lib/cpf.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
 import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, MSG_IP_BLOQUEADO } from "../lib/limites.js";
@@ -61,8 +62,8 @@ export async function criarConviteLink(req, env) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   if (req.method !== "POST") return jsonResponse({ ok: false, error: "method not allowed" }, 405);
-  // Convidar: Dono até Encarregado (rank 1-5). Novo PIN: só Dono e Eng. Chefe.
-  if (usuario.rank > 5) return jsonResponse({ ok: false, error: "sem permissão" }, 403);
+  // Convidar: quem tem "editar" na Equipe da obra (por padrão Dono, Eng. Chefe, Mestre, Encarregado e Chefe de Turma),
+  // sempre para um rank abaixo do seu. Novo PIN: só Dono e Eng. Chefe.
   const sql = getSql(env);
   const body = await req.json();
   if (body.usuarioId && usuario.rank > 2) return jsonResponse({ ok: false, error: "só Dono e Eng. Chefe geram Novo PIN" }, 403);
@@ -100,13 +101,10 @@ export async function criarConviteLink(req, env) {
 
   const { obraId, nome, telefone, email, rank, funcao } = body;
   if (!obraId || !String(nome || "").trim() || !rank) return jsonResponse({ ok: false, error: "faltam dados (nome e rank)" }, 400);
-  if (Number(rank) <= usuario.rank) return jsonResponse({ ok: false, error: "só pode convidar para um rank abaixo do seu" }, 403);
-  const obras = await sql`SELECT id FROM obras WHERE id = ${obraId} AND empresa_id = ${usuario.empresa_id}`;
-  if (obras.length === 0) return jsonResponse({ ok: false, error: "obra não encontrada" }, 404);
-  if (usuario.rank > 2) {
-    const m = await sql`SELECT 1 FROM equipe WHERE obra_id = ${obraId} AND usuario_id = ${usuario.id}`;
-    if (m.length === 0) return jsonResponse({ ok: false, error: "você não está na equipe desta obra" }, 403);
-  }
+  if (!podeAsignarRank(usuario.rank, rank, usuario)) return jsonResponse({ ok: false, error: "só pode convidar para um rank abaixo do seu" }, 403);
+  const acesso = await nivelNaObra(sql, usuario, obraId, "equipe", env);
+  if (!acesso.obra) return jsonResponse({ ok: false, error: "obra não encontrada ou você não está na equipe" }, 404);
+  if (acesso.nivel !== "editar") return jsonResponse({ ok: false, error: "seu acesso à Equipe desta obra não permite convidar" }, 403);
   const tel = String(telefone || "").replace(/\D/g, "") || null;
   const emailNorm = email ? String(email).trim().toLowerCase() : null;
   const rows = await sql`

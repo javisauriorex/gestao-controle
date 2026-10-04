@@ -1,11 +1,12 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
+import { getUsuario, jsonResponse, podeModificar, ehSuperior } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 import { apagarDoKV } from "../lib/arquivos.js";
 
 // Etapas:
 //  - Ver / criar / marcar concluída: nível do módulo (tela de Permissões + bloqueio por obra).
 //  - Marcar concluída NÃO exige ser o autor: quem executa a etapa costuma ser de rank abaixo de quem a criou.
+//  - Desmarcar: só quem concluiu ou um superior dele. Apagar: não leva junto o que é de um igual/superior.
 //  - Mudar o texto ou apagar: só o autor ou um superior dele.
 export default async function etapasHandler(req, env) {
   const usuario = await getUsuario(req, env);
@@ -38,8 +39,8 @@ export default async function etapasHandler(req, env) {
       return jsonResponse({ ok: false, error: "etapa-mãe inválida" }, 400);
     }
     const rows = await sql`
-      INSERT INTO etapas (obra_id, parent_id, texto, criado_por)
-      VALUES (${obraId}, ${parentId || null}, ${texto}, ${usuario.id})
+      INSERT INTO etapas (obra_id, parent_id, texto, criado_por, rank_autor)
+      VALUES (${obraId}, ${parentId || null}, ${texto}, ${usuario.id}, ${usuario.rank})
       RETURNING *
     `;
     return jsonResponse({ ok: true, etapa: rows[0] });
@@ -54,7 +55,7 @@ export default async function etapasHandler(req, env) {
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
     const atuais = await sql`
-      SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
+      SELECT e.*, COALESCE(e.rank_autor, u.rank) as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
 
     if (body.texto !== undefined) {
@@ -66,6 +67,13 @@ export default async function etapasHandler(req, env) {
     }
 
     // Concluída é um check simples, independente das fotos (que vivem em etapa_fotos).
+    // H2: DESmarcar só quem concluiu ou um superior de quem concluiu (o Profissional não desfaz o "✓" do Mestre).
+    if (!body.concluida && atuais[0].concluida && atuais[0].concluida_por && atuais[0].concluida_por !== usuario.id) {
+      const quem = await sql`SELECT rank FROM usuarios WHERE id = ${atuais[0].concluida_por}`;
+      if (quem.length && !ehSuperior(usuario, quem[0].rank, atuais[0].concluida_por)) {
+        return jsonResponse({ ok: false, error: "só quem concluiu esta etapa (ou um superior dele) pode desmarcar" }, 403);
+      }
+    }
     const rows = await sql`
       UPDATE etapas SET
         concluida = ${!!body.concluida},
@@ -85,10 +93,24 @@ export default async function etapasHandler(req, env) {
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
     const alvos = await sql`
-      SELECT e.*, u.rank as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
+      SELECT e.*, COALESCE(e.rank_autor, u.rank) as rank_criador FROM etapas e JOIN usuarios u ON u.id = e.criado_por WHERE e.id = ${id}
     `;
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
+    }
+    // H3: apagar a etapa leva junto sub-etapas e fotos. Se alguma delas é de um igual ou superior
+    // (que não seja você), não apaga: essa pessoa (ou um superior dela) tem que apagar antes.
+    const protegidos = await sql`
+      WITH RECURSIVE arvore AS (
+        SELECT id FROM etapas WHERE id = ${id}
+        UNION ALL SELECT e.id FROM etapas e JOIN arvore a ON e.parent_id = a.id
+      )
+      SELECT e.criado_por, COALESCE(e.rank_autor, u.rank) AS rank_autor FROM etapas e JOIN arvore a ON a.id = e.id JOIN usuarios u ON u.id = e.criado_por WHERE e.id <> ${id}
+      UNION ALL
+      SELECT f.criado_por, COALESCE(f.rank_autor, u.rank) FROM etapa_fotos f JOIN arvore a ON a.id = f.etapa_id JOIN usuarios u ON u.id = f.criado_por
+    `;
+    if (protegidos.some((p) => p.criado_por !== usuario.id && !ehSuperior(usuario, p.rank_autor, p.criado_por))) {
+      return jsonResponse({ ok: false, error: "esta etapa tem sub-etapas ou fotos de alguém do seu nível ou acima: peça para essa pessoa apagar primeiro" }, 403);
     }
     // Fotos da etapa e das sub-etapas (que o banco apaga em cascata) também saem do armazenamento.
     const arquivos = await sql`

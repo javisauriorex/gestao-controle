@@ -117,22 +117,21 @@ function fromHex(hex) { return new Uint8Array(hex.match(/.{1,2}/g).map((b) => pa
 // ============================================================
 
 const MODULOS = ["etapas", "equipe", "documentos", "ferramentas", "materiais", "observacoes"];
-const NIVEL_DEFAULT_POR_RANK = {
-  1: "editar", 2: "editar", 3: "editar", 4: "editar", 5: "editar",
-  7: "visualizar", // Chefe de Turma
-  8: "nenhum", // Profissional (especializado abaixo)
-};
+// Matriz padrão (tabela do Javi, 04/10/2026 — claude/permisos-y-flujos.md §5.1).
+//  - Dono, Eng. Chefe, Mestre, Encarregado: editam tudo.
+//  - Eng. Estagiário: suplente/secretário — vê tudo, não altera nada.
+//  - Almoxarife: recebe/entrega materiais e ferramentas; sem Equipe.
+//  - Chefe de Turma: edita Equipe (convida Profissionais), Ferramentas, Materiais, Observações.
+//  - Profissional: vê; em Ferramentas/Materiais "receber" (pede e confirma o que recebeu); escreve no livro de obra.
 function nivelDefault(rank, modulo) {
-       if (modulo === "observacoes") return "editar"; // "livro de obra": aberto a todos por padrão
-  if (rank === 6) {
-    // Almoxarife: forte em materiais/ferramentas, visualiza o resto, sem acesso a equipe.
-    if (modulo === "materiais" || modulo === "ferramentas") return "editar";
-    if (modulo === "equipe") return "nenhum";
-    return "visualizar";
-  }
-  if (rank === 8) return modulo === "etapas" || modulo === "documentos" ? "visualizar" : "nenhum";
-  return NIVEL_DEFAULT_POR_RANK[rank] || "nenhum";
+  if (rank === 1 || rank === 2 || rank === 4 || rank === 5) return "editar";
+  if (rank === 3) return "visualizar";
+  if (rank === 6) return { equipe: "nenhum", etapas: "visualizar", documentos: "visualizar" }[modulo] || "editar";
+  if (rank === 7) return { etapas: "visualizar", documentos: "visualizar" }[modulo] || "editar";
+  return { equipe: "nenhum", ferramentas: "receber", materiais: "receber", observacoes: "editar" }[modulo] || "visualizar";
 }
+export const MODULOS_PERMISSAO = MODULOS;
+export const NIVEIS = ["nenhum", "visualizar", "receber", "editar"];
 
 // UMA consulta só para as 48 linhas (8 ranks × 6 módulos). Antes eram 48 consultas separadas:
 // somadas ao resto do cadastro passavam de 50 "subrequests", o limite do plano grátis do
@@ -335,7 +334,12 @@ export async function getUsuario(req, env) {
   if (!payload || !payload.usuarioId) return null;
 
   const sql = getSql(env);
-  const rows = await sql`SELECT * FROM usuarios WHERE id = ${payload.usuarioId} AND removido_em IS NULL`;
+  // dono_principal: o Dono mais antigo (empresas.dono_usuario_id) — fica acima de um co-Dono.
+  const rows = await sql`
+    SELECT u.*, (e.dono_usuario_id = u.id) AS dono_principal
+    FROM usuarios u LEFT JOIN empresas e ON e.id = u.empresa_id
+    WHERE u.id = ${payload.usuarioId} AND u.removido_em IS NULL
+  `;
   if (rows.length === 0) return null;
   // S8: token de uma "versão" anterior (senha trocada, sair de todos, etc.) não vale mais.
   if ((payload.sv || 0) !== (rows[0].sessao_versao || 0)) return null;
@@ -352,7 +356,7 @@ export async function getNivel(empresaId, rank, modulo, env) {
   return rows.length > 0 ? rows[0].nivel : nivelDefault(rank, modulo);
 }
 
-const NIVEL_ORDEM = { nenhum: 0, visualizar: 1, editar: 2 };
+export const NIVEL_ORDEM = { nenhum: 0, visualizar: 1, receber: 2, editar: 3 };
 export function nivelEfetivo(nivelDoRank, excecaoModulos, modulo) {
   if (!excecaoModulos || excecaoModulos[modulo] === undefined) return nivelDoRank;
   const excecao = excecaoModulos[modulo];
@@ -363,14 +367,34 @@ export function podeCrear(rankMaximoPermitido, rankAtor) {
   return rankAtor <= rankMaximoPermitido;
 }
 
-// Modificar/apagar o que outro criou: só o próprio autor ou alguém de rank ESTRITAMENTE acima.
-// (Antes, entre pares de mesmo rank ganhava o usuário mais antigo — resto da escala invertida.)
-export function podeModificar(ator, rankCriador, idCriador) {
-  if (ator.id === idCriador) return true;
-  return ator.rank < rankCriador;
+// ------------------------------------------------------------
+// HIERARQUIA (claude/permisos-y-flujos.md): a autoridade só desce.
+// "Superior estrito" = rank menor. Entre dois Donos, o principal (mais antigo) fica acima.
+// ------------------------------------------------------------
+export function ehSuperior(ator, rankAlvo, idAlvo) {
+  if (idAlvo != null && ator.id === idAlvo) return false;
+  if (ator.rank < rankAlvo) return true;
+  return ator.rank === 1 && rankAlvo === 1 && !!ator.dono_principal;
 }
 
-// Só se atribui rank ABAIXO do próprio (ninguém cria outro Dono nem um par).
-export function podeAsignarRank(rankAtor, rankAAsignar) {
-  return Number(rankAAsignar) > rankAtor;
+// Modificar/apagar o que outro criou: só o próprio autor ou um superior estrito,
+// comparando com o rank que o autor tinha AO CRIAR (rank_autor).
+export function podeModificar(ator, rankAutor, idAutor) {
+  if (ator.id === idAutor) return true;
+  return ehSuperior(ator, rankAutor, idAutor);
 }
+
+// Atribuir rank (convidar ou mudar): só ranks ABAIXO do próprio.
+// Exceção: o Dono principal pode nomear outro Dono (co-Dono).
+export function podeAsignarRank(rankAtor, rankAAsignar, ator = null) {
+  const r = Number(rankAAsignar);
+  if (!(r >= 1 && r <= 8)) return false;
+  if (r > rankAtor) return true;
+  return r === 1 && rankAtor === 1 && !!(ator && ator.dono_principal);
+}
+
+// Quem pode MUDAR o rank de alguém: até Mestre de Obra (Dono, Eng. Chefe, Mestre) — o Estagiário não.
+export const podeMudarRanks = (ator) => [1, 2, 4].includes(ator.rank);
+
+// Rank do autor salvo no registro, ou o atual se for um registro antigo.
+export const rankDoAutor = (linha) => (linha.rank_autor != null ? linha.rank_autor : linha.rank_criador);

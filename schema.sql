@@ -60,7 +60,7 @@ CREATE TABLE permissoes (
   modulo text NOT NULL,
   nivel text NOT NULL,
   CONSTRAINT permissoes_modulo_check CHECK ((modulo = ANY (ARRAY['etapas'::text, 'equipe'::text, 'documentos'::text, 'ferramentas'::text, 'materiais'::text, 'observacoes'::text]))),
-  CONSTRAINT permissoes_nivel_check CHECK ((nivel = ANY (ARRAY['nenhum'::text, 'visualizar'::text, 'editar'::text]))),
+  CONSTRAINT permissoes_nivel_check CHECK ((nivel = ANY (ARRAY['nenhum'::text, 'visualizar'::text, 'receber'::text, 'editar'::text]))),
   CONSTRAINT permissoes_rank_check CHECK (((rank >= 1) AND (rank <= 8))),
   CONSTRAINT permissoes_empresa_id_fkey FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
   CONSTRAINT permissoes_pkey PRIMARY KEY (id),
@@ -121,6 +121,7 @@ CREATE TABLE equipe (
   criado_por integer NOT NULL,
   criado_em timestamp with time zone DEFAULT now(),
   excecao_modulos jsonb,
+  presencas_por jsonb,
   CONSTRAINT equipe_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT equipe_obra_id_fkey FOREIGN KEY (obra_id) REFERENCES obras(id) ON DELETE CASCADE,
   CONSTRAINT equipe_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
@@ -139,6 +140,7 @@ CREATE TABLE etapas (
   concluida_por integer,
   concluida_em timestamp with time zone,
   criado_por integer NOT NULL,
+  rank_autor integer,
   criado_em timestamp with time zone DEFAULT now(),
   CONSTRAINT etapas_concluida_por_fkey FOREIGN KEY (concluida_por) REFERENCES usuarios(id),
   CONSTRAINT etapas_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
@@ -153,6 +155,7 @@ CREATE TABLE etapa_fotos (
   etapa_id integer NOT NULL,
   arquivo_id text NOT NULL,
   criado_por integer NOT NULL,
+  rank_autor integer,
   criado_em timestamp with time zone DEFAULT now(),
   CONSTRAINT etapa_fotos_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT etapa_fotos_etapa_id_fkey FOREIGN KEY (etapa_id) REFERENCES etapas(id) ON DELETE CASCADE,
@@ -165,6 +168,7 @@ CREATE TABLE materiais (
   obra_id integer NOT NULL,
   texto text NOT NULL,
   criado_por integer NOT NULL,
+  rank_autor integer,
   criado_em timestamp with time zone DEFAULT now(),
   CONSTRAINT materiais_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT materiais_obra_id_fkey FOREIGN KEY (obra_id) REFERENCES obras(id) ON DELETE CASCADE,
@@ -177,6 +181,7 @@ CREATE TABLE ferramentas (
   obra_id integer NOT NULL,
   texto text NOT NULL,
   criado_por integer NOT NULL,
+  rank_autor integer,
   criado_em timestamp with time zone DEFAULT now(),
   CONSTRAINT ferramentas_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT ferramentas_obra_id_fkey FOREIGN KEY (obra_id) REFERENCES obras(id) ON DELETE CASCADE,
@@ -191,6 +196,7 @@ CREATE TABLE documentos (
   tipo text,
   arquivo_id text NOT NULL,
   criado_por integer NOT NULL,
+  rank_autor integer,
   criado_em timestamp with time zone DEFAULT now(),
   CONSTRAINT documentos_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT documentos_obra_id_fkey FOREIGN KEY (obra_id) REFERENCES obras(id) ON DELETE CASCADE,
@@ -208,9 +214,11 @@ CREATE TABLE pedidos (
   destinatario_id integer NOT NULL,
   status text NOT NULL DEFAULT 'pendente'::text,
   criado_por integer NOT NULL,
+  rank_autor integer,
   atendido_em timestamp with time zone,
+  entregue_em timestamp with time zone,
   criado_em timestamp with time zone DEFAULT now(),
-  CONSTRAINT pedidos_status_check CHECK ((status = ANY (ARRAY['pendente'::text, 'atendido'::text, 'recusado'::text]))),
+  CONSTRAINT pedidos_status_check CHECK ((status = ANY (ARRAY['pendente'::text, 'aguardando'::text, 'atendido'::text, 'recusado'::text]))),
   CONSTRAINT pedidos_tipo_check CHECK ((tipo = ANY (ARRAY['material'::text, 'ferramenta'::text, 'documento'::text]))),
   CONSTRAINT pedidos_criado_por_fkey FOREIGN KEY (criado_por) REFERENCES usuarios(id),
   CONSTRAINT pedidos_destinatario_id_fkey FOREIGN KEY (destinatario_id) REFERENCES usuarios(id),
@@ -329,3 +337,13 @@ CREATE INDEX idx_permissoes_empresa ON public.permissoes USING btree (empresa_id
 CREATE INDEX idx_usuarios_email ON public.usuarios USING btree (email);
 CREATE INDEX idx_usuarios_empresa ON public.usuarios USING btree (empresa_id);
 CREATE UNIQUE INDEX usuarios_cpf_hash_key ON public.usuarios USING btree (cpf_hash);
+
+-- Sugestões de fluxo de informação (tela Permissões → e-mail para suporte@). 05/10/2026.
+CREATE TABLE sugestoes (
+  id SERIAL PRIMARY KEY,
+  empresa_id integer REFERENCES empresas(id) ON DELETE CASCADE,
+  usuario_id integer REFERENCES usuarios(id) ON DELETE SET NULL,
+  texto text NOT NULL,
+  criado_em timestamp with time zone DEFAULT now()
+);
+CREATE INDEX idx_sugestoes_usuario ON sugestoes (usuario_id, criado_em);

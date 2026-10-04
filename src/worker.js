@@ -24,6 +24,7 @@ import { reenviarConfirmacao, esqueciSenha, redefinirSenha, paginaConfirmarEmail
 import admin from "./routes/admin.js";
 import meusDados from "./routes/meus-dados.js";
 import googleConfig from "./routes/google-config.js";
+import sugestao from "./routes/sugestao.js";
 import { enviarBackup } from "./lib/backup.js";
 import { getSql } from "./lib/db.js";
 
@@ -60,6 +61,7 @@ const ROTAS = {
   "/api/admin": admin,
   "/api/meus-dados": meusDados,
   "/api/google-config": googleConfig,
+  "/api/sugestao": sugestao,
 };
 
 export default {

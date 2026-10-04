@@ -39,21 +39,27 @@ Instalar como aplicativo: no Chrome do celular, abra o menu (⋮) e toque em "Ad
 
 O rank vale para todas as obras da empresa. A "função" (ex.: Pedreiro, Eletricista) é só um texto e pode ser diferente em cada obra.
 
-Regras gerais:
-- Dono e Engenheiro Chefe veem TODAS as obras da empresa. Os outros veem só as obras em que estão na equipe.
-- Criar obra: Dono, Engenheiro Chefe, Engenheiro Estagiário e Mestre de Obra.
+Regras gerais (a autoridade só desce):
+- Dono, Engenheiro Chefe e Engenheiro Estagiário veem TODAS as obras da empresa. Do Mestre de Obra para baixo, cada um vê só as obras em que está na equipe.
+- Criar obra: Dono, Engenheiro Chefe e Mestre de Obra.
 - Editar ou apagar uma obra, mudar o estado (ativa/pausada/concluída) e transferir o responsável: só Dono e Engenheiro Chefe.
-- Convidar pessoas: do Dono até o Encarregado, sempre para ranks abaixo do seu.
-- Ninguém apaga o que foi criado por alguém de rank igual ou maior. Você apaga o que você criou, e um superior pode apagar o que você criou.
-- O que cada rank pode ver ou editar em cada gaveta é definido na tela de Permissões da empresa (pode ser diferente em cada empresa).
+- Convidar e adicionar pessoas: quem tem "Editar" na gaveta Equipe (por padrão Dono, Engenheiro Chefe, Mestre, Encarregado e Chefe de Turma), sempre para ranks abaixo do seu.
+- Tirar alguém da obra: só um superior. O responsável da obra só sai depois de transferir a obra.
+- Mudar o rank: Dono, Engenheiro Chefe e Mestre de Obra, só de quem está abaixo e só para ranks abaixo do seu. O Dono principal pode nomear outro Dono (co-Dono); mudar ou excluir um Dono é feito pelo suporte.
+- Ninguém altera ou apaga o que foi criado por alguém de rank igual ou maior. Vale o rank que a pessoa tinha quando criou.
+- O que cada rank pode ver ou editar em cada gaveta é definido na tela de Permissões da empresa (só Dono e Engenheiro Chefe mudam).
 - Gaveta escurecida com cadeado 🔒 = você não tem acesso a ela nesta obra. Se precisar, fale com o responsável da obra.
 
+Funções paralelas:
+- Engenheiro Estagiário: suplente ou secretário. Vê todas as obras e todas as gavetas, mas não altera nada.
+- Almoxarife: recebe e entrega materiais e ferramentas das obras em que está. É quem liga os pedidos às entregas.
+
 Permissões padrão (a empresa pode mudar):
-- Dono até Encarregado: editam todas as gavetas.
-- Almoxarife: edita Materiais e Ferramentas; só vê Etapas, Documentos e Observações; não vê Equipe.
-- Chefe de Turma: vê as gavetas, sem editar.
-- Profissional: vê Etapas e Documentos.
-- Observações (livro de obra): todos veem e escrevem.`,
+- Dono, Engenheiro Chefe, Mestre e Encarregado: editam todas as gavetas.
+- Engenheiro Estagiário: vê todas as gavetas.
+- Almoxarife: edita Materiais, Ferramentas e Observações; vê Etapas e Documentos; não vê Equipe.
+- Chefe de Turma: edita Equipe (convida Profissionais), Materiais, Ferramentas e Observações; vê Etapas e Documentos.
+- Profissional: vê Etapas e Documentos; em Materiais e Ferramentas pode PEDIR e CONFIRMAR o que recebeu; escreve no livro de obra.`,
   },
   {
     id: "entrar",
@@ -122,21 +128,21 @@ Avisos em tempo real: com a obra aberta, o app avisa quando alguém adiciona eta
     modulo: "equipe",
     texto: `A gaveta Equipe mostra quem trabalha nesta obra, com rank e função.
 
-Presença: cada pessoa marca a SUA presença do dia no botão "✋ Marcar minha presença hoje", que fica embaixo das gavetas, na tela da obra. Os chefes com acesso de edição à Equipe também marcam a presença de quem está abaixo deles, tocando no quadradinho ao lado do nome. O número "Xd" mostra quantos dias a pessoa esteve presente.
+Presença: cada pessoa marca a SUA presença, só do dia de hoje, no botão "✋ Marcar minha presença hoje", embaixo das gavetas. Se alguém não tem celular ou ficou sem bateria, um superior pode ANOTAR a presença dele no quadradinho ao lado do nome (até 7 dias atrás): fica laranja e aparece "presença anotada por Fulano". O superior não desmarca o que a própria pessoa marcou. O número "Xd" mostra quantos dias a pessoa esteve presente. E-mail e presença de cada um só aparecem para a própria pessoa e para os superiores dela.
 
-Adicionar pessoas (do Dono até o Encarregado, sempre para ranks abaixo do seu):
+Adicionar pessoas (quem tem "Editar" na Equipe, sempre para ranks abaixo do seu):
 - 📲 Novo por link: digite nome, WhatsApp (opcional), função e rank e toque em "Gerar link". Depois toque em "📲 WhatsApp" para mandar o convite, ou em "📋 Copiar link". A pessoa entra com CPF + PIN, sem e-mail.
 - 👥 Da empresa: escolha alguém que já tem conta na empresa (de outra obra) e toque em Adicionar.
 - ✉ Por email: digite o e-mail. Se a pessoa ainda não tem conta, é gerado um link de convite.
 
 Engrenagem ⚙ ao lado de cada pessoa:
-- Rank: só Dono e Engenheiro Chefe mudam o rank de quem está abaixo (o Engenheiro Chefe também pode mudar outro Engenheiro Chefe). O rank vale para todas as obras.
+- Rank: Dono, Engenheiro Chefe e Mestre de Obra mudam o rank de quem está abaixo, sempre para um rank abaixo do seu. O rank vale para todas as obras.
 - Função: texto livre desta obra (para Profissional, o ofício: Pedreiro, Pintor...).
 - Bloquear gavetas NESTA obra: só o responsável da obra, para quem está abaixo dele.
 - Excluir conta: um superior pode excluir a conta de alguém abaixo dele.
 
 Chave 🔑: gera um "Novo PIN" (Dono e Engenheiro Chefe).
-Botão ×: tira a pessoa desta obra (ela continua na empresa e nas outras obras).
+Botão ×: tira a pessoa desta obra (ela continua na empresa e nas outras obras). Só aparece para quem é superior dela; o responsável da obra não pode ser tirado sem antes transferir a obra.
 
 "Usuário removido": pessoa que teve a conta excluída. Os registros dela ficam na obra, sem nome.`,
   },
@@ -150,11 +156,11 @@ Botão ×: tira a pessoa desta obra (ela continua na empresa e nas outras obras)
 Criar etapa: escreva o nome no campo de baixo (ex.: "instalação elétrica") e toque em +.
 Dentro de cada etapa: 📁 abre as sub-etapas (e permite criar novas), ✎ muda o nome, + adiciona fotos de avanço.
 
-Concluir: marque o quadradinho da etapa. Aparece "✓ por Fulano · data e hora". Qualquer pessoa com permissão de editar Etapas pode concluir, mesmo que outra pessoa tenha criado a etapa.
+Concluir: marque o quadradinho da etapa. Aparece "✓ por Fulano · data e hora". Qualquer pessoa com permissão de editar Etapas pode concluir, mesmo que outra pessoa tenha criado a etapa. Desmarcar: só quem concluiu ou um superior dele.
 
 Fotos de avanço: toque no + da etapa para adicionar fotos (quantas quiser, quando quiser). As fotos são reduzidas no celular antes de enviar.
 
-Mudar o texto ou apagar uma etapa: só quem criou ou um superior dele. Apagar uma etapa apaga também as sub-etapas e as fotos.
+Mudar o texto ou apagar uma etapa: só quem criou ou um superior dele. Apagar uma etapa apaga também as sub-etapas e as fotos; se alguma delas é de alguém do seu nível ou acima, essa pessoa tem que apagar antes.
 
 Se você só vê as etapas mas não consegue marcar, o seu rank tem permissão só de "ver" — fale com seu superior.`,
   },
@@ -167,13 +173,15 @@ Se você só vê as etapas mas não consegue marcar, o seu rank tem permissão s
 
 Registrar: escreva no campo e toque em +. Apagar: quem registrou ou um superior dele.
 
-Pedidos (parte de cima da gaveta):
-- "+ Pedir": pedir um material a alguém de rank acima (ex.: o Encarregado pede ao Almoxarife ou ao Mestre). O pedido fica PENDENTE até a pessoa responder.
-- "+ Entregar": registrar que você entregou um material a alguém de rank abaixo. Fica ATENDIDO na hora.
-- Quem recebe um pedido vê os botões "✓ Atender" ou "Recusar".
-- Quem criou o pedido pode cancelar. Dono e Engenheiro Chefe também podem.
+Pedidos e entregas (parte de cima da gaveta) — o Almoxarife é o nexo:
+- "+ Pedir": pedir um material a alguém de rank acima (ex.: o Pedreiro pede ao Almoxarife). Fica PENDENTE.
+- Quem recebe o pedido toca em "🚚 Entreguei" (ou "Recusar"). Aí fica 🚚 AGUARDANDO a confirmação.
+- Quem pediu toca em "✓ Recebi" (ou "Não recebi", que volta a pendente). Só então fecha como RECEBIDO.
+- "+ Entregar": registrar que você entregou a alguém de rank abaixo. Também fica aguardando até ele confirmar "Recebi".
+- Cancelar: quem criou o pedido ou um superior dele.
+- Os pedidos aparecem para as duas pessoas e para os superiores delas.
 
-Assim fica registrado quem pediu, quem entregou e quando.`,
+Assim fica registrado quem pediu, quem entregou, quem recebeu e quando.`,
   },
   {
     id: "ferramentas",
@@ -182,7 +190,7 @@ Assim fica registrado quem pediu, quem entregou e quando.`,
     modulo: "ferramentas",
     texto: `A gaveta Ferramentas funciona igual à de Materiais: lista das ferramentas da obra (ex.: furadeira, andaime) e, em cima, os Pedidos.
 
-"+ Pedir" pede uma ferramenta a alguém de rank acima (fica pendente). "+ Entregar" registra que você entregou a alguém de rank abaixo (fica atendido na hora). Quem recebe o pedido toca em "✓ Atender" ou "Recusar".
+"+ Pedir" pede uma ferramenta a alguém de rank acima (fica pendente). Quem fornece toca em "🚚 Entreguei" e quem pediu confirma "✓ Recebi". "+ Entregar" registra uma entrega direta, que também espera o "Recebi" de quem recebeu. Assim cada ferramenta tem alguém que assinou que recebeu.
 
 Registrar ferramenta: escreva e toque em +. Apagar: quem registrou ou um superior dele.`,
   },
@@ -228,9 +236,11 @@ Nesta gaveta também aparecem o responsável da obra, o botão de transferir res
     id: "permissoes",
     titulo: "Tela de Permissões",
     para: "chefes",
-    texto: `Em CONFIG → Permissões (Dono, Engenheiro Chefe e Engenheiro Estagiário) você define, para cada rank, o que ele pode fazer em cada gaveta: Nenhum (nem vê), Ver ou Editar. Toque numa célula para alternar.
+    texto: `Em CONFIG → Permissões você vê, para cada rank, o que ele pode fazer em cada gaveta: Nenhum (nem vê), Ver, Receber (só em Materiais e Ferramentas: vê, pede e confirma o que recebeu) ou Editar.
 
-Cada um só altera as linhas dos ranks abaixo do seu. As linhas travadas (apagadas) são do seu rank ou de ranks acima.
+Só o Dono e o Engenheiro Chefe alteram a tabela, tocando numa célula para alternar, e cada um só altera as linhas dos ranks abaixo do seu. Os outros chefes só consultam.
+
+Embaixo da tabela ficam as "Regras fixas da hierarquia", que valem sempre (por exemplo: ninguém apaga o que é de um igual ou superior; no livro de obra o autor não apaga). E o link "💡 Sugestões de fluxo de informação?": escreva como a informação deveria circular na sua obra e toque em Enviar — a mensagem vai direto para a equipe do G&C.
 
 Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pessoa específica, só naquela obra (gaveta Equipe → ⚙).`,
   },

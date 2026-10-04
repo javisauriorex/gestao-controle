@@ -27,7 +27,7 @@ export default async function materiaisHandler(req, env) {
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
     const rows = await sql`
-      INSERT INTO materiais (obra_id, texto, criado_por) VALUES (${obraId}, ${texto}, ${usuario.id}) RETURNING *
+      INSERT INTO materiais (obra_id, texto, criado_por, rank_autor) VALUES (${obraId}, ${texto}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;
     return jsonResponse({ ok: true, item: rows[0] });
   }
@@ -40,7 +40,7 @@ export default async function materiaisHandler(req, env) {
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
     const alvos = await sql`
-      SELECT f.*, u.rank as rank_criador FROM materiais f JOIN usuarios u ON u.id = f.criado_por WHERE f.id = ${id}
+      SELECT f.*, COALESCE(f.rank_autor, u.rank) as rank_criador FROM materiais f JOIN usuarios u ON u.id = f.criado_por WHERE f.id = ${id}
     `;
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);

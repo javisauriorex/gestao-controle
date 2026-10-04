@@ -29,8 +29,8 @@ export default async function documentosHandler(req, env) {
     const meta = (await env.ARQUIVOS.getWithMetadata(arquivoId, "text")).metadata;
     if (!meta || meta.por !== usuario.id) return jsonResponse({ ok: false, error: "arquivo inválido" }, 400);
     const rows = await sql`
-      INSERT INTO documentos (obra_id, nome, tipo, arquivo_id, criado_por)
-      VALUES (${obraId}, ${nome}, ${tipo || ""}, ${arquivoId}, ${usuario.id})
+      INSERT INTO documentos (obra_id, nome, tipo, arquivo_id, criado_por, rank_autor)
+      VALUES (${obraId}, ${nome}, ${tipo || ""}, ${arquivoId}, ${usuario.id}, ${usuario.rank})
       RETURNING *
     `;
     return jsonResponse({ ok: true, documento: rows[0] });
@@ -44,7 +44,7 @@ export default async function documentosHandler(req, env) {
     if (!obra) return semAcesso();
     if (!podeEditar(nivel)) return soVisualizar();
     const alvos = await sql`
-      SELECT d.*, u.rank as rank_criador FROM documentos d JOIN usuarios u ON u.id = d.criado_por WHERE d.id = ${id}
+      SELECT d.*, COALESCE(d.rank_autor, u.rank) as rank_criador FROM documentos d JOIN usuarios u ON u.id = d.criado_por WHERE d.id = ${id}
     `;
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);

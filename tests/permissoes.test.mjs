@@ -83,7 +83,7 @@ check("encarregado lê materiais da obra B (não é membro) → 403", (await cal
 check("almoxarife cria material (nível editar)", (await call("POST", "/api/materiais", T("almox"), { obraId: A, texto: "cimento" })).ok);
 check("profissional cria material → 403 (nível nenhum)", (await call("POST", "/api/materiais", T("prof"), { obraId: A, texto: "x" })).status === 403);
 const gp = await call("GET", `/api/materiais?obra_id=${A}`, T("prof"));
-check("profissional GET materiais → lista vazia, sem erro", gp.ok && gp.materiais.length === 0, JSON.stringify(gp));
+check("profissional GET materiais → vê (nível receber, 05/10)", gp.ok && gp.materiais.length >= 1, JSON.stringify(gp));
 const m1 = await call("POST", "/api/materiais", T("encarr"), { obraId: A, texto: "areia" });
 check("encarregado cria material", m1.ok);
 check("almoxarife apaga material do encarregado (superior) → 403", (await call("DELETE", `/api/materiais?id=${m1.item.id}`, T("almox"))).status === 403);
@@ -103,7 +103,7 @@ check("mestre apaga obra → 403", (await call("DELETE", `/api/obras?id=${B}`, T
 check("mestre edita permissões → 403", (await call("PATCH", "/api/permissoes", T("mestre"), { rank: 8, modulo: "materiais", nivel: "editar" })).status === 403);
 check("estagiário edita rank 2 → 403", (await call("PATCH", "/api/permissoes", T("estag"), { rank: 2, modulo: "materiais", nivel: "nenhum" })).status === 403);
 check("estagiário edita rank 3 (próprio) → 403", (await call("PATCH", "/api/permissoes", T("estag"), { rank: 3, modulo: "materiais", nivel: "nenhum" })).status === 403);
-check("estagiário edita rank 8 → ok", (await call("PATCH", "/api/permissoes", T("estag"), { rank: 8, modulo: "materiais", nivel: "visualizar" })).ok);
+check("estagiário NÃO edita Permissões → 403 (05/10)", (await call("PATCH", "/api/permissoes", T("estag"), { rank: 8, modulo: "materiais", nivel: "visualizar" })).status === 403);
 
 // ⚙ bloqueio por obra: só o responsável (Dono na obra A)
 const eqA = await call("GET", `/api/equipe?obra_id=${A}`, D);
@@ -150,15 +150,15 @@ check("aceitar enc2", enc2.ok, JSON.stringify(enc2));
 const convEnc = await call("POST", "/api/convite-link", enc2.token, { obraId: C_, nome: "pedreiro", rank: 8, funcao: "Pedreiro" });
 check("encarregado convida profissional", convEnc.ok, JSON.stringify(convEnc));
 check("encarregado convida rank 5 (igual) → 403", (await call("POST", "/api/convite-link", enc2.token, { obraId: C_, nome: "x", rank: 5 })).status === 403);
-check("encarregado convida para obra onde não está → 403", (await call("POST", "/api/convite-link", enc2.token, { obraId: A, nome: "x", rank: 8 })).status === 403);
+check("encarregado convida para obra onde não está → recusado", [403, 404].includes((await call("POST", "/api/convite-link", enc2.token, { obraId: A, nome: "x", rank: 8 })).status));
 check("encarregado gera Novo PIN → 403", (await call("POST", "/api/convite-link", enc2.token, { usuarioId: pessoas.almox.id })).status === 403);
 // Eng. Chefe edita outro Eng. Chefe
 const cc = await call("POST", "/api/convite-link", D, { obraId: C_, nome: "chefe2", rank: 2 });
 const chefe2 = await call("POST", "/api/auth/aceitar-convite", null, { token: cc.token, cpf: cpf(476543210), pin: "5190", aceitouTermos: true });
 const eqC = await call("GET", `/api/equipe?obra_id=${C_}`, D);
 const linhaChefe2 = eqC.equipe.find((m) => m.usuario_id === chefe2.usuario.id);
-check("chefe muda rank de outro chefe para 3", (await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 3 })).ok);
-check("chefe tenta dar rank 1 → 400", (await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 1 })).status === 400);
+check("chefe NÃO muda rank de outro chefe (par) → 403 (05/10)", (await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 3 })).status === 403);
+check("chefe tenta dar rank 1 a um par → recusado", [400, 403].includes((await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 1 })).status));
 // Criar meu PIN (conta de email → também entra com CPF)
 check("dono cria PIN com CPF", (await call("PATCH", "/api/usuarios-me", D, { cpf: cpf(512345678), pin: "6027" })).ok);
 check("dono entra com CPF + PIN", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(512345678), pin: "6027" })).ok);
@@ -389,7 +389,8 @@ check("S10: profissional marca a presença de OUTRO → 403", (await call("PATCH
 check("S10: profissional marca a SUA presença de hoje → ok", (await call("PATCH", `/api/equipe?id=${linha(p3.prof.id)}`, p3.prof.token, { data: hojeBR })).ok);
 check("S10: profissional marca a sua presença de outro dia → 403", (await call("PATCH", `/api/equipe?id=${linha(p3.prof.id)}`, p3.prof.token, { data: "2026-01-05" })).status === 403);
 check("S10: data inválida → 400", (await call("PATCH", `/api/equipe?id=${linha(p3.prof.id)}`, p3.prof.token, { data: "<script>" })).status === 400);
-check("S10: encarregado (editar) marca a de um profissional → ok", (await call("PATCH", `/api/equipe?id=${linha(p3.prof2.id)}`, p3.encarr.token, { data: "2026-01-05" })).ok);
+check("S10: encarregado (editar) anota a de um profissional (hoje) → ok", (await call("PATCH", `/api/equipe?id=${linha(p3.prof2.id)}`, p3.encarr.token, { data: hojeBR })).ok);
+check("S10: superior NÃO anota presença de mais de 7 dias → 400", (await call("PATCH", `/api/equipe?id=${linha(p3.prof2.id)}`, p3.encarr.token, { data: "2026-01-05" })).status === 400);
 check("S10: encarregado NÃO marca a do mestre (superior) → 403", (await call("PATCH", `/api/equipe?id=${linha(p3.mestre.id)}`, p3.encarr.token, { data: hojeBR })).status === 403);
 const eqAlmox = (await call("GET", `/api/equipe?obra_id=${o3}`, p3.almox.token)).equipe;
 check("S10: almoxarife (Equipe = nenhum) recebe a lista sem e-mails nem presença dos outros",
@@ -665,6 +666,123 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   check("C4: Dono comum não migra", (await call("POST", "/api/admin?acao=migrar-cpf", D3)).status === 403);
   check("C4: depois da migração, login de conta antiga segue funcionando", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391" })).ok);
   check("C4: base não tem mais nenhum CPF em claro", (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf IS NOT NULL")).rows[0].n === 0);
+}
+
+
+// ============================================================
+// BLOCO HIERARQUIA (05/10/2026) — H1–H9 + tabela nova do Javi
+// ============================================================
+{
+  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const novo = async (obraId, nome, rank, tokenQuem = D3) => {
+    const c = await call("POST", "/api/convite-link", tokenQuem, { obraId, nome, rank, telefone: "71999990000" });
+    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(456789012 + (j3++) * 1717), pin: "8391", aceitouTermos: true });
+    return { token: a.token, id: a.usuario?.id, convite: c };
+  };
+  const estag = await novo(o3, "Estagiario", 3);
+  const turma = await novo(o3, "Turma", 7);
+  check("H: chefe de turma (Equipe=editar) convida Profissional", (await call("POST", "/api/convite-link", turma.token, { obraId: o3, nome: "p novo", rank: 8 })).ok);
+  check("H: chefe de turma NÃO convida rank igual (7) → 403", (await call("POST", "/api/convite-link", turma.token, { obraId: o3, nome: "x", rank: 7 })).status === 403);
+  check("H1: almoxarife (Equipe=nenhum) NÃO convida → 403", (await call("POST", "/api/convite-link", p3.almox.token, { obraId: o3, nome: "x", rank: 8 })).status === 403);
+  check("H: estagiário (Equipe=ver) NÃO convida → 403", (await call("POST", "/api/convite-link", estag.token, { obraId: o3, nome: "x", rank: 8 })).status === 403);
+  check("H: estagiário NÃO cria obra → 403", (await call("POST", "/api/obras", estag.token, { cliente: "x" })).status === 403);
+  const oM = await call("POST", "/api/obras", p3.mestre.token, { cliente: "Obra do Mestre" });
+  check("H: mestre cria obra → ok", oM.ok);
+  const o4 = (await call("POST", "/api/obras", D3, { cliente: "Obra 4" })).obra.id;
+  check("H: estagiário vê todas as obras (inclusive onde não está)", (await call("GET", "/api/obras", estag.token)).obras.some((o) => o.id === o4));
+  check("H: mestre só vê as suas", !(await call("GET", "/api/obras", p3.mestre.token)).obras.some((o) => o.id === o4));
+  check("H: estagiário só VÊ etapas (não cria) → 403", (await call("POST", "/api/etapas", estag.token, { obraId: o3, texto: "x" })).status === 403);
+
+  // H1 / sair da obra
+  let eq = (await call("GET", `/api/equipe?obra_id=${o3}`, D3)).equipe;
+  const lin = (uid) => eq.find((m) => m.usuario_id === uid)?.id;
+  check("H1: almoxarife NÃO tira profissional da obra → 403", (await call("DELETE", `/api/equipe?id=${lin(p3.prof2.id)}`, p3.almox.token)).status === 403);
+  check("H1: profissional NÃO tira a si mesmo → 403", (await call("DELETE", `/api/equipe?id=${lin(p3.prof.id)}`, p3.prof.token)).status === 403);
+  check("H1: encarregado NÃO tira outro igual/superior (mestre) → 403", (await call("DELETE", `/api/equipe?id=${lin(p3.mestre.id)}`, p3.encarr.token)).status === 403);
+  const sai = await novo(o3, "Sai", 8);
+  eq = (await call("GET", `/api/equipe?obra_id=${o3}`, D3)).equipe;
+  check("H1: encarregado (superior) tira profissional → ok", (await call("DELETE", `/api/equipe?id=${lin(sai.id)}`, p3.encarr.token)).ok);
+  // H4: responsável não sai sem transferir
+  const eqM = (await call("GET", `/api/equipe?obra_id=${oM.obra.id}`, D3)).equipe;
+  check("H4: tirar o responsável da obra → 400", (await call("DELETE", `/api/equipe?id=${eqM.find((m) => m.usuario_id === p3.mestre.id).id}`, D3)).status === 400);
+
+  // H2 / H3 etapas
+  const eM = (await call("POST", "/api/etapas", p3.mestre.token, { obraId: o3, texto: "Laje" })).etapa;
+  await call("PATCH", `/api/etapas?id=${eM.id}`, p3.mestre.token, { concluida: true });
+  check("H2: encarregado NÃO desmarca a conclusão do mestre → 403", (await call("PATCH", `/api/etapas?id=${eM.id}`, p3.encarr.token, { concluida: false })).status === 403);
+  check("H2: chefe (superior de quem concluiu) desmarca → ok", (await call("PATCH", `/api/etapas?id=${eM.id}`, p3.chefe.token, { concluida: false })).ok);
+  const eE = (await call("POST", "/api/etapas", p3.encarr.token, { obraId: o3, texto: "Parede" })).etapa;
+  await call("POST", "/api/etapas", p3.mestre.token, { obraId: o3, texto: "Sub do mestre", parentId: eE.id });
+  check("H3: encarregado NÃO apaga etapa com sub-etapa do mestre → 403", (await call("DELETE", `/api/etapas?id=${eE.id}`, p3.encarr.token)).status === 403);
+  check("H3: mestre apaga a etapa inteira → ok", (await call("DELETE", `/api/etapas?id=${eE.id}`, p3.mestre.token)).ok);
+
+  // H5: observações respeitam o nível do módulo
+  const obs = (await call("POST", "/api/observacoes", p3.prof.token, { obraId: o3, texto: "faltou areia" })).item;
+  check("H: profissional escreve no livro de obra (padrão novo)", !!obs);
+  await call("PATCH", "/api/permissoes", D3, { rank: 8, modulo: "observacoes", nivel: "visualizar" });
+  check("H5: com nível 'ver', o autor NÃO edita a própria observação → 403", (await call("PATCH", `/api/observacoes?id=${obs.id}`, p3.prof.token, { texto: "outra" })).status === 403);
+  await call("PATCH", "/api/permissoes", D3, { rank: 8, modulo: "observacoes", nivel: "editar" });
+  const obsD = (await call("POST", "/api/observacoes", D3, { obraId: o3, texto: "nota do dono" })).item;
+  check("H: o Dono NÃO apaga a própria observação (livro de obra)", (await call("DELETE", `/api/observacoes?id=${obsD.id}`, D3)).status === 403);
+  check("H: superior apaga observação do profissional → ok", (await call("DELETE", `/api/observacoes?id=${obs.id}`, p3.encarr.token)).ok);
+
+  // H6: dados de Equipe só para a própria pessoa e superiores
+  const eqTurma = (await call("GET", `/api/equipe?obra_id=${o3}`, turma.token)).equipe;
+  const mestreVistoPelaTurma = eqTurma.find((m) => m.usuario_id === p3.mestre.id);
+  check("H6: chefe de turma NÃO vê presença/bloqueios do mestre", mestreVistoPelaTurma && mestreVistoPelaTurma.asistencias.length === 0 && mestreVistoPelaTurma.excecao_modulos === null);
+  check("H6: chefe de turma NÃO vê o e-mail do Dono", eqTurma.filter((m) => m.rank <= 7 && m.usuario_id !== turma.id).every((m) => m.email === null));
+  const eqEnc = (await call("GET", `/api/equipe?obra_id=${o3}`, p3.encarr.token)).equipe;
+  check("H6: encarregado vê a presença do profissional que ele anotou", (eqEnc.find((m) => m.usuario_id === p3.prof2.id)?.asistencias || []).includes(hoje));
+  check("H7: anotação visível 'marcado por'", !!eqEnc.find((m) => m.usuario_id === p3.prof2.id)?.presencas_por?.[hoje]);
+  check("H7: superior NÃO desmarca a presença que a própria pessoa marcou → 403", (await call("PATCH", `/api/equipe?id=${eqEnc.find((m) => m.usuario_id === p3.prof.id).id}`, p3.encarr.token, { data: hoje })).status === 403);
+
+  // Pedidos: recebe/entrega com confirmação
+  const pd = await call("POST", "/api/pedidos", p3.prof.token, { obraId: o3, tipo: "material", descricao: "Cimento", quantidade: "5", remetenteId: p3.almox.id, destinatarioId: p3.prof.id });
+  check("P: profissional (receber) pede material ao almoxarife → pendente", pd.ok && pd.pedido.status === "pendente", JSON.stringify(pd));
+  check("P: profissional NÃO pede documento (nível ver) → 403", (await call("POST", "/api/pedidos", p3.prof.token, { obraId: o3, tipo: "documento", descricao: "planta", remetenteId: p3.encarr.id, destinatarioId: p3.prof.id })).status === 403);
+  check("P: estagiário (ver) NÃO pede material → 403", (await call("POST", "/api/pedidos", estag.token, { obraId: o3, tipo: "material", descricao: "x", remetenteId: p3.almox.id, destinatarioId: estag.id })).status === 403);
+  const ent = await call("PATCH", `/api/pedidos?id=${pd.pedido.id}`, p3.almox.token, { status: "entregue" });
+  check("P: almoxarife entrega → aguardando confirmação", ent.ok && ent.pedido.status === "aguardando");
+  check("P: almoxarife NÃO confirma por quem recebe → 403", (await call("PATCH", `/api/pedidos?id=${pd.pedido.id}`, p3.almox.token, { status: "atendido" })).status === 403);
+  const conf = await call("PATCH", `/api/pedidos?id=${pd.pedido.id}`, p3.prof.token, { status: "atendido" });
+  check("P: profissional confirma o recebimento → atendido", conf.ok && conf.pedido.status === "atendido");
+  const dir = await call("POST", "/api/pedidos", p3.almox.token, { obraId: o3, tipo: "ferramenta", descricao: "Martelo", remetenteId: p3.almox.id, destinatarioId: p3.prof2.id });
+  check("P: entrega direta nasce aguardando", dir.ok && dir.pedido.status === "aguardando");
+  check("P: quem recebe contesta → volta a pendente", (await call("PATCH", `/api/pedidos?id=${dir.pedido.id}`, p3.prof2.token, { status: "contestar" })).pedido?.status === "pendente");
+  check("P: profissional2 NÃO vê o pedido do profissional (não é parte nem superior)", !(await call("GET", `/api/pedidos?obra_id=${o3}`, p3.prof2.token)).pedidos.some((x) => x.id === pd.pedido.id));
+  check("P: encarregado (superior) vê o pedido", (await call("GET", `/api/pedidos?obra_id=${o3}`, p3.encarr.token)).pedidos.some((x) => x.id === pd.pedido.id));
+  const fora = await novo(o4, "Fora", 8);
+  check("H8: pedido para quem não está na obra → 400", (await call("POST", "/api/pedidos", p3.prof.token, { obraId: o3, tipo: "material", descricao: "x", remetenteId: fora.id, destinatarioId: p3.prof.id })).status === 400);
+  check("P: superior do autor cancela pedido → ok", (await call("DELETE", `/api/pedidos?id=${dir.pedido.id}`, p3.encarr.token)).ok);
+
+  // H9: Permissões validadas
+  check("H9: módulo inválido → 400", (await call("PATCH", "/api/permissoes", D3, { rank: 8, modulo: "xpto", nivel: "editar" })).status === 400);
+  check("H9: 'receber' em Etapas → 400", (await call("PATCH", "/api/permissoes", D3, { rank: 8, modulo: "etapas", nivel: "receber" })).status === 400);
+  check("H9: rank 9 → 400", (await call("PATCH", "/api/permissoes", D3, { rank: 9, modulo: "etapas", nivel: "editar" })).status === 400);
+
+  // P1: a proteção segue o rank que o autor tinha ao criar
+  const mat = (await call("POST", "/api/materiais", turma.token, { obraId: o3, texto: "Areia da turma" })).item;
+  eq = (await call("GET", `/api/equipe?obra_id=${o3}`, D3)).equipe;
+  check("H: mestre promove chefe de turma a encarregado → ok", (await call("PATCH", `/api/equipe?id=${lin(turma.id)}`, p3.mestre.token, { rank: 5 })).ok);
+  check("P1: almoxarife (6) apaga material criado pelo turma quando era 7 → ok", (await call("DELETE", `/api/materiais?id=${mat.id}`, p3.almox.token)).ok);
+
+  // Rank: até Mestre muda; só para baixo
+  check("H: mestre NÃO dá rank 4 (o próprio) → 400", (await call("PATCH", `/api/equipe?id=${lin(p3.prof2.id)}`, p3.mestre.token, { rank: 4 })).status === 400);
+  check("H: encarregado NÃO muda rank → 403", (await call("PATCH", `/api/equipe?id=${lin(p3.prof2.id)}`, p3.encarr.token, { rank: 7 })).status === 403);
+  check("H: estagiário NÃO muda rank → 403", (await call("PATCH", `/api/equipe?id=${lin(p3.prof2.id)}`, estag.token, { rank: 7 })).status === 403);
+
+  // Co-Dono
+  check("H: Dono principal nomeia co-Dono → ok", (await call("PATCH", `/api/equipe?id=${lin(p3.chefe.id)}`, D3, { rank: 1 })).ok);
+  check("H: co-Dono NÃO muda o rank do Dono principal → 403", (await call("PATCH", `/api/equipe?id=${lin(d3.usuario.id)}`, p3.chefe.token, { rank: 2 })).status === 403);
+  check("H: rank de um Dono só pelo suporte → 403", (await call("PATCH", `/api/equipe?id=${lin(p3.chefe.id)}`, D3, { rank: 2 })).status === 403);
+  check("H: co-Dono NÃO nomeia outro Dono → 403", (await call("PATCH", `/api/equipe?id=${lin(p3.mestre.id)}`, p3.chefe.token, { rank: 1 })).status === 400);
+
+  // Sugestões → e-mail para suporte@
+  const antes = emails.length;
+  const sg = await call("POST", "/api/sugestao", p3.mestre.token, { texto: "O almoxarife deveria ver a Equipe." });
+  check("S: sugestão enviada", sg.ok && emails.length === antes + 1 && emails.at(-1).to[0] === "suporte@gestaoecontrole.app.br");
+  await call("POST", "/api/sugestao", p3.mestre.token, { texto: "segunda" }); await call("POST", "/api/sugestao", p3.mestre.token, { texto: "terceira" });
+  check("S: 4ª sugestão do dia → 429", (await call("POST", "/api/sugestao", p3.mestre.token, { texto: "quarta" })).status === 429);
 }
 
 console.log(`\n${ok} ok, ${falhas} falhas`);

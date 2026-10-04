@@ -1,15 +1,16 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse } from "../lib/auth.js";
+import { getUsuario, jsonResponse, ehSuperior } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 
 // Observações = "livro de obra".
 //  - Criar: todo mundo que tem acesso ao módulo (a empresa pode bloquear em Permissões).
 //  - Editar: só o próprio autor. A versão anterior vai pro histórico.
-//  - Apagar: só quem está ACIMA do autor (o Dono apaga qualquer uma). O autor não apaga.
+//  - Apagar: só quem está ACIMA do autor (pelo rank que ele tinha ao escrever). O autor não apaga: é o livro de obra.
 //  - Histórico de edições: visível só pro autor e pros superiores dele.
 
+// Superior estrito do autor, pelo rank que ele tinha ao escrever (o Dono principal fica acima de um co-Dono).
 async function podeVerHistoricoOuApagar(usuario, autor) {
-  return usuario.rank === 1 || usuario.rank < autor.rank;
+  return ehSuperior(usuario, autor.rank, autor.id);
 }
 
 export default async function observacoesHandler(req, env) {
@@ -23,7 +24,7 @@ export default async function observacoesHandler(req, env) {
     const historicoId = url.searchParams.get("historico");
     if (historicoId) {
       const obs = await sql`
-        SELECT o.criado_por, o.obra_id, u.rank FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${historicoId}
+        SELECT o.criado_por, o.obra_id, COALESCE(o.rank_autor, u.rank) AS rank FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${historicoId}
       `;
       if (obs.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
       // Tem que ter acesso a ESSA obra (antes, um Dono de outra empresa conseguia ler).
@@ -76,7 +77,9 @@ export default async function observacoesHandler(req, env) {
     const alvos = await sql`SELECT * FROM observacoes WHERE id = ${id}`;
     if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
     const atual = alvos[0];
-    if (!(await nivelNaObra(sql, usuario, atual.obra_id, "observacoes", env)).obra) return semAcesso();
+    const acessoP = await nivelNaObra(sql, usuario, atual.obra_id, "observacoes", env);
+    if (!acessoP.obra) return semAcesso();
+    if (!podeEditar(acessoP.nivel)) return soVisualizar(); // H5
     if (atual.criado_por !== usuario.id) return jsonResponse({ ok: false, error: "só o autor pode editar" }, 403);
     if (atual.texto === String(texto).trim()) return jsonResponse({ ok: true, item: atual });
     await sql`INSERT INTO observacoes_historico (observacao_id, texto, editado_por) VALUES (${id}, ${atual.texto}, ${usuario.id})`;
@@ -92,10 +95,12 @@ export default async function observacoesHandler(req, env) {
   if (req.method === "DELETE") {
     const id = url.searchParams.get("id");
     const alvos = await sql`
-      SELECT o.*, u.rank AS rank_criador FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${id}
+      SELECT o.*, COALESCE(o.rank_autor, u.rank) AS rank_criador FROM observacoes o JOIN usuarios u ON u.id = o.criado_por WHERE o.id = ${id}
     `;
     if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (!(await nivelNaObra(sql, usuario, alvos[0].obra_id, "observacoes", env)).obra) return semAcesso();
+    const acessoD = await nivelNaObra(sql, usuario, alvos[0].obra_id, "observacoes", env);
+    if (!acessoD.obra) return semAcesso();
+    if (!podeEditar(acessoD.nivel)) return soVisualizar(); // H5
     const autor = { id: alvos[0].criado_por, rank: alvos[0].rank_criador };
     if (!(await podeVerHistoricoOuApagar(usuario, autor))) {
       return jsonResponse({ ok: false, error: "só um superior do autor pode apagar esta observação" }, 403);
