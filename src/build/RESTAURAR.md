@@ -2,7 +2,7 @@
 
 O e-mail "Backup semanal G&C — AAAA-MM-DD" traz o anexo `gc-backup-AAAA-MM-DD.json.gz`:
 a base inteira em JSON comprimido (gzip), **sem fotos e documentos** (esses ficam no KV e
-cada Dono pode baixar com "Backup de tudo").
+cada Dono pode baixar com "Drive Backup" / "Celular Backup").
 
 Formato: `{ app, versao_backup: 1, gerado_em, contagem: {tabela: n}, tabelas: {tabela: [linhas...]} }`.
 As tabelas estão na ordem de restauração (quem é referenciado vem antes).

@@ -238,13 +238,13 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
     id: "conta",
     titulo: "Sua conta, privacidade e suporte",
     para: "todos",
-    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Backup de tudo (Dono), Manual do usuário, Termos de Uso, Privacidade, Exportar meus dados, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
+    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Drive Backup e Celular Backup (Dono), Manual do usuário, Termos de Uso, Privacidade, Exportar meus dados, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
 
 Criar/Trocar meu PIN: pede para digitar o seu CPF (por segurança, o G&C não guarda o CPF completo, só uma versão protegida).
 
 Trocar senha: pede a senha atual. Ao trocar a senha ou o PIN, os outros aparelhos saem da conta; o aparelho que você está usando continua.
 
-Backup de tudo (só o Dono): baixa um arquivo .zip com todas as obras da empresa — etapas, equipe, materiais, ferramentas, observações — e também as fotos e os documentos, organizados em pastas por obra. É montado no seu aparelho: com muitas fotos pode demorar alguns minutos (não feche a tela). Guarde o arquivo num lugar seguro.
+Drive Backup e Celular Backup (só o Dono): fazem uma cópia de tudo da empresa — todas as obras com etapas, equipe, materiais, ferramentas, observações, e também as fotos e os documentos, organizados em pastas por obra — num arquivo .zip. "Drive Backup" salva no seu Google Drive, na pasta "G&C backup" (na primeira vez o Google pede sua autorização; o G&C só enxerga os arquivos que ele mesmo criou, nunca o resto do seu Drive). Ficam os 10 backups mais novos; os mais velhos vão para a lixeira do Drive. "Celular Backup" baixa o .zip direto na pasta de downloads do aparelho. O arquivo é montado no seu aparelho: com muitas fotos pode demorar alguns minutos (não feche a tela). O mais seguro é o Drive: se perder o celular, a cópia continua lá.
 
 Exportar meus dados: mostra tudo o que o G&C guarda sobre você (cadastro, obras, presenças, observações, pedidos, arquivos enviados e registros de acesso). Dá para ver e imprimir/salvar em PDF, ou baixar um arquivo JSON para levar a outro sistema.
 

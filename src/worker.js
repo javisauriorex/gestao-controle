@@ -23,6 +23,7 @@ import manual from "./routes/manual.js";
 import { reenviarConfirmacao, esqueciSenha, redefinirSenha, paginaConfirmarEmail, paginaRedefinirSenha } from "./routes/conta-email.js";
 import admin from "./routes/admin.js";
 import meusDados from "./routes/meus-dados.js";
+import googleConfig from "./routes/google-config.js";
 import { enviarBackup } from "./lib/backup.js";
 import { getSql } from "./lib/db.js";
 
@@ -58,6 +59,7 @@ const ROTAS = {
   "/api/encerrar-empresa": encerrarEmpresa,
   "/api/admin": admin,
   "/api/meus-dados": meusDados,
+  "/api/google-config": googleConfig,
 };
 
 export default {

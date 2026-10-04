@@ -47,6 +47,7 @@
 <tr><th>Categoria</th><th>Dados</th><th>Como obtemos</th></tr>
 <tr><td>Cadastro</td><td>Nome, e-mail, senha (guardada só como hash) e se o e-mail já foi confirmado</td><td>Você informa. Para ativar a conta, enviamos um link de confirmação ao seu e-mail</td></tr>
 <tr><td>Login com Google</td><td>Nome e e-mail da sua conta Google</td><td>Google, com sua autorização (escopos openid, email, profile). Não guardamos foto de perfil nem acessamos outros dados da sua conta Google</td></tr>
+<tr><td>Drive Backup (só o Dono, se ele quiser)</td><td>Permissão para criar arquivos no Google Drive do próprio Dono (escopo drive.file: o G&amp;C só enxerga os arquivos que ele mesmo criou, nunca o resto do Drive)</td><td>Autorizada pelo Dono na tela do Google ao tocar em "Drive Backup". A autorização fica só no aparelho, por cerca de 1 hora; não guardamos nada dela no servidor. O backup vai do aparelho direto para o Drive do Dono, na pasta "G&amp;C backup"; o G&amp;C guarda ali os 10 mais recentes e manda os mais antigos para a lixeira do Drive</td></tr>
 <tr><td>Acesso por CPF</td><td>CPF — <strong>não guardamos o número completo</strong>: só uma "impressão digital" criptográfica (para reconhecer você no login) e a versão mascarada (ex.: 123.***.***-45) —, PIN (guardado só como hash, com chave secreta), tentativas erradas e bloqueio temporário</td><td>Você informa ao aceitar o convite ou criar seu PIN</td></tr>
 <tr><td>Aceite dos Termos</td><td>Versão aceita e data/hora do aceite</td><td>Registrado quando você aceita</td></tr>
 <tr><td>Registros de acesso</td><td>Endereço IP, data e hora, navegador e forma de entrada (senha, CPF, Google, convite)</td><td>Registrados a cada entrada no aplicativo</td></tr>
@@ -86,7 +87,7 @@
 <ul>
 <li><strong>Cloudflare, Inc.</strong> (EUA): hospedagem, rede, DNS, e-mail de contato, verificação anti-robô (Turnstile, no cadastro, no formulário de interesse e após várias senhas erradas), armazenamento de fotos e documentos e o modelo de inteligência artificial do assistente de Ajuda (Workers AI). As perguntas enviadas ao assistente não são usadas por nós para outros fins.</li>
 <li><strong>Neon, LLC</strong> (EUA, grupo Databricks): banco de dados.</li>
-<li><strong>Google LLC:</strong> login com Google e fontes tipográficas.</li>
+<li><strong>Google LLC:</strong> login com Google, fontes tipográficas e, se o Dono escolher, cópia de segurança no Google Drive dele.</li>
 <li><strong>Resend, Inc.</strong> (EUA): envio dos e-mails automáticos do G&amp;C — confirmação de e-mail e link para criar nova senha. Recebe só o seu nome e e-mail e o texto da mensagem; o G&amp;C não envia propaganda.</li>
 
 </ul>
@@ -163,7 +164,7 @@ Ao abrir o G&amp;C, seu navegador se conecta a esses serviços, que podem recebe
 <p>Como exige o Marco Civil da Internet (art. 15), guardamos os registros de acesso ao aplicativo (endereço IP, data e hora) por <strong>6 meses</strong>, em ambiente controlado e de acesso restrito. Depois disso eles são apagados automaticamente. Só os fornecemos a terceiros mediante ordem judicial.</p>
 
 <h2>12. Dados do Google</h2>
-<p>O uso de informações recebidas das APIs do Google segue a <a href="https://developers.google.com/terms/api-services-user-data-policy">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado.</p>
+<p>O uso de informações recebidas das APIs do Google segue a <a href="https://developers.google.com/terms/api-services-user-data-policy">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado. O acesso ao Google Drive serve só para gravar as cópias de segurança que o Dono pede; não lemos, não analisamos e não compartilhamos nenhum outro conteúdo do Drive.</p>
 <p>Usamos apenas nome e e-mail, só para criar e identificar sua conta. Não os compartilhamos com terceiros, a não ser os provedores de infraestrutura listados acima, e não os usamos para publicidade.</p>
 
 <h2>13. Alterações</h2>

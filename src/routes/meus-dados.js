@@ -6,7 +6,7 @@ import { mascaraDe } from "../lib/cpf.js";
 // GET /api/meus-dados — "Exportar meus dados" (LGPD art. 18, II e V: acesso e portabilidade).
 // Cada pessoa recebe os SEUS dados: cadastro, obras em que participa, presenças, o que escreveu,
 // pedidos, arquivos que enviou e registros de acesso. Não traz dados de outras pessoas além do
-// nome da outra parte num pedido. (Os dados da empresa inteira ficam no "Backup de tudo" do Dono.)
+// nome da outra parte num pedido. (Os dados da empresa inteira ficam no "Drive Backup" / "Celular Backup" do Dono.)
 // ============================================================
 
 export default async function meusDadosHandler(req, env) {

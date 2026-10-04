@@ -1,7 +1,7 @@
 // ============================================================
 // Backup semanal da base (C3): todo SÁBADO às 11:30 (Brasília) o Worker junta todas as tabelas
 // num arquivo JSON comprimido (.json.gz) e manda por e-mail para o administrador.
-// Fotos e documentos NÃO vão aqui (ficam no KV): cada Dono tem o "Backup de tudo" com arquivos.
+// Fotos e documentos NÃO vão aqui (ficam no KV): cada Dono tem o "Drive Backup" / "Celular Backup" com arquivos.
 // Para restaurar, ver src/build/RESTAURAR.md.
 // ============================================================
 

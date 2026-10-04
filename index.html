@@ -1560,7 +1560,107 @@ function BottomNav({ onInicio, onConfig, onAjuda, active }) {
   );
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirMeusDados, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupForcado, fazendoBackup }) {
+// ---------- Google Drive (backup do Dono) ----------
+// Ícone oficial do Drive (arquivo drive-logo.png na raiz do site). Se faltar, mostra ☁️.
+function IconeDrive() {
+  const [falhou, setFalhou] = useState(false);
+  return falhou ? <span>☁️</span> : <img src="drive-logo.png" alt="" className="w-4 h-4 object-contain" draggable="false" onError={() => setFalhou(true)} />;
+}
+
+const DRIVE_ESCOPO = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_PASTA = "G&C backup";
+const DRIVE_MANTER = 10;
+let driveToken = null; // { valor, vence } — só na memória deste aparelho
+
+function carregarGoogleIdentity() {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  return new Promise((ok, erro) => {
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.onload = () => ok();
+    s.onerror = () => erro(new Error("Não foi possível falar com o Google. Confira a internet e tente de novo."));
+    document.head.appendChild(s);
+  });
+}
+
+// Carregado já ao abrir o Config (do Dono): assim a janela do Google abre logo no toque
+// e o navegador não a bloqueia como "pop-up".
+let driveClientId = null;
+async function prepararDrive() {
+  if (!driveClientId) {
+    const cfg = await fetch("/api/google-config").then((r) => r.json()).catch(() => ({}));
+    driveClientId = cfg.clientId || null;
+  }
+  await carregarGoogleIdentity();
+}
+
+async function tokenDrive(emailDica) {
+  if (driveToken && driveToken.vence > Date.now() + 60000) return driveToken.valor;
+  await prepararDrive();
+  const cfg = { clientId: driveClientId };
+  if (!cfg.clientId) throw new Error("Backup no Drive indisponível no momento. Use \"Celular Backup\".");
+  return new Promise((ok, erro) => {
+    const cliente = window.google.accounts.oauth2.initTokenClient({
+      client_id: cfg.clientId,
+      scope: DRIVE_ESCOPO,
+      hint: emailDica || undefined,
+      callback: (resp) => {
+        if (resp.error || !resp.access_token) return erro(new Error("O Google não autorizou o acesso ao Drive."));
+        if (!window.google.accounts.oauth2.hasGrantedAllScopes(resp, DRIVE_ESCOPO)) return erro(new Error("Para salvar no Drive, marque a permissão do Google Drive na tela do Google."));
+        driveToken = { valor: resp.access_token, vence: Date.now() + (Number(resp.expires_in) || 3600) * 1000 };
+        ok(resp.access_token);
+      },
+      error_callback: () => erro(new Error("A janela do Google foi fechada antes de autorizar.")),
+    });
+    cliente.requestAccessToken({ prompt: "" });
+  });
+}
+
+async function driveApi(token, url, opcoes = {}) {
+  const r = await fetch(url, { ...opcoes, headers: { authorization: `Bearer ${token}`, ...(opcoes.headers || {}) } });
+  if (r.status === 401) { driveToken = null; throw new Error("A conexão com o Drive venceu. Toque em \"Drive Backup\" de novo."); }
+  if (r.status === 403) {
+    const t = await r.text().catch(() => "");
+    throw new Error(/storageQuota/i.test(t) ? "Seu Google Drive está cheio. Libere espaço ou use \"Celular Backup\"." : "O Google recusou o envio ao Drive.");
+  }
+  if (!r.ok) throw new Error("Falha ao falar com o Google Drive (" + r.status + ").");
+  return r;
+}
+
+async function subirParaDrive(token, blob, nome) {
+  const API = "https://www.googleapis.com/drive/v3/files";
+  const q = (s) => encodeURIComponent(s);
+  // 1) Pasta "G&C backup" (o G&C só enxerga a que ele mesmo criou)
+  const busca = await (await driveApi(token, `${API}?q=${q(`name='${DRIVE_PASTA}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)&spaces=drive`)).json();
+  let pastaId = busca.files?.[0]?.id;
+  if (!pastaId) {
+    const nova = await (await driveApi(token, `${API}?fields=id`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: DRIVE_PASTA, mimeType: "application/vnd.google-apps.folder" }),
+    })).json();
+    pastaId = nova.id;
+  }
+  // 2) Envio "retomável" (serve para arquivos grandes, com muitas fotos)
+  const inicio = await driveApi(token, "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=UTF-8", "x-upload-content-type": "application/zip", "x-upload-content-length": String(blob.size) },
+    body: JSON.stringify({ name: nome, parents: [pastaId], mimeType: "application/zip", appProperties: { gc: "backup" } }),
+  });
+  const destino = inicio.headers.get("location");
+  if (!destino) throw new Error("O Google Drive não aceitou iniciar o envio.");
+  await driveApi(token, destino, { method: "PUT", headers: { "content-type": "application/zip" }, body: blob });
+  // 3) Guarda só os mais novos: os velhos criados pelo G&C vão para a lixeira (recuperáveis por 30 dias)
+  try {
+    const lista = await (await driveApi(token, `${API}?q=${q(`'${pastaId}' in parents and trashed=false and appProperties has { key='gc' and value='backup' }`)}&orderBy=createdTime desc&pageSize=100&fields=files(id)`)).json();
+    for (const f of (lista.files || []).slice(DRIVE_MANTER)) {
+      await driveApi(token, `${API}/${f.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ trashed: true }) });
+    }
+  } catch (e) { /* limpar é opcional: o backup novo já está salvo */ }
+}
+
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirMeusDados, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupCelular, onBackupDrive, fazendoBackup }) {
+  useEffect(() => { if (usuario.rank === 1) prepararDrive().catch(() => {}); }, []);
   // Todos os itens com o mesmo formato: ícone à esquerda, texto alinhado, mesma altura.
   const Item = ({ icone, texto, onClick, href, perigo, disabled }) => {
     const estilo = { borderColor: perigo ? C.rust : C.border, color: perigo ? C.rust : C.ink };
@@ -1610,7 +1710,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
           <div className="flex flex-col gap-2">
             <Item icone="🔑" texto={usuario.tem_senha ? "Trocar senha" : "Definir senha"} onClick={onAbrirDefinirSenha} />
             {onAbrirMeuPin && <Item icone="📱" texto={usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"} onClick={onAbrirMeuPin} />}
-            {onAbrirMeusDados && <Item icone="📥" texto="Exportar meus dados" onClick={onAbrirMeusDados} />}
+            {onAbrirMeusDados && <Item icone="🗂" texto="Exportar meus dados" onClick={onAbrirMeusDados} />}
             <Item icone={temaEscuro ? "☀️" : "🌙"} texto={temaEscuro ? "Modo claro" : "Modo escuro"} onClick={onAlternarTema} />
           </div>
 
@@ -1619,7 +1719,9 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
               <Titulo>Empresa</Titulo>
               <div className="flex flex-col gap-2">
                 {usuario.rank <= 3 && <Item icone={<img src="logo_permissoes_13.webp" alt="" className="w-4 h-4 object-contain" draggable="false" />} texto="Permissões" onClick={onAbrirPermissoes} />}
-                {usuario.rank === 1 && <Item icone="⤓" texto={fazendoBackup ? (typeof fazendoBackup === "string" ? fazendoBackup : "Gerando...") : "Backup de tudo (com fotos)"} onClick={onBackupForcado} disabled={fazendoBackup} />}
+                {usuario.rank === 1 && fazendoBackup && <p style={{ color: C.inkMuted }} className="text-xs font-mono px-1">⏳ {typeof fazendoBackup === "string" ? fazendoBackup : "Gerando..."} (não feche a tela)</p>}
+                {usuario.rank === 1 && <Item icone={<IconeDrive />} texto="Drive Backup" onClick={onBackupDrive} disabled={!!fazendoBackup} />}
+                {usuario.rank === 1 && <Item icone="📥" texto="Celular Backup" onClick={onBackupCelular} disabled={!!fazendoBackup} />}
                 {usuario.email === "marcelojavierbonet@gmail.com" && <Item icone="🛠" texto="Painel admin" href="/admin" />}
               </div>
             </>
@@ -3085,62 +3187,87 @@ function GestorObras() {
     setObras((prev) => prev.map((o) => (o.id === editandoObra.id ? r.obra : o)));
   };
 
-  // "Backup de tudo" do Dono (C3): um .zip com dados.json (todas as obras) + as fotos e os documentos.
+  // Backup do Dono (C3): monta um .zip com dados.json (todas as obras) + as fotos e os documentos.
   // É montado neste aparelho (não depende de limites do servidor). Pode demorar se houver muitos arquivos.
-  const backupForcado = async () => {
+  const montarBackup = async () => {
     setFazendoBackup("Lendo as obras...");
+    const limpo = (t) => String(t || "").replace(/[\\/:*?"<>|\n\r\t]+/g, "_").slice(0, 60).trim() || "sem-nome";
+    const pacote = { geradoEm: new Date().toISOString(), obras: [] };
+    const arquivos = []; // { id, caminho }
+    for (const obra of obras) {
+      const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
+        apiFetch(`/api/etapas?obra_id=${obra.id}`).catch(() => ({ etapas: [] })),
+        apiFetch(`/api/equipe?obra_id=${obra.id}`).catch(() => ({ equipe: [] })),
+        apiFetch(`/api/ferramentas?obra_id=${obra.id}`).catch(() => ({ ferramentas: [] })),
+        apiFetch(`/api/materiais?obra_id=${obra.id}`).catch(() => ({ materiais: [] })),
+        apiFetch(`/api/observacoes?obra_id=${obra.id}`).catch(() => ({ observacoes: [] })),
+        apiFetch(`/api/documentos?obra_id=${obra.id}`).catch(() => ({ documentos: [] })),
+        apiFetch(`/api/etapa-fotos?obra_id=${obra.id}`).catch(() => ({ fotos: [] })),
+      ]);
+      pacote.obras.push({
+        obra, etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
+        materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos, fotos: fo.fotos,
+      });
+      const pasta = `${obra.id}-${limpo(obra.cliente)}`;
+      const etapaNome = Object.fromEntries((et.etapas || []).map((e) => [e.id, limpo(e.texto)]));
+      (doc.documentos || []).forEach((d) => arquivos.push({ id: d.arquivo_id, caminho: `${pasta}/documentos/${d.id}-${limpo(d.nome)}` }));
+      (fo.fotos || []).forEach((f) => arquivos.push({ id: f.arquivo_id, caminho: `${pasta}/fotos/${etapaNome[f.etapa_id] || "etapa"}-${f.id}` }));
+      (et.etapas || []).filter((e) => e.foto_conclusao_id).forEach((e) => arquivos.push({ id: e.foto_conclusao_id, caminho: `${pasta}/fotos/${limpo(e.texto)}-conclusao` }));
+    }
+    const zip = new JSZip();
+    const extensao = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf" };
+    let feitos = 0, faltando = 0;
+    for (const a of arquivos) {
+      setFazendoBackup(`Arquivos ${feitos + 1}/${arquivos.length}...`);
+      try {
+        const r = await fetch(`/api/arquivo-get?id=${encodeURIComponent(a.id)}`, { headers: cabecalhoAuth() });
+        const d = await r.json();
+        const f = d.ok ? JSON.parse(d.payload) : null;
+        if (f && arquivoSeguro(f)) {
+          const m = f.dataUrl.match(/^data:([^;]+);base64,(.*)$/);
+          const ext = /\.[a-z0-9]{2,5}$/i.test(a.caminho) ? "" : (extensao[m[1]] || "");
+          zip.file(a.caminho + ext, m[2], { base64: true });
+        } else faltando++;
+      } catch (e) { faltando++; }
+      feitos++;
+    }
+    pacote.arquivos = { total: arquivos.length, incluidos: arquivos.length - faltando, faltando };
+    zip.file("dados.json", JSON.stringify(pacote, null, 2));
+    zip.file("LEIA-ME.txt", `Backup do G&C gerado em ${new Date().toLocaleString("pt-BR")}.\n\ndados.json = todas as obras (etapas, equipe, materiais, ferramentas, observações, documentos e fotos).\nAs pastas têm as fotos e os documentos de cada obra.\n${faltando ? faltando + " arquivo(s) não puderam ser incluídos (apagados ou com erro).\n" : ""}`);
+    setFazendoBackup("Compactando...");
+    return await zip.generateAsync({ type: "blob" });
+  };
+
+  const nomeBackup = () => `gc-backup-${todayISO()}.zip`;
+
+  // "📥 Celular Backup": baixa o .zip direto na pasta de downloads do navegador.
+  const backupCelular = async () => {
     try {
-      const limpo = (t) => String(t || "").replace(/[\\/:*?"<>|\n\r\t]+/g, "_").slice(0, 60).trim() || "sem-nome";
-      const pacote = { geradoEm: new Date().toISOString(), obras: [] };
-      const arquivos = []; // { id, caminho }
-      for (const obra of obras) {
-        const [et, eq, fe, ma, ob, doc, fo] = await Promise.all([
-          apiFetch(`/api/etapas?obra_id=${obra.id}`).catch(() => ({ etapas: [] })),
-          apiFetch(`/api/equipe?obra_id=${obra.id}`).catch(() => ({ equipe: [] })),
-          apiFetch(`/api/ferramentas?obra_id=${obra.id}`).catch(() => ({ ferramentas: [] })),
-          apiFetch(`/api/materiais?obra_id=${obra.id}`).catch(() => ({ materiais: [] })),
-          apiFetch(`/api/observacoes?obra_id=${obra.id}`).catch(() => ({ observacoes: [] })),
-          apiFetch(`/api/documentos?obra_id=${obra.id}`).catch(() => ({ documentos: [] })),
-          apiFetch(`/api/etapa-fotos?obra_id=${obra.id}`).catch(() => ({ fotos: [] })),
-        ]);
-        pacote.obras.push({
-          obra, etapas: et.etapas, equipe: eq.equipe, ferramentas: fe.ferramentas,
-          materiais: ma.materiais, observacoes: ob.observacoes, documentos: doc.documentos, fotos: fo.fotos,
-        });
-        const pasta = `${obra.id}-${limpo(obra.cliente)}`;
-        const etapaNome = Object.fromEntries((et.etapas || []).map((e) => [e.id, limpo(e.texto)]));
-        (doc.documentos || []).forEach((d) => arquivos.push({ id: d.arquivo_id, caminho: `${pasta}/documentos/${d.id}-${limpo(d.nome)}` }));
-        (fo.fotos || []).forEach((f) => arquivos.push({ id: f.arquivo_id, caminho: `${pasta}/fotos/${etapaNome[f.etapa_id] || "etapa"}-${f.id}` }));
-        (et.etapas || []).filter((e) => e.foto_conclusao_id).forEach((e) => arquivos.push({ id: e.foto_conclusao_id, caminho: `${pasta}/fotos/${limpo(e.texto)}-conclusao` }));
-      }
-      const zip = new JSZip();
-      const extensao = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf" };
-      let feitos = 0, faltando = 0;
-      for (const a of arquivos) {
-        setFazendoBackup(`Arquivos ${feitos + 1}/${arquivos.length}...`);
-        try {
-          const r = await fetch(`/api/arquivo-get?id=${encodeURIComponent(a.id)}`, { headers: cabecalhoAuth() });
-          const d = await r.json();
-          const f = d.ok ? JSON.parse(d.payload) : null;
-          if (f && arquivoSeguro(f)) {
-            const m = f.dataUrl.match(/^data:([^;]+);base64,(.*)$/);
-            const ext = /\.[a-z0-9]{2,5}$/i.test(a.caminho) ? "" : (extensao[m[1]] || "");
-            zip.file(a.caminho + ext, m[2], { base64: true });
-          } else faltando++;
-        } catch (e) { faltando++; }
-        feitos++;
-      }
-      pacote.arquivos = { total: arquivos.length, incluidos: arquivos.length - faltando, faltando };
-      zip.file("dados.json", JSON.stringify(pacote, null, 2));
-      zip.file("LEIA-ME.txt", `Backup do G&C gerado em ${new Date().toLocaleString("pt-BR")}.\n\ndados.json = todas as obras (etapas, equipe, materiais, ferramentas, observações, documentos e fotos).\nAs pastas têm as fotos e os documentos de cada obra.\n${faltando ? faltando + " arquivo(s) não puderam ser incluídos (apagados ou com erro).\n" : ""}`);
-      setFazendoBackup("Compactando...");
-      const blob = await zip.generateAsync({ type: "blob" });
+      const blob = await montarBackup();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `gc-backup-${todayISO()}.zip`;
+      a.download = nomeBackup();
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err) {
+      setErroGlobal(err.message);
+    }
+    setFazendoBackup(false);
+  };
+
+  // "Drive Backup": sobe o mesmo .zip para a pasta "G&C backup" no Google Drive do Dono.
+  // Permissão mínima do Google (drive.file): o G&C só enxerga os arquivos que ele mesmo criou —
+  // nada do resto do Drive. Fica só neste aparelho e só na memória (o token vale ~1 hora).
+  // Guarda os 10 backups mais novos; os mais velhos (só os criados pelo G&C) vão para a lixeira do Drive.
+  const backupDrive = async () => {
+    setFazendoBackup("Conectando ao Drive...");
+    try {
+      const token = await tokenDrive(usuarioAPI?.email);
+      const blob = await montarBackup();
+      setFazendoBackup("Enviando ao Drive...");
+      await subirParaDrive(token, blob, nomeBackup());
+      window.alert("✓ Backup salvo no seu Google Drive, na pasta \"G&C backup\".");
     } catch (err) {
       setErroGlobal(err.message);
     }
@@ -3468,7 +3595,7 @@ function GestorObras() {
       <>
         {content}
         <BottomNav active={view === "dashboard" ? "inicio" : view === "ajuda" ? "ajuda" : ""} onAjuda={() => { if (view !== "ajuda") irParaView("ajuda"); }} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onAbrirMeusDados={() => { setShowConfig(false); setShowMeusDados(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupForcado={backupForcado} fazendoBackup={fazendoBackup} />}
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onAbrirMeusDados={() => { setShowConfig(false); setShowMeusDados(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupCelular={backupCelular} onBackupDrive={backupDrive} fazendoBackup={fazendoBackup} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => { setShowDefinirSenha(false); carregarUsuarioAPI(); }} />}
         {showMeusDados && <MeusDadosModal onClose={() => setShowMeusDados(false)} />}
         {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
