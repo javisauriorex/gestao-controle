@@ -101,7 +101,17 @@
     0% { left: -40%; }
     100% { left: 100%; }
   }
+  /* Tamanho da letra (Config → Tamanho da letra). --fs vem do aparelho (localStorage "gc-fonte").
+     Escala o texto em rem (Tailwind) e também os tamanhos fixos em px. */
+  html { font-size: calc(16px * var(--fs, 1.12)); }
+  .text-\[9px\] { font-size: calc(9px * var(--fs, 1.12)) !important; }
+  .text-\[10px\] { font-size: calc(10px * var(--fs, 1.12)) !important; }
+  .text-\[11px\] { font-size: calc(11px * var(--fs, 1.12)) !important; }
 </style>
+<script>
+  // Aplica o tamanho da letra antes de desenhar a tela (evita "pulo").
+  try { var f = { normal: 1.12, grande: 1.25, enorme: 1.4 }[localStorage.getItem("gc-fonte") || "normal"]; if (f) document.documentElement.style.setProperty("--fs", f); } catch (e) {}
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -157,7 +167,8 @@ const ESTADOS = {
 };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Data de HOJE no Brasil (não em UTC: depois das 21h o UTC já é "amanhã" e a presença era recusada).
+const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 const fmt = (iso) => {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
@@ -910,8 +921,8 @@ function EquipeSection({ obraId, equipe, onAdd, onRemove, onToggleHoje, onSetExc
           return (
             <div key={m.id} style={{ background: C.bg, borderColor: C.border }} className="border rounded px-3 py-2">
               <div className="flex items-center gap-2">
-                <button onClick={() => podeMarcar && marcarPresenca(m)} disabled={!podeMarcar} title={m.usuario_id === usuarioId ? "Marcar minha presença hoje" : anotacaoHoje ? `Anotada por ${anotacaoHoje.nome}` : presenteHoje ? "Marcada pela própria pessoa" : "Anotar presença (fica registrado que foi você)"} style={{ borderColor: presenteHoje ? C.green : C.border, background: presenteHoje ? (anotacaoHoje ? C.amber : C.green) : "transparent" }} className="w-5 h-5 border-2 rounded flex items-center justify-center shrink-0 text-white text-xs disabled:opacity-60">
-                  {presenteHoje ? "✓" : ""}
+                <button onClick={() => podeMarcar && marcarPresenca(m)} disabled={!podeMarcar} aria-label={presenteHoje ? "Presente hoje" : "Ausente hoje"} title={m.usuario_id === usuarioId ? "Marcar minha presença hoje" : anotacaoHoje ? `Presente — anotada por ${anotacaoHoje.nome}` : presenteHoje ? "Presente — marcada pela própria pessoa" : podeMarcar ? "Ausente — toque para marcar presente (fica registrado que foi você)" : "Ausente"} style={{ borderColor: presenteHoje ? C.green : C.rust, background: presenteHoje ? C.green : "transparent", color: presenteHoje ? "#fff" : C.rust }} className="w-6 h-6 border-2 rounded-full flex items-center justify-center shrink-0 text-xs font-bold">
+                  {presenteHoje ? "✓" : "✕"}
                 </button>
                 <div className="flex-1 min-w-0 truncate">
                   {/* Título: o rank. Para Profissional, o ofício (Pedreiro, Pintor...) quando informado. */}
@@ -1203,7 +1214,8 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI, nivel = "ed
   const destaque = new Set([...paraEntregar, ...paraConfirmar].map((p) => p.id));
   const historico = pedidos.filter((p) => !destaque.has(p.id)).slice(0, 10);
   const SIMBOLO = { atendido: "✓", recusado: "✕", aguardando: "🚚", pendente: "…" };
-  const LEGENDA = { atendido: "recebido", recusado: "recusado", aguardando: "entregue, falta confirmar", pendente: "pedido" };
+  const LEGENDA = { atendido: "recebido", recusado: "recusado", aguardando: "entregue · falta confirmar", pendente: "pedido · aguardando entrega" };
+  const fmtData = (ts) => new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
 
   return (
     <div style={{ borderColor: C.border, background: C.surface }} className="border rounded-md p-3 mb-4">
@@ -1264,12 +1276,17 @@ function PedidosPanel({ obraId, tipo, tipoLabel, equipe, usuarioAPI, nivel = "ed
       {erro && <p style={{ color: C.rust }} className="text-[11px] font-mono mb-1.5">{erro}</p>}
 
       {historico.length > 0 && (
-        <div className="mt-2 space-y-1">
+        <div style={{ borderColor: C.border }} className="mt-2 pt-2 border-t space-y-1.5">
+          <p style={{ color: C.inkMuted }} className="text-[10px] font-mono uppercase tracking-wide">Histórico</p>
           {historico.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-2">
-              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate" title={LEGENDA[p.status]}>
-                {SIMBOLO[p.status] || "…"} {p.remetente_nome} → {p.destinatario_nome}: {p.descricao}{p.status === "aguardando" ? " · falta confirmar" : ""}
-              </p>
+            <div key={p.id} className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p style={{ color: C.ink }} className="text-xs truncate">{SIMBOLO[p.status] || "…"} {p.descricao}{p.quantidade ? ` (${p.quantidade})` : ""}</p>
+                <p style={{ color: C.inkMuted }} className="text-[10px] font-mono truncate">
+                  <span style={{ color: p.status === "atendido" ? C.green : p.status === "recusado" ? C.rust : C.amber }} className="font-bold uppercase">{LEGENDA[p.status]}</span>
+                  {" · "}{p.remetente_nome} → {p.destinatario_nome}{(p.atendido_em || p.entregue_em || p.criado_em) ? ` · ${fmtData(p.atendido_em || p.entregue_em || p.criado_em)}` : ""}
+                </p>
+              </div>
               {(p.criado_por === usuarioAPI.id || p.rank_autor > usuarioAPI.rank) && ["pendente", "aguardando"].includes(p.status) && (
                 <button onClick={() => cancelar(p.id)} style={{ color: C.rust }} className="text-[11px] shrink-0">cancelar</button>
               )}
@@ -1385,7 +1402,7 @@ function ObservacoesSection({ items, onAdd, onDelete, onEdit, usuarioAPI, podeEd
   );
 }
 
-function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId, podeEditar = true }) {
+function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph, datalistId, podeEditar = true, textoSemEdicao = "Seu nível de acesso é somente visualização neste módulo." }) {
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
   const historico = [...new Set(items.map((i) => i.texto).filter(Boolean))];
@@ -1415,7 +1432,7 @@ function ListaSimplesSection({ items, onAdd, onDelete, placeholder, color, glyph
         ))}
         {items.length === 0 && <p style={{ color: C.inkMuted }} className="text-sm font-mono">Nada registrado ainda.</p>}
       </div>
-      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">Seu nível de acesso é somente visualização neste módulo.</p>}
+      {!podeEditar && <p style={{ color: C.inkMuted }} className="text-[11px] font-mono">{textoSemEdicao}</p>}
       {podeEditar && (
         <div className="flex gap-2">
           <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder={placeholder} list={datalistId} style={{ borderColor: C.border, color: C.ink }} className="flex-1 min-w-0 border rounded px-3 py-1.5 text-sm outline-none" />
@@ -1695,6 +1712,15 @@ async function subirParaDrive(token, blob, nome) {
 }
 
 function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirMeusDados, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupCelular, onBackupDrive, fazendoBackup }) {
+  // Tamanho da letra: guardado neste aparelho. Normal → Grande → Muito grande.
+  const [fonte, setFonte] = useState(() => { try { return localStorage.getItem("gc-fonte") || "normal"; } catch (e) { return "normal"; } });
+  const trocarFonte = () => {
+    const ordem = ["normal", "grande", "enorme"];
+    const nova = ordem[(ordem.indexOf(fonte) + 1) % ordem.length];
+    setFonte(nova);
+    try { localStorage.setItem("gc-fonte", nova); } catch (e) {}
+    document.documentElement.style.setProperty("--fs", { normal: 1.12, grande: 1.25, enorme: 1.4 }[nova]);
+  };
   useEffect(() => { if (usuario.rank === 1) prepararDrive().catch(() => {}); }, []);
   // Todos os itens com o mesmo formato: ícone à esquerda, texto alinhado, mesma altura.
   const Item = ({ icone, texto, onClick, href, perigo, disabled }) => {
@@ -1747,6 +1773,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
             {onAbrirMeuPin && <Item icone="📱" texto={usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"} onClick={onAbrirMeuPin} />}
             {onAbrirMeusDados && <Item icone="🗂" texto="Exportar meus dados" onClick={onAbrirMeusDados} />}
             <Item icone={temaEscuro ? "☀️" : "🌙"} texto={temaEscuro ? "Modo claro" : "Modo escuro"} onClick={onAlternarTema} />
+            <Item icone="🔠" texto={`Tamanho da letra: ${{ normal: "Normal", grande: "Grande", enorme: "Muito grande" }[fonte]}`} onClick={trocarFonte} />
           </div>
 
           {temEmpresa && (
@@ -2277,9 +2304,9 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
         {modulo === "equipe" && <EquipeSection obraId={obra.id} equipe={equipe} onAdd={onAddEquipo} onRemove={onRemoveEquipo} onToggleHoje={onToggleHoje} onSetExcecao={onSetExcecao} usuarioRank={usuarioRank} usuarioId={usuarioAPI?.id} usuarioNome={usuarioAPI?.nome} donoPrincipal={!!usuarioAPI?.dono_principal} responsavelId={obra.responsavel_id} podeEditar={podeEditar} />}
         {modulo === "etapas" && <EtapasSection obraId={obra.id} etapas={etapas} onAdd={onAddEtapa} onToggle={onToggleEtapa} onRemove={onRemoveEtapa} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFotoEtapa} onDeleteFoto={onDeleteFotoEtapa} podeEditar={podeEditar} />}
         {modulo === "ferramentas" && <PedidosPanel obraId={obra.id} tipo="ferramenta" tipoLabel="Ferramentas" equipe={equipe} usuarioAPI={usuarioAPI} nivel={nivelDoModulo("ferramentas")} />}
-        {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar} />}
+        {modulo === "ferramentas" && <ListaSimplesSection items={ferramentas} onAdd={onAddFerramenta} onDelete={onDeleteFerramenta} placeholder="Ex: furadeira, andaime..." color={C.steel} glyph="🔧" datalistId="hist-ferramentas" podeEditar={podeEditar}  textoSemEdicao={nivelDoModulo("ferramentas") === "receber" ? "Você pode pedir e confirmar o que recebeu (Pedidos, acima). Registrar itens na lista é com o Almoxarife ou os chefes." : undefined} />}
         {modulo === "materiais" && <PedidosPanel obraId={obra.id} tipo="material" tipoLabel="Materiais" equipe={equipe} usuarioAPI={usuarioAPI} nivel={nivelDoModulo("materiais")} />}
-        {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar} />}
+        {modulo === "materiais" && <ListaSimplesSection items={materiais} onAdd={onAddMaterial} onDelete={onDeleteMaterial} placeholder="Ex: 10 sacos de cimento..." color={C.amber} glyph="📦" datalistId="hist-materiais" podeEditar={podeEditar}  textoSemEdicao={nivelDoModulo("materiais") === "receber" ? "Você pode pedir e confirmar o que recebeu (Pedidos, acima). Registrar itens na lista é com o Almoxarife ou os chefes." : undefined} />}
         {modulo === "observacoes" && (
           <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-4 mb-4">
             <div className="flex items-center justify-between flex-wrap gap-2">

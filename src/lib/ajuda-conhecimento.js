@@ -128,7 +128,7 @@ Avisos em tempo real: com a obra aberta, o app avisa quando alguém adiciona eta
     modulo: "equipe",
     texto: `A gaveta Equipe mostra quem trabalha nesta obra, com rank e função.
 
-Presença: cada pessoa marca a SUA presença, só do dia de hoje, no botão "✋ Marcar minha presença hoje", embaixo das gavetas. Se alguém não tem celular ou ficou sem bateria, um superior pode ANOTAR a presença dele no quadradinho ao lado do nome (até 7 dias atrás): fica laranja e aparece "presença anotada por Fulano". O superior não desmarca o que a própria pessoa marcou. O número "Xd" mostra quantos dias a pessoa esteve presente. E-mail e presença de cada um só aparecem para a própria pessoa e para os superiores dela.
+Presença: cada pessoa marca a SUA presença, só do dia de hoje, no botão "✋ Marcar minha presença hoje", embaixo das gavetas. Se alguém não tem celular ou ficou sem bateria, um superior pode ANOTAR a presença dele no círculo ao lado do nome (até 7 dias atrás): o círculo vermelho ✕ (ausente) fica verde ✓ (presente) e aparece "presença anotada por Fulano". O superior não desmarca o que a própria pessoa marcou. O número "Xd" mostra quantos dias a pessoa esteve presente. E-mail e presença de cada um só aparecem para a própria pessoa e para os superiores dela.
 
 Adicionar pessoas (quem tem "Editar" na Equipe, sempre para ranks abaixo do seu):
 - 📲 Novo por link: digite nome, WhatsApp (opcional), função e rank e toque em "Gerar link". Depois toque em "📲 WhatsApp" para mandar o convite, ou em "📋 Copiar link". A pessoa entra com CPF + PIN, sem e-mail.
@@ -248,7 +248,7 @@ Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pesso
     id: "conta",
     titulo: "Sua conta, privacidade e suporte",
     para: "todos",
-    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Permissões (para chefes), Drive Backup e Celular Backup (Dono), Manual do usuário, Termos de Uso, Privacidade, Exportar meus dados, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
+    texto: `Em CONFIG você encontra: Definir/Trocar senha, Criar/Trocar meu PIN, Modo escuro, Tamanho da letra (Normal, Grande ou Muito grande — vale para este aparelho), Permissões (para chefes), Drive Backup e Celular Backup (Dono), Manual do usuário, Termos de Uso, Privacidade, Exportar meus dados, Sair de todos os aparelhos, Sair e, no final, Excluir minha conta.
 
 Criar/Trocar meu PIN: pede para digitar o seu CPF (por segurança, o G&C não guarda o CPF completo, só uma versão protegida).
 
