@@ -1,4 +1,5 @@
 import { getSql } from "../lib/db.js";
+import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeReceber, semAcesso, veTodasAsObras } from "../lib/acesso.js";
 
@@ -87,6 +88,10 @@ export default async function pedidosHandler(req, env) {
               ${ehEntregaDireta ? "aguardando" : "pendente"}, ${usuario.id}, ${usuario.rank}, ${ehEntregaDireta ? new Date().toISOString() : null})
       RETURNING *
     `;
+    const oQue = `"${String(descricao).trim().slice(0, 60)}${quantidade ? ` (${String(quantidade).slice(0, 20)})` : ""}"`;
+    await registrarEvento(sql, usuario, ehEntregaDireta
+      ? { obraId: Number(obraId), categoria: "pedidos", acao: "entregou", alvoId: rows[0].id, texto: `entregou ${oQue} para você — confirme se recebeu`, afetadoId: Number(destinatarioId) }
+      : { obraId: Number(obraId), categoria: "pedidos", acao: "pediu", alvoId: rows[0].id, texto: `pediu ${oQue} a você`, afetadoId: Number(remetenteId) });
     return jsonResponse({ ok: true, pedido: rows[0] });
   }
 
@@ -99,15 +104,19 @@ export default async function pedidosHandler(req, env) {
     const acesso = await nivelNaObra(sql, usuario, p.obra_id, MODULO_DO_TIPO[p.tipo], env);
     if (!acesso.obra) return semAcesso();
     const agora = new Date().toISOString();
+    const oQue = `"${String(p.descricao).slice(0, 60)}${p.quantidade ? ` (${p.quantidade})` : ""}"`;
+    const avisar = (acao, texto, afetadoId) => registrarEvento(sql, usuario, { obraId: p.obra_id, categoria: "pedidos", acao, alvoId: p.id, texto, afetadoId });
 
     if (p.remetente_id === usuario.id && p.status === "pendente") {
       if (status === "atendido") status = "entregue"; // compatibilidade com a tela antiga
       if (status === "entregue") {
         const rows = await sql`UPDATE pedidos SET status = 'aguardando', entregue_em = ${agora} WHERE id = ${id} RETURNING *`;
+        await avisar("entregou", `entregou ${oQue} — confirme se recebeu`, p.destinatario_id);
         return jsonResponse({ ok: true, pedido: rows[0] });
       }
       if (status === "recusado") {
         const rows = await sql`UPDATE pedidos SET status = 'recusado' WHERE id = ${id} RETURNING *`;
+        await avisar("recusou", `recusou seu pedido ${oQue}`, p.destinatario_id);
         return jsonResponse({ ok: true, pedido: rows[0] });
       }
     }
@@ -115,10 +124,12 @@ export default async function pedidosHandler(req, env) {
       if (!podeReceber(acesso.nivel)) return jsonResponse({ ok: false, error: "seu acesso a este módulo é só visualizar" }, 403);
       if (status === "atendido") {
         const rows = await sql`UPDATE pedidos SET status = 'atendido', atendido_em = ${agora} WHERE id = ${id} RETURNING *`;
+        await avisar("recebeu", `confirmou que recebeu ${oQue}`, p.remetente_id);
         return jsonResponse({ ok: true, pedido: rows[0] });
       }
       if (status === "contestar") {
         const rows = await sql`UPDATE pedidos SET status = 'pendente', entregue_em = NULL WHERE id = ${id} RETURNING *`;
+        await avisar("contestou", `disse que NÃO recebeu ${oQue}`, p.remetente_id);
         return jsonResponse({ ok: true, pedido: rows[0] });
       }
     }

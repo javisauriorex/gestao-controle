@@ -347,3 +347,28 @@ CREATE TABLE sugestoes (
   criado_em timestamp with time zone DEFAULT now()
 );
 CREATE INDEX idx_sugestoes_usuario ON sugestoes (usuario_id, criado_em);
+
+-- Avisos 🔔 (05/10/2026): eventos da obra + preferências de cada pessoa.
+CREATE TABLE eventos (
+  id SERIAL PRIMARY KEY,
+  empresa_id integer NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  obra_id integer,
+  categoria text NOT NULL,
+  acao text NOT NULL,
+  alvo_id integer,
+  texto text NOT NULL,
+  autor_id integer NOT NULL REFERENCES usuarios(id),
+  rank_autor integer NOT NULL,
+  afetado_id integer REFERENCES usuarios(id),
+  criado_em timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_eventos_empresa_data ON eventos (empresa_id, criado_em DESC);
+CREATE INDEX idx_eventos_afetado ON eventos (afetado_id) WHERE afetado_id IS NOT NULL;
+ALTER TABLE usuarios ADD COLUMN avisos_visto_ate timestamp with time zone;
+ALTER TABLE usuarios ADD COLUMN avisos_profundidade integer NOT NULL DEFAULT 1;
+ALTER TABLE usuarios ADD COLUMN avisos_modulos jsonb;
+CREATE TABLE obras_silenciadas (
+  usuario_id integer NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  obra_id integer NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
+  PRIMARY KEY (usuario_id, obra_id)
+);

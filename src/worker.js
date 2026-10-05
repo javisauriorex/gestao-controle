@@ -25,6 +25,7 @@ import admin from "./routes/admin.js";
 import meusDados from "./routes/meus-dados.js";
 import googleConfig from "./routes/google-config.js";
 import sugestao from "./routes/sugestao.js";
+import avisos from "./routes/avisos.js";
 import { enviarBackup } from "./lib/backup.js";
 import { getSql } from "./lib/db.js";
 
@@ -62,11 +63,17 @@ const ROTAS = {
   "/api/meus-dados": meusDados,
   "/api/google-config": googleConfig,
   "/api/sugestao": sugestao,
+  "/api/avisos": avisos,
 };
 
 export default {
   // Tarefa agendada (wrangler.jsonc → triggers.crons): backup semanal por e-mail, sábado 11:30 de Brasília.
   async scheduled(event, env, ctx) {
+    // Limpeza dos avisos: novidades somem em 30 dias; auditoria (editou/apagou) fica 12 meses (Política de Privacidade).
+    ctx.waitUntil(Promise.resolve().then(() => getSql(env)`
+      DELETE FROM eventos WHERE (criado_em < now() - interval '30 days' AND acao NOT IN ('editou', 'apagou', 'desmarcou', 'rank'))
+         OR criado_em < now() - interval '12 months'
+    `).catch((e) => console.error("limpeza de eventos falhou", e)));
     ctx.waitUntil(enviarBackup(env, getSql(env)).then(
       (r) => console.log("backup semanal enviado", r.arquivo, r.kb + " KB"),
       (e) => console.error("backup semanal FALHOU", e)

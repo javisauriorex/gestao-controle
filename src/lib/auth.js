@@ -123,7 +123,7 @@ const MODULOS = ["etapas", "equipe", "documentos", "ferramentas", "materiais", "
 //  - Almoxarife: recebe/entrega materiais e ferramentas; sem Equipe.
 //  - Chefe de Turma: edita Equipe (convida Profissionais), Ferramentas, Materiais, Observações.
 //  - Profissional: vê; em Ferramentas/Materiais "receber" (pede e confirma o que recebeu); escreve no livro de obra.
-function nivelDefault(rank, modulo) {
+export function nivelDefault(rank, modulo) {
   if (rank === 1 || rank === 2 || rank === 4 || rank === 5) return "editar";
   if (rank === 3) return "visualizar";
   if (rank === 6) return { equipe: "nenhum", etapas: "visualizar", documentos: "visualizar" }[modulo] || "editar";

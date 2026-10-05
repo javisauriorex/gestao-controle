@@ -1,4 +1,5 @@
 import { getSql } from "../lib/db.js";
+import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 import { apagarDoKV } from "../lib/arquivos.js";
@@ -47,6 +48,8 @@ export default async function etapaFotosHandler(req, env) {
     const rows = await sql`
       INSERT INTO etapa_fotos (etapa_id, arquivo_id, criado_por, rank_autor) VALUES (${etapaId}, ${arquivoId}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;
+    const et = await sql`SELECT texto FROM etapas WHERE id = ${etapaId}`;
+    await registrarEvento(sql, usuario, { obraId, categoria: "fotos", acao: "foto", alvoId: Number(etapaId), texto: `adicionou uma foto em "${String(et[0]?.texto || "etapa").slice(0, 80)}"` });
     return jsonResponse({ ok: true, foto: rows[0] });
   }
 
@@ -65,6 +68,7 @@ export default async function etapaFotosHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM etapa_fotos WHERE id = ${id}`;
+    await registrarEvento(sql, usuario, { obraId, categoria: "fotos", acao: "apagou", alvoId: Number(id), texto: "apagou uma foto de avanço", afetadoId: alvos[0].criado_por });
     await apagarDoKV(env, [alvos[0].arquivo_id]);
     return jsonResponse({ ok: true, arquivoId: alvos[0].arquivo_id });
   }

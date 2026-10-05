@@ -785,6 +785,69 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   check("S: 4ª sugestão do dia → 429", (await call("POST", "/api/sugestao", p3.mestre.token, { texto: "quarta" })).status === 429);
 }
 
+
+// ============================================================
+// AVISOS 🔔 (05/10/2026) — quem se entera de qué
+// ============================================================
+{
+  const DA = (await cadastro("donoav@x.com", "12345678", "DonoAv"));
+  const oA = (await call("POST", "/api/obras", DA.token, { cliente: "Obra Avisos" })).obra.id;
+  const pa = {};
+  let ja = 0;
+  for (const [k, r] of Object.entries({ chefe: 2, estag: 3, mestre: 4, encarr: 5, almox: 6, turma: 7, prof: 8, prof2: 8 })) {
+    const c = await call("POST", "/api/convite-link", DA.token, { obraId: oA, nome: "Av " + k, rank: r, telefone: "71999990000" });
+    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(567890123 + (ja++) * 1919), pin: "8391", aceitouTermos: true });
+    pa[k] = { token: a.token, id: a.usuario?.id };
+  }
+  const avisos = async (k) => (await call("GET", "/api/avisos", k === "dono" ? DA.token : pa[k].token));
+  const tem = async (k, re) => (await avisos(k)).avisos.some((a) => re.test(a.texto));
+  // O Encarregado cria uma etapa: desce a todos de baixo; sobe só ao escalão imediato (Mestre).
+  await call("POST", "/api/etapas", pa.encarr.token, { obraId: oA, texto: "Reboco leste" });
+  check("AV: profissional (abaixo) vê a etapa criada pelo encarregado", await tem("prof", /Reboco leste/));
+  check("AV: chefe de turma (abaixo) vê", await tem("turma", /Reboco leste/));
+  check("AV: mestre (escalão imediato) vê", await tem("mestre", /Reboco leste/));
+  check("AV: eng. chefe (2 escalões acima, profundidade 1) NÃO vê", !(await tem("chefe", /Reboco leste/)));
+  check("AV: dono (profundidade 1) NÃO vê", !(await tem("dono", /Reboco leste/)));
+  check("AV: o próprio autor não recebe aviso de si mesmo", !(await tem("encarr", /Reboco leste/)));
+  // O Dono amplia a profundidade
+  check("AV: dono muda profundidade para 5", (await call("PATCH", "/api/avisos", DA.token, { profundidade: 5 })).ok);
+  check("AV: com profundidade 5, o dono vê", await tem("dono", /Reboco leste/));
+  // Cajón desligado
+  await call("PATCH", "/api/avisos", DA.token, { profundidade: 5, modulos: { etapas: false } });
+  check("AV: dono desliga Etapas → não vê mais", !(await tem("dono", /Reboco leste/)));
+  await call("PATCH", "/api/avisos", DA.token, { profundidade: 5 });
+  // Escalão vazio: na obra não há ninguém entre o Profissional e... todos existem; testa com obra só Dono+Profissional
+  const oV = (await call("POST", "/api/obras", DA.token, { cliente: "Obra Vazia" })).obra.id;
+  await call("POST", "/api/equipe", DA.token, { obraId: oV, usuarioId: pa.prof.id });
+  await call("POST", "/api/observacoes", pa.prof.token, { obraId: oV, texto: "Faltou água na obra vazia" });
+  await call("PATCH", "/api/avisos", DA.token, { profundidade: 1 });
+  check("AV: escalões vazios — o Dono é o imediato do Profissional nesta obra", await tem("dono", /obra vazia/));
+  // Auditoria não desce
+  const e2 = (await call("POST", "/api/etapas", pa.mestre.token, { obraId: oA, texto: "Laje sul" })).etapa;
+  await call("DELETE", `/api/etapas?id=${e2.id}`, pa.chefe.token);
+  check("AV: profissional NÃO vê a auditoria (apagou) do superior", !(await tem("prof", /apagou a etapa "Laje sul"/)));
+  check("AV: o mestre (afetado) vê que apagaram a etapa dele", await tem("mestre", /apagou a etapa "Laje sul"/));
+  // Pedidos: só as partes
+  await call("POST", "/api/pedidos", pa.prof.token, { obraId: oA, tipo: "material", descricao: "Brita", remetenteId: pa.almox.id, destinatarioId: pa.prof.id });
+  check("AV: almoxarife recebe o pedido", await tem("almox", /pediu "Brita"/));
+  check("AV: profissional2 NÃO vê o pedido", !(await tem("prof2", /Brita/)));
+  check("AV: mestre NÃO recebe aviso de pedido de outros", !(await tem("mestre", /Brita/)));
+  // 🔒: Profissional não vê Equipe → não recebe aviso de Equipe
+  await call("POST", "/api/equipe", DA.token, { obraId: oA, usuarioId: pa.prof2.id });
+  // Obra silenciada
+  check("AV: silenciar obra", (await call("PATCH", "/api/avisos", pa.prof.token, { obraId: oA, silenciar: true })).ok);
+  await call("POST", "/api/etapas", pa.encarr.token, { obraId: oA, texto: "Pintura norte" });
+  check("AV: obra silenciada não avisa", !(await tem("prof", /Pintura norte/)));
+  await call("PATCH", "/api/avisos", pa.prof.token, { obraId: oA, silenciar: false });
+  check("AV: reativada, avisa", await tem("prof", /Pintura norte/));
+  // Lidos
+  const antes = (await avisos("prof")).naoLidos;
+  await call("PATCH", "/api/avisos", pa.prof.token, { visto: true });
+  check("AV: marcar como lido zera o contador", antes > 0 && (await avisos("prof")).naoLidos === 0);
+  check("AV: profundidade inválida → 400", (await call("PATCH", "/api/avisos", DA.token, { profundidade: 9 })).status === 400);
+  check("AV: estagiário (lateral) vê a novidade do mestre (imediato)", await (async () => { await call("POST", "/api/materiais", pa.mestre.token, { obraId: oA, texto: "Telha" }); return tem("estag", /Telha/); })());
+}
+
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
 await pool.end();

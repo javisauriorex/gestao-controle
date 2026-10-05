@@ -245,6 +245,23 @@ Embaixo da tabela ficam as "Regras fixas da hierarquia", que valem sempre (por e
 Além disso, o responsável de cada obra pode bloquear uma gaveta para uma pessoa específica, só naquela obra (gaveta Equipe → ⚙).`,
   },
   {
+    id: "avisos",
+    titulo: "Avisos 🔔 e instalar o aplicativo",
+    para: "todos",
+    texto: `AVISOS: toque no 🔔 da barra de baixo (aparece em todas as telas). Abre uma janelinha com os avisos dos últimos 30 dias; o número vermelho mostra quantos são novos. Toque num aviso para ir direto à obra e à gaveta.
+
+O que chega para você:
+- Sempre: o que é PARA VOCÊ (marcado em vermelho) — te pediram algo, te entregaram algo para confirmar, apagaram algo seu, mudaram seu rank.
+- As novidades de trabalho de quem está acima ou no mesmo nível que você (criou etapa, concluiu, escreveu no livro, adicionou documento...).
+- De quem está abaixo: por padrão, só do escalão imediato (ex.: o Mestre recebe o que o Encarregado faz). Em ⚙ Configurar (ou Config → Avisos) você escolhe "Quero saber o que acontece até" 1, 2, 3... ranks abaixo, e liga ou desliga cada gaveta.
+- Apagar ou editar (auditoria) não desce para os de baixo: vai para o autor afetado e para os superiores.
+- Gavetas com 🔒 não mandam avisos. Pedidos só avisam as duas pessoas envolvidas.
+
+Silenciar uma obra: na tela da obra, embaixo das gavetas, toque em "🔔 Avisos desta obra" (fica 🔕). Os avisos que são para você continuam chegando.
+
+INSTALAR: quando o G&C está aberto no navegador, aparece em cima a barra "📲 INSTALAR APLICATIVO". Toque nela e confirme. O ícone vai para a tela de início do celular; se aparecer só na lista de aplicativos, mantenha o dedo sobre ele e arraste para a tela de início. No iPhone: Compartilhar → Adicionar à Tela de Início.`,
+  },
+  {
     id: "conta",
     titulo: "Sua conta, privacidade e suporte",
     para: "todos",

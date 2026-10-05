@@ -1,4 +1,5 @@
 import { getSql } from "../lib/db.js";
+import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeCrear } from "../lib/auth.js";
 import { veTodasAsObras } from "../lib/acesso.js";
 import { apagarDoKV } from "../lib/arquivos.js";
@@ -75,6 +76,10 @@ export default async function obrasHandler(req, env) {
       RETURNING *
     `;
     if (rows.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
+    if (estado) {
+      const NOME = { ativa: "ATIVA", pausada: "PAUSADA", concluida: "CONCLUÍDA" };
+      await registrarEvento(sql, usuario, { obraId: Number(id), categoria: "obra", acao: "estado", alvoId: Number(id), texto: `mudou a obra para ${NOME[estado] || estado}` });
+    }
     if (novoResponsavelId) {
       // O novo responsável entra na equipe da obra, se ainda não estiver.
       await sql`

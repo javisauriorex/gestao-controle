@@ -1,4 +1,5 @@
 import { getSql } from "../lib/db.js";
+import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 import { apagarDoKV } from "../lib/arquivos.js";
@@ -33,6 +34,7 @@ export default async function documentosHandler(req, env) {
       VALUES (${obraId}, ${nome}, ${tipo || ""}, ${arquivoId}, ${usuario.id}, ${usuario.rank})
       RETURNING *
     `;
+    await registrarEvento(sql, usuario, { obraId: Number(obraId), categoria: "documentos", acao: "criou", alvoId: rows[0].id, texto: `adicionou o documento "${String(nome).slice(0, 80)}"` });
     return jsonResponse({ ok: true, documento: rows[0] });
   }
 
@@ -50,6 +52,7 @@ export default async function documentosHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM documentos WHERE id = ${id}`;
+    await registrarEvento(sql, usuario, { obraId, categoria: "documentos", acao: "apagou", alvoId: Number(id), texto: `apagou o documento "${String(alvos[0].nome).slice(0, 80)}"`, afetadoId: alvos[0].criado_por });
     await apagarDoKV(env, [alvos[0].arquivo_id]);
     return jsonResponse({ ok: true, arquivoId: alvos[0].arquivo_id });
   }

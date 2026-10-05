@@ -1,4 +1,5 @@
 import { getSql } from "../lib/db.js";
+import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 
@@ -29,6 +30,7 @@ export default async function ferramentasHandler(req, env) {
     const rows = await sql`
       INSERT INTO ferramentas (obra_id, texto, criado_por, rank_autor) VALUES (${obraId}, ${texto}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;
+    await registrarEvento(sql, usuario, { obraId: Number(obraId), categoria: "ferramentas", acao: "criou", alvoId: rows[0].id, texto: `registrou a ferramenta "${String(texto).slice(0, 80)}"` });
     return jsonResponse({ ok: true, item: rows[0] });
   }
 
@@ -46,6 +48,7 @@ export default async function ferramentasHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM ferramentas WHERE id = ${id}`;
+    await registrarEvento(sql, usuario, { obraId, categoria: "ferramentas", acao: "apagou", alvoId: Number(id), texto: `apagou a ferramenta "${String(alvos[0].texto).slice(0, 80)}"`, afetadoId: alvos[0].criado_por });
     return jsonResponse({ ok: true });
   }
 

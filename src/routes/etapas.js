@@ -1,4 +1,5 @@
 import { getSql } from "../lib/db.js";
+import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar, ehSuperior } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
 import { apagarDoKV } from "../lib/arquivos.js";
@@ -43,6 +44,7 @@ export default async function etapasHandler(req, env) {
       VALUES (${obraId}, ${parentId || null}, ${texto}, ${usuario.id}, ${usuario.rank})
       RETURNING *
     `;
+    await registrarEvento(sql, usuario, { obraId: Number(obraId), categoria: "etapas", acao: "criou", alvoId: rows[0].id, texto: `criou a etapa "${String(texto).slice(0, 80)}"` });
     return jsonResponse({ ok: true, etapa: rows[0] });
   }
 
@@ -63,6 +65,7 @@ export default async function etapasHandler(req, env) {
         return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode mudar o texto" }, 403);
       }
       const rows = await sql`UPDATE etapas SET texto = ${body.texto} WHERE id = ${id} RETURNING *`;
+      await registrarEvento(sql, usuario, { obraId, categoria: "etapas", acao: "editou", alvoId: Number(id), texto: `renomeou a etapa "${String(atuais[0].texto).slice(0, 60)}" para "${String(body.texto).slice(0, 60)}"`, afetadoId: atuais[0].criado_por });
       return jsonResponse({ ok: true, etapa: rows[0] });
     }
 
@@ -82,6 +85,11 @@ export default async function etapasHandler(req, env) {
       WHERE id = ${id}
       RETURNING *
     `;
+    if (!!body.concluida !== !!atuais[0].concluida) {
+      await registrarEvento(sql, usuario, body.concluida
+        ? { obraId, categoria: "etapas", acao: "concluiu", alvoId: Number(id), texto: `concluiu a etapa "${String(atuais[0].texto).slice(0, 80)}"`, afetadoId: atuais[0].criado_por }
+        : { obraId, categoria: "etapas", acao: "desmarcou", alvoId: Number(id), texto: `desmarcou a conclusão de "${String(atuais[0].texto).slice(0, 80)}"`, afetadoId: atuais[0].concluida_por });
+    }
     return jsonResponse({ ok: true, etapa: { ...rows[0], concluida_por_nome: body.concluida ? usuario.nome : null } });
   }
 
@@ -122,6 +130,7 @@ export default async function etapasHandler(req, env) {
       UNION SELECT foto_conclusao_id FROM arvore WHERE foto_conclusao_id IS NOT NULL
     `;
     await sql`DELETE FROM etapas WHERE id = ${id}`;
+    await registrarEvento(sql, usuario, { obraId, categoria: "etapas", acao: "apagou", alvoId: Number(id), texto: `apagou a etapa "${String(alvos[0].texto).slice(0, 80)}"`, afetadoId: alvos[0].criado_por });
     await apagarDoKV(env, arquivos.map((r) => r.arquivo_id));
     return jsonResponse({ ok: true });
   }

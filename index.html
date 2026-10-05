@@ -108,6 +108,16 @@
   .text-\[10px\] { font-size: calc(10px * var(--fs, 1.12)) !important; }
   .text-\[11px\] { font-size: calc(11px * var(--fs, 1.12)) !important; }
 </style>
+<style>
+  /* Barra "INSTALAR APLICATIVO": vermelho ↔ laranja, sem parar. */
+  .gc-barra-instalar { background: linear-gradient(90deg, #C62828, #EF6C00, #F57C00, #C62828); background-size: 300% 100%; animation: gcBarraCor 4s linear infinite; }
+  @keyframes gcBarraCor { 0% { background-position: 0% 50%; } 100% { background-position: 300% 50%; } }
+</style>
+<script>
+  // Chrome avisa que o app é instalável (às vezes antes do React montar): guardamos o evento.
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.__gcInstalar = e; window.dispatchEvent(new Event("gc-instalavel")); });
+  window.addEventListener("appinstalled", function () { window.__gcInstalar = null; window.__gcInstalado = true; window.dispatchEvent(new Event("gc-instalado")); });
+</script>
 <script>
   // Aplica o tamanho da letra antes de desenhar a tela (evita "pulo").
   try { var f = { normal: 1.12, grande: 1.25, enorme: 1.4 }[localStorage.getItem("gc-fonte") || "normal"]; if (f) document.documentElement.style.setProperty("--fs", f); } catch (e) {}
@@ -1593,18 +1603,179 @@ function BoasVindas({ usuarioAPI, onAbrirAjuda }) {
   );
 }
 
-function BottomNav({ onInicio, onConfig, onAjuda, active }) {
+// ---------- Barra "INSTALAR APLICATIVO" (só no navegador; some quando o app está instalado) ----------
+const appInstalado = () => { try { return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; } catch (e) { return false; } };
+const ehIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+function BarraInstalar() {
+  const [evento, setEvento] = useState(() => window.__gcInstalar || null);
+  const [instalado, setInstalado] = useState(appInstalado);
+  const [dialogo, setDialogo] = useState(null); // "instalando" | "ios"
+  useEffect(() => {
+    const pronto = () => setEvento(window.__gcInstalar || null);
+    const feito = () => { setEvento(null); setDialogo("instalando"); };
+    window.addEventListener("gc-instalavel", pronto);
+    window.addEventListener("gc-instalado", feito);
+    return () => { window.removeEventListener("gc-instalavel", pronto); window.removeEventListener("gc-instalado", feito); };
+  }, []);
+  const instalar = async () => {
+    if (evento) {
+      try {
+        evento.prompt();
+        const r = await evento.userChoice;
+        if (r && r.outcome === "accepted") { setEvento(null); window.__gcInstalar = null; setDialogo("instalando"); }
+      } catch (e) {}
+    } else if (ehIOS()) setDialogo("ios");
+  };
+  const mostrarBarra = !instalado && (evento || ehIOS());
+  return (
+    <>
+      {mostrarBarra && (
+        <button onClick={instalar} className="gc-barra-instalar sticky top-0 z-[60] w-full text-white font-extrabold uppercase tracking-widest text-xs py-1.5 shadow" style={{ letterSpacing: "0.12em" }}>
+          📲 Instalar aplicativo
+        </button>
+      )}
+      {dialogo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[250]" onClick={() => setDialogo(null)}>
+          <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
+            {dialogo === "instalando" ? (<>
+              <img src="icon-192.png" alt="" className="w-16 h-16 mx-auto rounded-2xl shadow mb-3" />
+              <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-2">Instalação em andamento</h2>
+              <p style={{ color: C.ink }} className="text-sm mb-3">Verifique sua <b>tela de início</b>: o ícone do G&C vai aparecer lá em alguns segundos.</p>
+              <p style={{ color: C.inkMuted }} className="text-xs mb-4">Se ele aparecer só na lista de aplicativos, mantenha o dedo sobre o ícone e arraste para a tela de início.</p>
+            </>) : (<>
+              <img src="icon-192.png" alt="" className="w-16 h-16 mx-auto rounded-2xl shadow mb-3" />
+              <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-2">Instalar no iPhone</h2>
+              <p style={{ color: C.ink }} className="text-sm mb-1">1. Toque em <b>Compartilhar</b> (o quadrado com a seta ⬆️) na barra do Safari.</p>
+              <p style={{ color: C.ink }} className="text-sm mb-1">2. Escolha <b>Adicionar à Tela de Início</b>.</p>
+              <p style={{ color: C.ink }} className="text-sm mb-4">3. Toque em <b>Adicionar</b>.</p>
+            </>)}
+            <button onClick={() => { setDialogo(null); if (appInstalado()) setInstalado(true); }} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5">Entendi</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------- 🔔 Bandeja de avisos ----------
+const CATEGORIAS_AVISO = [
+  { key: "etapas", label: "Etapas" }, { key: "fotos", label: "Fotos" }, { key: "materiais", label: "Materiais" },
+  { key: "ferramentas", label: "Ferramentas" }, { key: "documentos", label: "Documentos" }, { key: "observacoes", label: "Observações" },
+  { key: "equipe", label: "Equipe" }, { key: "obra", label: "Estado da obra" },
+];
+const CADEIA_AVISOS = [1, 2, 4, 5, 7, 8];
+const POS_AVISOS = { 1: 1, 2: 2, 3: 2.5, 4: 3, 5: 4, 6: 3.5, 7: 5, 8: 6 };
+const MODULO_DO_AVISO = { etapas: "etapas", fotos: "etapas", materiais: "materiais", ferramentas: "ferramentas", documentos: "documentos", observacoes: "observacoes", equipe: "equipe" };
+function tempoAtras(ts) {
+  const min = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  return new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
+}
+
+function AvisosPainel({ dados, onFechar, onAbrirAviso, onConfigurar }) {
+  const lista = dados?.avisos || [];
+  return (
+    <div className="fixed inset-0 z-[45]" onClick={onFechar}>
+      <div style={{ background: C.surface, borderColor: C.border, bottom: "64px" }} className="absolute left-2 right-2 sm:left-auto sm:w-96 border rounded-lg shadow-2xl flex flex-col max-h-[65vh]" onClick={(e) => e.stopPropagation()}>
+        <div style={{ borderColor: C.border }} className="flex items-center justify-between px-4 py-2.5 border-b">
+          <p style={{ color: C.ink }} className="text-sm font-extrabold uppercase tracking-wide">🔔 Avisos</p>
+          <div className="flex items-center gap-3">
+            <button onClick={onConfigurar} title="Configurar avisos" style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">⚙ Configurar</button>
+            <button onClick={onFechar} style={{ color: C.inkMuted }} className="text-xl leading-none">×</button>
+          </div>
+        </div>
+        <div className="overflow-y-auto p-2 space-y-1.5">
+          {!dados && <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center py-6">Carregando...</p>}
+          {dados && lista.length === 0 && <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center py-6">Nenhum aviso nos últimos 30 dias.</p>}
+          {lista.map((a) => (
+            <button key={a.id} onClick={() => onAbrirAviso(a)} style={{ background: a.lido ? "transparent" : C.bg, borderLeftColor: a.lido ? C.border : (a.paraVoce ? C.rust : C.amber) }} className="w-full text-left border-l-4 rounded-r px-3 py-2">
+              <p style={{ color: C.ink }} className="text-sm leading-snug"><b>{a.autor_nome}</b> {a.texto}</p>
+              <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-0.5">
+                {a.paraVoce && <span style={{ color: C.rust }} className="font-bold uppercase">para você · </span>}
+                {a.obra_nome ? `${a.obra_nome} · ` : ""}{tempoAtras(a.criado_em)}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AvisosConfigModal({ usuario, prefs, onClose, onSalvo }) {
+  const abaixo = CADEIA_AVISOS.filter((r) => POS_AVISOS[r] > POS_AVISOS[usuario.rank]);
+  const maxProf = Math.min(5, abaixo.length);
+  const [prof, setProf] = useState(Math.min(prefs?.profundidade || 1, Math.max(1, maxProf)));
+  const [mods, setMods] = useState(() => ({ ...(prefs?.modulos || {}) }));
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const RANKS_CURTOS = { 1: "Dono", 2: "Eng. Chefe", 4: "Mestre", 5: "Encarregado", 7: "Chefe de Turma", 8: "Profissional" };
+  const salvar = async () => {
+    setErro(""); setSalvando(true);
+    try {
+      const r = await apiFetch("/api/avisos", { method: "PATCH", body: JSON.stringify({ profundidade: Math.max(1, prof), modulos: mods }) });
+      onSalvo(r.prefs); onClose();
+    } catch (err) { setErro(err.message); }
+    setSalvando(false);
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[60]" onClick={onClose}>
+      <div style={{ background: C.surface }} className="rounded-lg p-5 w-full max-w-sm shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 style={{ color: C.ink }} className="text-base font-extrabold uppercase tracking-wide">🔔 Configurar avisos</h2>
+          <button onClick={onClose} style={{ color: C.inkMuted }} className="text-xl leading-none">×</button>
+        </div>
+        <p style={{ color: C.inkMuted }} className="text-xs mb-3">Você sempre recebe o que é <b>para você</b> (pedidos, entregas, o que apagaram de seu) e as novidades de quem está acima. Aqui você escolhe o que quer saber de quem está <b>abaixo</b>.</p>
+        {maxProf > 0 ? (<>
+          <p style={{ color: C.ink }} className="text-xs font-mono uppercase mb-1.5">{RANK_LABELS[usuario.rank]} — Quero saber o que acontece até:</p>
+          <div className="flex flex-wrap gap-1.5 mb-1">
+            {Array.from({ length: maxProf }, (_, i) => i + 1).map((n) => (
+              <button key={n} onClick={() => setProf(n)} style={{ background: prof === n ? C.amber : "transparent", borderColor: prof === n ? C.amber : C.border, color: prof === n ? "#fff" : C.ink }} className="border rounded px-3 py-1.5 text-sm font-bold">{n}</button>
+            ))}
+          </div>
+          <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-4">rank(s) abaixo de mim: até <b>{RANKS_CURTOS[abaixo[prof - 1]] || ""}</b>{prof === 1 ? " (só o escalão imediato)" : ""}</p>
+        </>) : <p style={{ color: C.inkMuted }} className="text-xs font-mono mb-4">Você recebe as novidades da obra e o que é para você.</p>}
+        <p style={{ color: C.ink }} className="text-xs font-mono uppercase mb-1.5">Gavetas:</p>
+        <div className="grid grid-cols-2 gap-1.5 mb-4">
+          {CATEGORIAS_AVISO.map((c) => {
+            const ligado = mods[c.key] !== false;
+            return (
+              <button key={c.key} onClick={() => setMods({ ...mods, [c.key]: !ligado ? undefined : false })} style={{ borderColor: ligado ? C.green : C.border, color: ligado ? C.ink : C.inkMuted }} className="border rounded px-2 py-1.5 text-xs text-left">
+                {ligado ? "✅" : "⬜"} {c.label}
+              </button>
+            );
+          })}
+        </div>
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-3">Dá para silenciar uma obra inteira no botão 🔔 da própria obra. Gavetas com 🔒 não mandam avisos.</p>
+        {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
+        <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar"}</button>
+      </div>
+    </div>
+  );
+}
+
+function BottomNav({ onInicio, onConfig, onAjuda, onAvisos, naoLidos = 0, active }) {
   return (
     <div style={{ background: C.surface, borderColor: C.border }} className="fixed bottom-0 left-0 right-0 border-t flex justify-around items-center py-2 z-40">
-      <button onClick={onInicio} className="flex flex-col items-center gap-0.5 px-6 py-1">
+      <button onClick={onInicio} className="flex flex-col items-center gap-0.5 px-3 py-1">
         <img src="logo_home_11.webp" alt="Início" className="w-6 h-6 object-contain" style={{ opacity: active === "inicio" ? 1 : 0.55 }} draggable="false" />
         <span style={{ color: active === "inicio" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Início</span>
       </button>
-      <button onClick={onAjuda} className="flex flex-col items-center gap-0.5 px-6 py-1">
+      <button onClick={onAjuda} className="flex flex-col items-center gap-0.5 px-3 py-1">
         <span className="w-6 h-6 flex items-center justify-center text-lg leading-none" style={{ opacity: active === "ajuda" ? 1 : 0.55 }}>❓</span>
         <span style={{ color: active === "ajuda" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Ajuda</span>
       </button>
-      <button onClick={onConfig} className="flex flex-col items-center gap-0.5 px-6 py-1">
+      {onAvisos && (
+        <button onClick={onAvisos} className="relative flex flex-col items-center gap-0.5 px-3 py-1" aria-label={`Avisos${naoLidos ? `: ${naoLidos} novos` : ""}`}>
+          <span className="w-6 h-6 flex items-center justify-center text-lg leading-none" style={{ opacity: active === "avisos" ? 1 : 0.7 }}>🔔</span>
+          {naoLidos > 0 && <span style={{ background: C.rust }} className="absolute top-0 right-3 text-white text-[10px] font-extrabold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">{naoLidos > 99 ? "99+" : naoLidos}</span>}
+          <span style={{ color: active === "avisos" ? C.amber : C.inkMuted }} className="text-[11px] font-mono uppercase">Avisos</span>
+        </button>
+      )}
+      <button onClick={onConfig} className="flex flex-col items-center gap-0.5 px-3 py-1">
         <img src="logo_config_12.webp" alt="Config" className="w-6 h-6 object-contain" style={{ opacity: 0.55 }} draggable="false" />
         <span style={{ color: C.inkMuted }} className="text-[11px] font-mono uppercase">Config</span>
       </button>
@@ -1711,7 +1882,7 @@ async function subirParaDrive(token, blob, nome) {
   } catch (e) { /* limpar é opcional: o backup novo já está salvo */ }
 }
 
-function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirMeusDados, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onBackupCelular, onBackupDrive, fazendoBackup }) {
+function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, onExcluirConta, onAbrirMeuPin, onAbrirMeusDados, onAbrirPermissoes, onAbrirLeads, onAbrirDefinirSenha, onAbrirAvisos, onBackupCelular, onBackupDrive, fazendoBackup }) {
   // Tamanho da letra: guardado neste aparelho. Normal → Grande → Muito grande.
   const [fonte, setFonte] = useState(() => { try { return localStorage.getItem("gc-fonte") || "normal"; } catch (e) { return "normal"; } });
   const trocarFonte = () => {
@@ -1773,6 +1944,7 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
             {onAbrirMeuPin && <Item icone="📱" texto={usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"} onClick={onAbrirMeuPin} />}
             {onAbrirMeusDados && <Item icone="🗂" texto="Exportar meus dados" onClick={onAbrirMeusDados} />}
             <Item icone={temaEscuro ? "☀️" : "🌙"} texto={temaEscuro ? "Modo claro" : "Modo escuro"} onClick={onAlternarTema} />
+            {onAbrirAvisos && <Item icone="🔔" texto="Avisos: o que quero saber" onClick={onAbrirAvisos} />}
             <Item icone="🔠" texto={`Tamanho da letra: ${{ normal: "Normal", grande: "Grande", enorme: "Muito grande" }[fonte]}`} onClick={trocarFonte} />
           </div>
 
@@ -2242,7 +2414,7 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
   onAddEtapa, onToggleEtapa, onRemoveEtapa, onEditEtapa, onAddFotoEtapa, onDeleteFotoEtapa,
   onAddFerramenta, onDeleteFerramenta, onAddMaterial, onDeleteMaterial, onAddObservacao, onDeleteObservacao, onEditObservacao,
   onAddEquipo, onRemoveEquipo, onToggleHoje, onSetExcecao, usuarioRank, usuarioAPI, niveis,
-  onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo }) {
+  onAddDoc, onDeleteDoc, fileCache, loadFile, saveArquivo, onViewImage, modulo, onAbrirModulo, avisosSilenciados = false, onAlternarSilencio }) {
   const [erroObra, setErroObra] = useState("");
   const [erroPresenca, setErroPresenca] = useState("");
   const [transferindo, setTransferindo] = useState(false);
@@ -2399,6 +2571,11 @@ function ObraDetail({ obra, obraDetalhe, onBack, onChangeEstado, onDeleteObra, o
           </div>
         );
       })()}
+      {onAlternarSilencio && (
+        <button onClick={() => onAlternarSilencio().catch(() => {})} style={{ borderColor: C.border, color: avisosSilenciados ? C.inkMuted : C.ink }} className="w-full mt-2 border rounded-md py-2 text-xs font-mono uppercase">
+          {avisosSilenciados ? "🔕 Avisos desta obra: silenciados (toque para ligar)" : "🔔 Avisos desta obra: ligados (toque para silenciar)"}
+        </button>
+      )}
     </div>
   );
 }
@@ -3060,6 +3237,34 @@ function GestorObras() {
   const [showConfig, setShowConfig] = useState(false);
   const [showDefinirSenha, setShowDefinirSenha] = useState(false);
   const [showMeuPin, setShowMeuPin] = useState(false);
+  // 🔔 Avisos: carrega ao entrar e a cada 60 s (só com a tela visível).
+  const [avisosDados, setAvisosDados] = useState(null);
+  const [showAvisos, setShowAvisos] = useState(false);
+  const [showAvisosConfig, setShowAvisosConfig] = useState(false);
+  const carregarAvisos = async () => {
+    try { const r = await apiFetch("/api/avisos"); setAvisosDados(r); return r; } catch (e) { return null; }
+  };
+  useEffect(() => {
+    if (!usuarioAPI) return;
+    carregarAvisos();
+    const t = setInterval(() => { if (!document.hidden) carregarAvisos(); }, 60000);
+    const vis = () => { if (!document.hidden) carregarAvisos(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
+  }, [usuarioAPI?.id]);
+  const abrirAvisos = async () => {
+    setShowAvisos(true);
+    const r = await carregarAvisos();
+    if (r && r.naoLidos > 0) {
+      apiFetch("/api/avisos", { method: "PATCH", body: JSON.stringify({ visto: true }) }).catch(() => {});
+      setAvisosDados((d) => d && { ...d, naoLidos: 0 }); // as não lidas continuam destacadas nesta abertura
+    }
+  };
+  const alternarSilencio = async (obraId) => {
+    const silenciada = (avisosDados?.silenciadas || []).includes(obraId);
+    await apiFetch("/api/avisos", { method: "PATCH", body: JSON.stringify({ obraId, silenciar: !silenciada }) });
+    setAvisosDados((d) => ({ ...(d || {}), silenciadas: silenciada ? (d?.silenciadas || []).filter((x) => x !== obraId) : [...(d?.silenciadas || []), obraId] }));
+  };
   const [showMeusDados, setShowMeusDados] = useState(false);
   const [termosVigente, setTermosVigente] = useState(null);
   const [meusNiveis, setMeusNiveis] = useState(null);
@@ -3690,6 +3895,7 @@ function GestorObras() {
             onAddMaterial={materiaisH.add} onDeleteMaterial={materiaisH.del}
             onAddObservacao={observacoesH.add} onDeleteObservacao={observacoesH.del} onEditObservacao={editarObservacao}
             onAddEquipo={addEquipo} onRemoveEquipo={removeEquipo} onToggleHoje={toggleHoje} onSetExcecao={setExcecao} usuarioRank={usuarioAPI.rank} usuarioAPI={usuarioAPI} niveis={meusNiveis}
+            avisosSilenciados={(avisosDados?.silenciadas || []).includes(selectedObra?.id)} onAlternarSilencio={() => alternarSilencio(selectedObra.id)}
             onAddDoc={addDoc} onDeleteDoc={deleteDoc} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={setLightboxImg} />
         )
       )}
@@ -3706,8 +3912,11 @@ function GestorObras() {
     content = (
       <>
         {content}
-        <BottomNav active={view === "dashboard" ? "inicio" : view === "ajuda" ? "ajuda" : ""} onAjuda={() => { if (view !== "ajuda") irParaView("ajuda"); }} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
-        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onAbrirMeusDados={() => { setShowConfig(false); setShowMeusDados(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onBackupCelular={backupCelular} onBackupDrive={backupDrive} fazendoBackup={fazendoBackup} />}
+        <BottomNav active={showAvisos ? "avisos" : view === "dashboard" ? "inicio" : view === "ajuda" ? "ajuda" : ""} onAvisos={() => (showAvisos ? setShowAvisos(false) : abrirAvisos())} naoLidos={avisosDados?.naoLidos || 0} onAjuda={() => { if (view !== "ajuda") irParaView("ajuda"); }} onInicio={() => { recuarAteDashboard(); pilhaViewsRef.current = []; setView("dashboard"); setSelectedId(null); setObraDetalhe(null); }} onConfig={() => setShowConfig(true)} />
+        {showConfig && <ConfigDrawer usuario={usuarioAPI} temaEscuro={temaEscuro} onAlternarTema={alternarTema} onSair={() => { setShowConfig(false); sair(); }} onExcluirConta={excluirMinhaConta} onAbrirMeuPin={() => { setShowConfig(false); setShowMeuPin(true); }} onAbrirMeusDados={() => { setShowConfig(false); setShowMeusDados(true); }} onClose={() => setShowConfig(false)} onAbrirPermissoes={() => { setShowConfig(false); irParaView("permissoes"); }} onAbrirLeads={() => { setShowConfig(false); irParaView("leads"); }} onAbrirDefinirSenha={() => { setShowConfig(false); setShowDefinirSenha(true); }} onAbrirAvisos={() => { setShowConfig(false); setShowAvisosConfig(true); }} onBackupCelular={backupCelular} onBackupDrive={backupDrive} fazendoBackup={fazendoBackup} />}
+        {showAvisos && <AvisosPainel dados={avisosDados} onFechar={() => setShowAvisos(false)} onConfigurar={() => { setShowAvisos(false); setShowAvisosConfig(true); }}
+          onAbrirAviso={(a) => { setShowAvisos(false); setShowConfig(false); if (a.obra_id && obras.some((o) => o.id === a.obra_id)) abrirObra(a.obra_id, { moduloInicial: MODULO_DO_AVISO[a.categoria] || null }); }} />}
+        {showAvisosConfig && <AvisosConfigModal usuario={usuarioAPI} prefs={avisosDados?.prefs} onClose={() => setShowAvisosConfig(false)} onSalvo={(prefs) => { setAvisosDados((d) => ({ ...(d || {}), prefs })); carregarAvisos(); }} />}
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => { setShowDefinirSenha(false); carregarUsuarioAPI(); }} />}
         {showMeusDados && <MeusDadosModal onClose={() => setShowMeusDados(false)} />}
         {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
@@ -3722,6 +3931,7 @@ function GestorObras() {
 
   return (
     <div style={temaVars}>
+      <BarraInstalar />
       {content}
       {sairAberto && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[200]">
