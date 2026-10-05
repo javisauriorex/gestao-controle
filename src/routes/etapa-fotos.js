@@ -6,7 +6,7 @@ import { apagarDoKV } from "../lib/arquivos.js";
 
 // Galeria de fotos de avanço por etapa — livre, várias fotos, independente do check "concluída".
 // Usa o nível do módulo "etapas".
-export default async function etapaFotosHandler(req, env) {
+export default async function etapaFotosHandler(req, env, ctx) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const sql = getSql(env);
@@ -49,7 +49,7 @@ export default async function etapaFotosHandler(req, env) {
       INSERT INTO etapa_fotos (etapa_id, arquivo_id, criado_por, rank_autor) VALUES (${etapaId}, ${arquivoId}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;
     const et = await sql`SELECT texto FROM etapas WHERE id = ${etapaId}`;
-    await registrarEvento(sql, usuario, { obraId, categoria: "fotos", acao: "foto", alvoId: Number(etapaId), texto: `adicionou uma foto em "${String(et[0]?.texto || "etapa").slice(0, 80)}"` });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId, categoria: "fotos", acao: "foto", alvoId: Number(etapaId), texto: `adicionou uma foto em "${String(et[0]?.texto || "etapa").slice(0, 80)}"` });
     return jsonResponse({ ok: true, foto: rows[0] });
   }
 
@@ -68,7 +68,7 @@ export default async function etapaFotosHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM etapa_fotos WHERE id = ${id}`;
-    await registrarEvento(sql, usuario, { obraId, categoria: "fotos", acao: "apagou", alvoId: Number(id), texto: "apagou uma foto de avanço", afetadoId: alvos[0].criado_por });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId, categoria: "fotos", acao: "apagou", alvoId: Number(id), texto: "apagou uma foto de avanço", afetadoId: alvos[0].criado_por });
     await apagarDoKV(env, [alvos[0].arquivo_id]);
     return jsonResponse({ ok: true, arquivoId: alvos[0].arquivo_id });
   }

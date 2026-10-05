@@ -1675,6 +1675,68 @@ function tempoAtras(ts) {
   return new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
 }
 
+// ---------- 📱 Notificações push no celular ----------
+const pushSuportado = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+function chaveParaBytes(b64) {
+  const s = b64.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(s + "===".slice((s.length + 3) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+async function estadoPush() {
+  if (!pushSuportado()) return "sem-suporte";
+  if (Notification.permission === "denied") return "negado";
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg && (await reg.pushManager.getSubscription());
+    return sub && Notification.permission === "granted" ? "ativo" : "inativo";
+  } catch (e) { return "inativo"; }
+}
+async function ativarPush() {
+  if (!pushSuportado()) throw new Error(ehIOS() ? "No iPhone, primeiro instale o app (Compartilhar → Adicionar à Tela de Início) e abra pelo ícone." : "Este navegador não aceita notificações. Use o Chrome.");
+  if (ehIOS() && !appInstalado()) throw new Error("No iPhone, primeiro instale o app (Compartilhar → Adicionar à Tela de Início) e abra pelo ícone.");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Você não permitiu as notificações. Para ligar depois: cadeado ao lado do endereço → Notificações → Permitir.");
+  const reg = await navigator.serviceWorker.ready;
+  const { publicKey } = await apiFetch("/api/push");
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveParaBytes(publicKey) });
+  await apiFetch("/api/push", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON() }) });
+  await apiFetch("/api/push", { method: "POST", body: JSON.stringify({ teste: true }) }).catch(() => {});
+}
+async function desativarPush() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg && (await reg.pushManager.getSubscription());
+  if (sub) {
+    await apiFetch("/api/push", { method: "DELETE", body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+    await sub.unsubscribe().catch(() => {});
+  }
+}
+function BotaoPush({ compacto = false }) {
+  const [estado, setEstado] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => { estadoPush().then(setEstado); }, []);
+  if (estado === null || estado === "sem-suporte" && !ehIOS()) return null;
+  const ligar = async () => {
+    setMsg(""); setOcupado(true);
+    try { await ativarPush(); setEstado("ativo"); setMsg("✓ Pronto! Mandamos uma notificação de teste."); }
+    catch (err) { setMsg(err.message); setEstado(await estadoPush()); }
+    setOcupado(false);
+  };
+  const desligar = async () => { setOcupado(true); await desativarPush(); setEstado("inativo"); setMsg("Notificações desligadas neste aparelho."); setOcupado(false); };
+  return (
+    <div className={compacto ? "" : "mb-1"}>
+      {estado === "ativo" ? (
+        <button onClick={desligar} disabled={ocupado} style={{ borderColor: C.green, color: C.green }} className="w-full border rounded px-3 py-2 text-xs font-mono uppercase text-left">📱 Notificações neste celular: ligadas <span style={{ color: C.inkMuted }}>(toque para desligar)</span></button>
+      ) : (
+        <button onClick={ligar} disabled={ocupado} style={{ background: C.amber }} className="w-full text-white rounded px-3 py-2.5 text-xs font-extrabold uppercase tracking-wide">{ocupado ? "Ativando..." : "📱 Ativar notificações no celular"}</button>
+      )}
+      {estado === "negado" && !msg && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">As notificações estão bloqueadas neste navegador. Para liberar: cadeado ao lado do endereço → Notificações → Permitir.</p>}
+      {msg && <p style={{ color: msg.startsWith("✓") ? C.green : C.rust }} className="text-[11px] font-mono mt-1">{msg}</p>}
+    </div>
+  );
+}
+
 function AvisosPainel({ dados, onFechar, onAbrirAviso, onConfigurar }) {
   const lista = dados?.avisos || [];
   return (
@@ -1688,6 +1750,7 @@ function AvisosPainel({ dados, onFechar, onAbrirAviso, onConfigurar }) {
           </div>
         </div>
         <div className="overflow-y-auto p-2 space-y-1.5">
+          <BotaoPush compacto />
           {!dados && <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center py-6">Carregando...</p>}
           {dados && lista.length === 0 && <p style={{ color: C.inkMuted }} className="text-xs font-mono text-center py-6">Nenhum aviso nos últimos 30 dias.</p>}
           {lista.map((a) => (
@@ -1750,6 +1813,8 @@ function AvisosConfigModal({ usuario, prefs, onClose, onSalvo }) {
           })}
         </div>
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-3">Dá para silenciar uma obra inteira no botão 🔔 da própria obra. Gavetas com 🔒 não mandam avisos.</p>
+        <p style={{ color: C.ink }} className="text-xs font-mono uppercase mb-1.5">No celular:</p>
+        <div className="mb-4"><BotaoPush /><p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Os mesmos avisos da 🔔 chegam como notificação, mesmo com o app fechado.</p></div>
         {erro && <p style={{ color: C.rust }} className="text-xs font-mono mb-2">{erro}</p>}
         <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar"}</button>
       </div>
@@ -3219,6 +3284,8 @@ function GestorObras() {
   const [configurandoBiometria, setConfigurandoBiometria] = useState(false);
 
   const [obras, setObras] = useState([]);
+  const obrasRef = useRef([]);
+  useEffect(() => { obrasRef.current = obras; }, [obras]);
   const [obrasLoading, setObrasLoading] = useState(false);
   const [pendentesPorObra, setPendentesPorObra] = useState({});
   const [obraDetalhe, setObraDetalhe] = useState(null);
@@ -3252,6 +3319,21 @@ function GestorObras() {
     document.addEventListener("visibilitychange", vis);
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
   }, [usuarioAPI?.id]);
+  // App já aberto e a pessoa toca numa notificação: o service worker avisa aqui.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const aoMsg = (ev) => {
+      if (!ev.data || ev.data.tipo !== "abrir-aviso") return;
+      try {
+        const q = new URL(ev.data.url).searchParams;
+        const id = Number(q.get("aviso_obra"));
+        carregarAvisos();
+        if (id && obrasRef.current.some((o) => o.id === id)) abrirObra(id, { moduloInicial: MODULO_DO_AVISO[q.get("aviso_cat")] || null });
+      } catch (e) {}
+    };
+    navigator.serviceWorker.addEventListener("message", aoMsg);
+    return () => navigator.serviceWorker.removeEventListener("message", aoMsg);
+  }, []);
   const abrirAvisos = async () => {
     setShowAvisos(true);
     const r = await carregarAvisos();
@@ -3334,6 +3416,15 @@ function GestorObras() {
   };
 
   const restaurarNavegacao = (listaObras) => {
+    // Veio de uma notificação push (?aviso_obra=12&aviso_cat=etapas): abre direto a obra e a gaveta.
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const avObra = Number(q.get("aviso_obra"));
+      if (avObra) {
+        window.history.replaceState(window.history.state, "", window.location.pathname);
+        if (listaObras.some((o) => o.id === avObra)) { abrirObra(avObra, { moduloInicial: MODULO_DO_AVISO[q.get("aviso_cat")] || null }); return; }
+      }
+    } catch (e) {}
     try {
       const saved = JSON.parse(localStorage.getItem("gc-nav") || "null");
       if (!saved) return;

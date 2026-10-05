@@ -30,7 +30,7 @@ async function pessoaNaObra(sql, usuarioId, obraId, empresaId) {
   return r.length > 0;
 }
 
-export default async function pedidosHandler(req, env) {
+export default async function pedidosHandler(req, env, ctx) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const sql = getSql(env);
@@ -89,7 +89,7 @@ export default async function pedidosHandler(req, env) {
       RETURNING *
     `;
     const oQue = `"${String(descricao).trim().slice(0, 60)}${quantidade ? ` (${String(quantidade).slice(0, 20)})` : ""}"`;
-    await registrarEvento(sql, usuario, ehEntregaDireta
+    await registrarEvento(sql, usuario, { env, ctx }, ehEntregaDireta
       ? { obraId: Number(obraId), categoria: "pedidos", acao: "entregou", alvoId: rows[0].id, texto: `entregou ${oQue} para você — confirme se recebeu`, afetadoId: Number(destinatarioId) }
       : { obraId: Number(obraId), categoria: "pedidos", acao: "pediu", alvoId: rows[0].id, texto: `pediu ${oQue} a você`, afetadoId: Number(remetenteId) });
     return jsonResponse({ ok: true, pedido: rows[0] });
@@ -105,7 +105,7 @@ export default async function pedidosHandler(req, env) {
     if (!acesso.obra) return semAcesso();
     const agora = new Date().toISOString();
     const oQue = `"${String(p.descricao).slice(0, 60)}${p.quantidade ? ` (${p.quantidade})` : ""}"`;
-    const avisar = (acao, texto, afetadoId) => registrarEvento(sql, usuario, { obraId: p.obra_id, categoria: "pedidos", acao, alvoId: p.id, texto, afetadoId });
+    const avisar = (acao, texto, afetadoId) => registrarEvento(sql, usuario, { env, ctx }, { obraId: p.obra_id, categoria: "pedidos", acao, alvoId: p.id, texto, afetadoId });
 
     if (p.remetente_id === usuario.id && p.status === "pendente") {
       if (status === "atendido") status = "entregue"; // compatibilidade com a tela antiga

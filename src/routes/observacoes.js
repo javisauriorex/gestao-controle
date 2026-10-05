@@ -14,7 +14,7 @@ async function podeVerHistoricoOuApagar(usuario, autor) {
   return ehSuperior(usuario, autor.rank, autor.id);
 }
 
-export default async function observacoesHandler(req, env) {
+export default async function observacoesHandler(req, env, ctx) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const sql = getSql(env);
@@ -69,7 +69,7 @@ export default async function observacoesHandler(req, env) {
       RETURNING *
     `;
     const t = String(texto).trim();
-    await registrarEvento(sql, usuario, { obraId: Number(obraId), categoria: "observacoes", acao: "criou", alvoId: rows[0].id, texto: `escreveu no livro de obra: "${t.slice(0, 80)}${t.length > 80 ? "…" : ""}"` });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId: Number(obraId), categoria: "observacoes", acao: "criou", alvoId: rows[0].id, texto: `escreveu no livro de obra: "${t.slice(0, 80)}${t.length > 80 ? "…" : ""}"` });
     return jsonResponse({ ok: true, item: { ...rows[0], autor_nome: usuario.nome, autor_rank_atual: usuario.rank, n_edicoes: 0 } });
   }
 
@@ -87,7 +87,7 @@ export default async function observacoesHandler(req, env) {
     if (atual.texto === String(texto).trim()) return jsonResponse({ ok: true, item: atual });
     await sql`INSERT INTO observacoes_historico (observacao_id, texto, editado_por) VALUES (${id}, ${atual.texto}, ${usuario.id})`;
     await sql`UPDATE observacoes SET texto = ${String(texto).trim()}, editado_em = now() WHERE id = ${id}`;
-    await registrarEvento(sql, usuario, { obraId: atual.obra_id, categoria: "observacoes", acao: "editou", alvoId: Number(id), texto: "editou uma observação do livro de obra" });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId: atual.obra_id, categoria: "observacoes", acao: "editou", alvoId: Number(id), texto: "editou uma observação do livro de obra" });
     const rows = await sql`
       SELECT o.*, u.nome AS autor_nome, u.rank AS autor_rank_atual, u.removido_em AS autor_removido,
              (SELECT COUNT(*)::int FROM observacoes_historico h WHERE h.observacao_id = o.id) AS n_edicoes
@@ -110,7 +110,7 @@ export default async function observacoesHandler(req, env) {
       return jsonResponse({ ok: false, error: "só um superior do autor pode apagar esta observação" }, 403);
     }
     await sql`DELETE FROM observacoes WHERE id = ${id}`;
-    await registrarEvento(sql, usuario, { obraId: alvos[0].obra_id, categoria: "observacoes", acao: "apagou", alvoId: Number(id), texto: `apagou uma observação: "${String(alvos[0].texto).slice(0, 60)}"`, afetadoId: alvos[0].criado_por });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId: alvos[0].obra_id, categoria: "observacoes", acao: "apagou", alvoId: Number(id), texto: `apagou uma observação: "${String(alvos[0].texto).slice(0, 60)}"`, afetadoId: alvos[0].criado_por });
     return jsonResponse({ ok: true });
   }
 

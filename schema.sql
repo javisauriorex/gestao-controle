@@ -372,3 +372,19 @@ CREATE TABLE obras_silenciadas (
   obra_id integer NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
   PRIMARY KEY (usuario_id, obra_id)
 );
+
+-- Push no celular (06/10/2026).
+CREATE TABLE config_app (
+  chave text PRIMARY KEY,
+  valor jsonb NOT NULL,
+  criado_em timestamp with time zone DEFAULT now()
+);
+CREATE TABLE push_inscricoes (
+  id SERIAL PRIMARY KEY,
+  usuario_id integer NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  endpoint text NOT NULL UNIQUE,
+  p256dh text NOT NULL,
+  auth text NOT NULL,
+  criado_em timestamp with time zone DEFAULT now()
+);
+CREATE INDEX idx_push_usuario ON push_inscricoes (usuario_id);

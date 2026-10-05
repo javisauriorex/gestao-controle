@@ -26,6 +26,7 @@ import meusDados from "./routes/meus-dados.js";
 import googleConfig from "./routes/google-config.js";
 import sugestao from "./routes/sugestao.js";
 import avisos from "./routes/avisos.js";
+import push from "./routes/push.js";
 import { enviarBackup } from "./lib/backup.js";
 import { getSql } from "./lib/db.js";
 
@@ -64,6 +65,7 @@ const ROTAS = {
   "/api/google-config": googleConfig,
   "/api/sugestao": sugestao,
   "/api/avisos": avisos,
+  "/api/push": push,
 };
 
 export default {

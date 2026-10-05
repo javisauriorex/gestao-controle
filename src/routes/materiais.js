@@ -5,7 +5,7 @@ import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegist
 
 // Permissões: vale o que a tela de Permissões define para o rank (+ bloqueio por obra).
 // Apagar: além de "editar", tem que ser o autor ou alguém de rank acima dele.
-export default async function materiaisHandler(req, env) {
+export default async function materiaisHandler(req, env, ctx) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const sql = getSql(env);
@@ -30,7 +30,7 @@ export default async function materiaisHandler(req, env) {
     const rows = await sql`
       INSERT INTO materiais (obra_id, texto, criado_por, rank_autor) VALUES (${obraId}, ${texto}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;
-    await registrarEvento(sql, usuario, { obraId: Number(obraId), categoria: "materiais", acao: "criou", alvoId: rows[0].id, texto: `registrou o material "${String(texto).slice(0, 80)}"` });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId: Number(obraId), categoria: "materiais", acao: "criou", alvoId: rows[0].id, texto: `registrou o material "${String(texto).slice(0, 80)}"` });
     return jsonResponse({ ok: true, item: rows[0] });
   }
 
@@ -48,7 +48,7 @@ export default async function materiaisHandler(req, env) {
       return jsonResponse({ ok: false, error: "só o autor ou um superior dele pode apagar" }, 403);
     }
     await sql`DELETE FROM materiais WHERE id = ${id}`;
-    await registrarEvento(sql, usuario, { obraId, categoria: "materiais", acao: "apagou", alvoId: Number(id), texto: `apagou o material "${String(alvos[0].texto).slice(0, 80)}"`, afetadoId: alvos[0].criado_por });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId, categoria: "materiais", acao: "apagou", alvoId: Number(id), texto: `apagou o material "${String(alvos[0].texto).slice(0, 80)}"`, afetadoId: alvos[0].criado_por });
     return jsonResponse({ ok: true });
   }
 

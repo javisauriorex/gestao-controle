@@ -35,7 +35,7 @@ async function acessoAObra(sql, usuario, obraId) {
 }
 
 
-export default async function equipeHandler(req, env) {
+export default async function equipeHandler(req, env, ctx) {
   const usuario = await getUsuario(req, env);
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
   const sql = getSql(env);
@@ -96,7 +96,7 @@ export default async function equipeHandler(req, env) {
         ON CONFLICT (obra_id, usuario_id) DO UPDATE SET funcao = ${funcao || ""}
         RETURNING *
       `;
-      await registrarEvento(sql, usuario, { obraId: Number(obraId), categoria: "equipe", acao: "entrou", alvoId: p.id, texto: `adicionou ${p.nome} à obra`, afetadoId: p.id });
+      await registrarEvento(sql, usuario, { env, ctx }, { obraId: Number(obraId), categoria: "equipe", acao: "entrou", alvoId: p.id, texto: `adicionou ${p.nome} à obra`, afetadoId: p.id });
       return jsonResponse({ ok: true, equipe: { ...rows[0], email: p.email, nome: p.nome, rank: p.rank }, convite: false });
     }
 
@@ -171,7 +171,7 @@ export default async function equipeHandler(req, env) {
       if (body.rank !== undefined && Number(body.rank) !== alvo.rank) {
         await sql`UPDATE usuarios SET rank = ${Number(body.rank)} WHERE id = ${alvo.id}`;
         const NOMES = { 1: "Dono", 2: "Engenheiro Chefe", 3: "Engenheiro Estagiário", 4: "Mestre de Obra", 5: "Encarregado", 6: "Almoxarife", 7: "Chefe de Turma", 8: "Profissional" };
-        await registrarEvento(sql, usuario, { obraId: atual.obra_id, categoria: "equipe", acao: "rank", alvoId: alvo.id, texto: `mudou o rank de ${alvo.nome} para ${NOMES[Number(body.rank)]}`, afetadoId: alvo.id });
+        await registrarEvento(sql, usuario, { env, ctx }, { obraId: atual.obra_id, categoria: "equipe", acao: "rank", alvoId: alvo.id, texto: `mudou o rank de ${alvo.nome} para ${NOMES[Number(body.rank)]}`, afetadoId: alvo.id });
       }
       if (body.excecaoModulos !== undefined) {
         await sql`UPDATE equipe SET excecao_modulos = ${body.excecaoModulos ? JSON.stringify(body.excecaoModulos) : null} WHERE id = ${id}`;
@@ -245,7 +245,7 @@ export default async function equipeHandler(req, env) {
     }
     await sql`DELETE FROM equipe WHERE id = ${id}`;
     const quem = await sql`SELECT nome FROM usuarios WHERE id = ${alvos[0].usuario_id}`;
-    await registrarEvento(sql, usuario, { obraId: alvos[0].obra_id, categoria: "equipe", acao: "apagou", alvoId: alvos[0].usuario_id, texto: `tirou ${quem[0]?.nome || "alguém"} da obra`, afetadoId: alvos[0].usuario_id });
+    await registrarEvento(sql, usuario, { env, ctx }, { obraId: alvos[0].obra_id, categoria: "equipe", acao: "apagou", alvoId: alvos[0].usuario_id, texto: `tirou ${quem[0]?.nome || "alguém"} da obra`, afetadoId: alvos[0].usuario_id });
     return jsonResponse({ ok: true });
   }
 

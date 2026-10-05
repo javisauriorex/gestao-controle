@@ -257,6 +257,8 @@ O que chega para você:
 - Apagar ou editar (auditoria) não desce para os de baixo: vai para o autor afetado e para os superiores.
 - Gavetas com 🔒 não mandam avisos. Pedidos só avisam as duas pessoas envolvidas.
 
+NOTIFICAÇÕES NO CELULAR: na janelinha do 🔔 (ou em ⚙ Configurar) toque em "📱 Ativar notificações no celular" e permita. Chega uma notificação de teste. A partir daí, os mesmos avisos da 🔔 aparecem no celular mesmo com o app fechado; tocando na notificação, o G&C abre na obra e na gaveta. Cada aparelho se ativa uma vez (celular e computador são separados). Para desligar, toque de novo no mesmo botão. No iPhone, primeiro instale o app na tela de início e abra pelo ícone.
+
 Silenciar uma obra: na tela da obra, embaixo das gavetas, toque em "🔔 Avisos desta obra" (fica 🔕). Os avisos que são para você continuam chegando.
 
 INSTALAR: quando o G&C está aberto no navegador, aparece em cima a barra "📲 INSTALAR APLICATIVO". Toque nela e confirme. O ícone vai para a tela de início do celular; se aparecer só na lista de aplicativos, mantenha o dedo sobre ele e arraste para a tela de início. No iPhone: Compartilhar → Adicionar à Tela de Início.`,

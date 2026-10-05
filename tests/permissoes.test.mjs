@@ -14,10 +14,12 @@ let falhas = 0, ok = 0;
 // E-mails (Resend) de mentira: guardamos o que seria enviado.
 env.RESEND_API_KEY = "re_teste";
 const emails = [];
+const pushes = [];
 const fetchOriginal = globalThis.fetch;
 globalThis.fetch = async (url, opts) => {
   if (String(url).startsWith("https://challenges.cloudflare.com/turnstile")) { const b = JSON.parse(opts.body); return new Response(JSON.stringify({ success: b.response === "ts-ok" && b.secret === "ts-secreto" }), { status: 200 }); }
   if (String(url).startsWith("https://api.resend.com")) { emails.push(JSON.parse(opts.body)); return new Response('{"id":"x"}', { status: 200 }); }
+  if (String(url).startsWith("https://push.example/")) { pushes.push({ url: String(url), headers: opts.headers, body: new Uint8Array(opts.body) }); return new Response("", { status: String(url).includes("morta") ? 410 : 201 }); }
   return fetchOriginal(url, opts);
 };
 const linkDe = (mail, caminho) => { const m = mail.text.match(new RegExp(caminho + "\\?token=([0-9a-f]{64})")); return m ? m[1] : null; };
@@ -846,6 +848,81 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   check("AV: marcar como lido zera o contador", antes > 0 && (await avisos("prof")).naoLidos === 0);
   check("AV: profundidade inválida → 400", (await call("PATCH", "/api/avisos", DA.token, { profundidade: 9 })).status === 400);
   check("AV: estagiário (lateral) vê a novidade do mestre (imediato)", await (async () => { await call("POST", "/api/materiais", pa.mestre.token, { obraId: oA, texto: "Telha" }); return tem("estag", /Telha/); })());
+}
+
+
+// ============================================================
+// PUSH 📱 (06/10/2026) — cifra RFC 8291 + VAPID + quem recebe
+// ============================================================
+{
+  const { cifrar, b64url, deB64url } = await import("./src/lib/webpush.js");
+  const enc = new TextEncoder();
+  // Um "celular" de mentira: par de chaves ECDH + segredo de 16 bytes.
+  const novoCelular = async () => {
+    const par = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+    const pub = new Uint8Array(await crypto.subtle.exportKey("raw", par.publicKey));
+    const auth = crypto.getRandomValues(new Uint8Array(16));
+    return { par, pub, auth, p256dh: b64url(pub), authB64: b64url(auth) };
+  };
+  const hk = async (salt, ikm, info, n) => new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]), n * 8));
+  const decifrar = async (cel, corpo) => {
+    const sal = corpo.slice(0, 16), idlen = corpo[20], asPub = corpo.slice(21, 21 + idlen), cifrado = corpo.slice(21 + idlen);
+    const asKey = await crypto.subtle.importKey("raw", asPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
+    const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: asKey }, cel.par.privateKey, 256));
+    const info = new Uint8Array([...enc.encode("WebPush: info\0"), ...cel.pub, ...asPub]);
+    const ikm = await hk(cel.auth, shared, info, 32);
+    const cek = await hk(sal, ikm, enc.encode("Content-Encoding: aes128gcm\0"), 16);
+    const nonce = await hk(sal, ikm, enc.encode("Content-Encoding: nonce\0"), 12);
+    const claro = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["decrypt"]), cifrado));
+    return new TextDecoder().decode(claro.slice(0, claro.length - 1)); // tira o 0x02
+  };
+  const c0 = await novoCelular();
+  check("PUSH: cifra e decifra (RFC 8291)", (await decifrar(c0, await cifrar("olá obra", c0.p256dh, c0.authB64))) === "olá obra");
+
+  const DP = await cadastro("donopush@x.com", "12345678", "DonoPush");
+  const oP = (await call("POST", "/api/obras", DP.token, { cliente: "Obra Push" })).obra.id;
+  const pp = {};
+  let jp = 0;
+  for (const [k, r] of Object.entries({ mestre: 4, encarr: 5, prof: 8 })) {
+    const c = await call("POST", "/api/convite-link", DP.token, { obraId: oP, nome: "Push " + k, rank: r, telefone: "71999990000" });
+    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(678901234 + (jp++) * 2121), pin: "8391", aceitouTermos: true });
+    pp[k] = { token: a.token, id: a.usuario?.id };
+  }
+  const g = await call("GET", "/api/push", pp.mestre.token);
+  check("PUSH: chave pública VAPID (65 bytes)", g.ok && deB64url(g.publicKey).length === 65);
+  check("PUSH: a mesma chave na segunda vez", (await call("GET", "/api/push", DP.token)).publicKey === g.publicKey);
+  const cel = { mestre: await novoCelular(), dono: await novoCelular(), prof: await novoCelular() };
+  const inscrever = (tk, c, nome) => call("POST", "/api/push", tk, { subscription: { endpoint: "https://push.example/" + nome, keys: { p256dh: c.p256dh, auth: c.authB64 } } });
+  check("PUSH: mestre inscreve o celular", (await inscrever(pp.mestre.token, cel.mestre, "mestre")).ok);
+  await inscrever(DP.token, cel.dono, "dono");
+  await inscrever(pp.prof.token, cel.prof, "prof");
+  check("PUSH: inscrição inválida → 400", (await call("POST", "/api/push", pp.mestre.token, { subscription: { endpoint: "http://x", keys: { p256dh: "a", auth: "b" } } })).status === 400);
+  pushes.length = 0;
+  await call("POST", "/api/etapas", pp.encarr.token, { obraId: oP, texto: "Contrapiso" });
+  const para = (n) => pushes.filter((x) => x.url.endsWith("/" + n));
+  check("PUSH: mestre (imediato) recebe", para("mestre").length === 1);
+  check("PUSH: profissional (abaixo) recebe", para("prof").length === 1);
+  check("PUSH: dono (profundidade 1) NÃO recebe", para("dono").length === 0);
+  const msg = JSON.parse(await decifrar(cel.mestre, para("mestre")[0].body));
+  check("PUSH: conteúdo certo (obra + quem + o quê)", /Obra Push/.test(msg.title) && /Push encarr criou a etapa "Contrapiso"/.test(msg.body) && /aviso_obra=/.test(msg.url), JSON.stringify(msg));
+  const h = para("mestre")[0].headers;
+  check("PUSH: cabeçalhos VAPID + aes128gcm", /^vapid t=.+\..+\..+, k=/.test(h.authorization) && h["content-encoding"] === "aes128gcm");
+  // a assinatura do JWT confere com a chave pública
+  const jwt = h.authorization.match(/t=([^,]+)/)[1].split(".");
+  const pubKey = await crypto.subtle.importKey("raw", deB64url(g.publicKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  check("PUSH: JWT VAPID assinado corretamente", await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pubKey, deB64url(jwt[2]), enc.encode(jwt[0] + "." + jwt[1])));
+  check("PUSH: aud = origem do serviço de push", JSON.parse(new TextDecoder().decode(deB64url(jwt[1]))).aud === "https://push.example");
+  // pedido → só a parte afetada
+  pushes.length = 0;
+  await call("POST", "/api/pedidos", pp.prof.token, { obraId: oP, tipo: "material", descricao: "Areia", remetenteId: pp.mestre.id, destinatarioId: pp.prof.id });
+  check("PUSH: pedido chega só a quem foi pedido", para("mestre").length === 1 && para("dono").length === 0);
+  // inscrição morta (410) é apagada
+  const cm = await novoCelular();
+  await call("POST", "/api/push", pp.encarr.token, { subscription: { endpoint: "https://push.example/morta", keys: { p256dh: cm.p256dh, auth: cm.authB64 } } });
+  await call("POST", "/api/etapas", pp.mestre.token, { obraId: oP, texto: "Forro" });
+  check("PUSH: aparelho que não existe mais (410) sai da lista", (await call("GET", "/api/push", pp.encarr.token)).aparelhos === 0);
+  check("PUSH: teste manda para os meus aparelhos", (await call("POST", "/api/push", pp.mestre.token, { teste: true })).enviados === 1);
+  check("PUSH: desligar aparelho", (await call("DELETE", "/api/push", pp.mestre.token, { endpoint: "https://push.example/mestre" })).ok && (await call("GET", "/api/push", pp.mestre.token)).aparelhos === 0);
 }
 
 console.log(`\n${ok} ok, ${falhas} falhas`);
