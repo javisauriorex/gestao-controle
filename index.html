@@ -429,7 +429,9 @@ function EtapaFotosGaleria({ etapaId, fileCache, loadFile, onViewImage, onAddFot
   const [fotos, setFotos] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [erro, setErro] = useState("");
-  const inputRef = useRef(null);
+  const inputRef = useRef(null);      // 📷 câmera
+  const galeriaRef = useRef(null);    // 🖼 galeria (várias de uma vez)
+  const [progresso, setProgresso] = useState("");
 
   const carregar = async () => {
     try {
@@ -442,21 +444,29 @@ function EtapaFotosGaleria({ etapaId, fileCache, loadFile, onViewImage, onAddFot
 
   useEffect(() => { carregar(); }, [etapaId]);
 
+  // Câmera ou galeria: cada foto é reduzida no celular (800 px, ~100 KB) antes de enviar — economiza dados
+  // e apaga a localização (GPS) da foto. Da galeria dá para escolher várias; vão uma por uma.
   const handleAdd = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const arquivos = [...(e.target.files || [])].filter((f) => f.type.startsWith("image/")).slice(0, 10);
+    e.target.value = "";
+    if (!arquivos.length) return;
     setUploading(true);
     setErro("");
-    try {
-      const dataUrl = await compressImage(file);
-      const fotoId = novoIdArquivo();
-      const ok = await saveArquivo(fotoId, { nome: "avanco.jpg", tipo: "image/jpeg", dataUrl });
-      if (ok !== true) { setErro(`Não foi possível salvar: ${ok?.erro || "erro desconhecido"}`); setUploading(false); e.target.value = ""; return; }
-      await onAddFoto(etapaId, fotoId);
-      await carregar();
-    } catch (err) { setErro(err.message); }
+    let feitas = 0;
+    for (const file of arquivos) {
+      if (arquivos.length > 1) setProgresso(`${feitas + 1}/${arquivos.length}`);
+      try {
+        const dataUrl = await compressImage(file);
+        const fotoId = novoIdArquivo();
+        const ok = await saveArquivo(fotoId, { nome: "avanco.jpg", tipo: "image/jpeg", dataUrl });
+        if (ok !== true) { setErro(`Não foi possível salvar: ${ok?.erro || "erro desconhecido"}`); break; }
+        await onAddFoto(etapaId, fotoId);
+        feitas++;
+      } catch (err) { setErro(err.message); break; }
+    }
+    await carregar();
+    setProgresso("");
     setUploading(false);
-    e.target.value = "";
   };
 
   const handleDelete = async (fotoRowId) => {
@@ -480,7 +490,13 @@ function EtapaFotosGaleria({ etapaId, fileCache, loadFile, onViewImage, onAddFot
         {podeEditar && (
           <>
             <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={handleAdd} className="hidden" />
-            <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{ borderColor: C.border, color: C.inkMuted }} className="w-16 h-16 border-2 border-dashed rounded shrink-0 flex items-center justify-center text-xl disabled:opacity-50">{uploading ? "…" : "+"}</button>
+            <input ref={galeriaRef} type="file" accept="image/*" multiple onChange={handleAdd} className="hidden" />
+            {uploading ? (
+              <div style={{ borderColor: C.border, color: C.inkMuted }} className="w-16 h-16 border-2 border-dashed rounded shrink-0 flex items-center justify-center text-xs font-mono">{progresso || "…"}</div>
+            ) : (<>
+              <button onClick={() => inputRef.current?.click()} title="Tirar foto" aria-label="Tirar foto com a câmera" style={{ borderColor: C.border, color: C.inkMuted }} className="w-16 h-16 border-2 border-dashed rounded shrink-0 flex flex-col items-center justify-center text-xl leading-none"><span>📷</span><span className="text-[9px] font-mono uppercase mt-1">Câmera</span></button>
+              <button onClick={() => galeriaRef.current?.click()} title="Escolher da galeria" aria-label="Escolher fotos da galeria" style={{ borderColor: C.border, color: C.inkMuted }} className="w-16 h-16 border-2 border-dashed rounded shrink-0 flex flex-col items-center justify-center text-xl leading-none"><span>🖼</span><span className="text-[9px] font-mono uppercase mt-1">Galeria</span></button>
+            </>)}
           </>
         )}
       </div>
@@ -1141,7 +1157,7 @@ function EtapasSection({ obraId, etapas, onAdd, onToggle, onRemove, onEditEtapa,
 
   return (
     <div>
-      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · + adiciona fotos de avanço (livre, quantas quiser).</p>
+      <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mb-2">📁 abre subetapas · ✎ edita nome · 📷 câmera ou 🖼 galeria adicionam fotos de avanço.</p>
       <div className="mb-3">
         {raiz.map((e) => (
           <EtapaNode key={e.id} etapa={e} allEtapas={etapas} depth={0} onToggle={onToggle} onRemove={onRemove} onAddSub={onAdd} onEditEtapa={onEditEtapa} fileCache={fileCache} loadFile={loadFile} saveArquivo={saveArquivo} onViewImage={onViewImage} onAddFoto={onAddFoto} onDeleteFoto={onDeleteFoto} nomesHistoricos={nomesHistoricos} podeEditar={podeEditar} />
@@ -1723,16 +1739,20 @@ function BotaoPush({ compacto = false }) {
     catch (err) { setMsg(err.message); setEstado(await estadoPush()); }
     setOcupado(false);
   };
-  const desligar = async () => { setOcupado(true); await desativarPush(); setEstado("inativo"); setMsg("Notificações desligadas neste aparelho."); setOcupado(false); };
+  const desligar = async () => { setOcupado(true); await desativarPush(); setEstado("inativo"); setMsg(""); setOcupado(false); };
+  const ligado = estado === "ativo";
   return (
     <div className={compacto ? "" : "mb-1"}>
-      {estado === "ativo" ? (
-        <button onClick={desligar} disabled={ocupado} style={{ borderColor: C.green, color: C.green }} className="w-full border rounded px-3 py-2 text-xs font-mono uppercase text-left">📱 Notificações neste celular: ligadas <span style={{ color: C.inkMuted }}>(toque para desligar)</span></button>
-      ) : (
-        <button onClick={ligar} disabled={ocupado} style={{ background: C.amber }} className="w-full text-white rounded px-3 py-2.5 text-xs font-extrabold uppercase tracking-wide">{ocupado ? "Ativando..." : "📱 Ativar notificações no celular"}</button>
-      )}
-      {estado === "negado" && !msg && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">As notificações estão bloqueadas neste navegador. Para liberar: cadeado ao lado do endereço → Notificações → Permitir.</p>}
-      {msg && <p style={{ color: msg.startsWith("✓") ? C.green : C.rust }} className="text-[11px] font-mono mt-1">{msg}</p>}
+      {/* Interruptor estilo Android: 🔔 Notificações [ ⬤ ] */}
+      <button onClick={ligado ? desligar : ligar} disabled={ocupado} role="switch" aria-checked={ligado} aria-label="Notificações neste celular"
+        style={{ borderColor: C.border }} className="w-full flex items-center justify-between border rounded px-3 py-2 disabled:opacity-60">
+        <span style={{ color: C.ink }} className="text-sm font-bold">{ligado ? "🔔" : "🔕"} Notificações</span>
+        <span style={{ background: ligado ? C.green : C.border }} className="relative inline-block w-11 h-6 rounded-full transition-colors">
+          <span style={{ left: ligado ? "22px" : "2px" }} className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"></span>
+        </span>
+      </button>
+      {estado === "negado" && !msg && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">Bloqueadas no navegador: cadeado ao lado do endereço → Notificações → Permitir.</p>}
+      {msg && !msg.startsWith("✓") && <p style={{ color: C.rust }} className="text-[11px] font-mono mt-1">{msg}</p>}
     </div>
   );
 }
@@ -4059,9 +4079,27 @@ ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
   })();
 </script>
 <script>
+  // Service worker sempre na última versão:
+  //  - updateViaCache "none": o navegador nunca usa cópia velha do sw.js;
+  //  - ao abrir o app e ao voltar para ele, pergunta ao servidor se há versão nova;
+  //  - a versão nova assume na hora (skipWaiting + clients.claim no sw.js) e a tela recarrega
+  //    sozinha na próxima vez que a pessoa voltar ao app (nunca no meio de algo que está digitando).
   if ("serviceWorker" in navigator) {
+    let recarregarAoVoltar = false;
+    const jaTinhaControle = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!jaTinhaControle) return; // primeira instalação: nada a recarregar
+      if (document.hidden) location.reload(); else recarregarAoVoltar = true;
+    });
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch((e) => console.log("SW falhou:", e));
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+        reg.update().catch(() => {});
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) return;
+          if (recarregarAoVoltar) { location.reload(); return; }
+          reg.update().catch(() => {});
+        });
+      }).catch((e) => console.log("SW falhou:", e));
     });
   }
 </script>

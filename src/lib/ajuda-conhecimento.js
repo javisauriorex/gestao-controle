@@ -158,7 +158,7 @@ Dentro de cada etapa: 📁 abre as sub-etapas (e permite criar novas), ✎ muda 
 
 Concluir: marque o quadradinho da etapa. Aparece "✓ por Fulano · data e hora". Qualquer pessoa com permissão de editar Etapas pode concluir, mesmo que outra pessoa tenha criado a etapa. Desmarcar: só quem concluiu ou um superior dele.
 
-Fotos de avanço: toque no + da etapa para adicionar fotos (quantas quiser, quando quiser). As fotos são reduzidas no celular antes de enviar.
+Fotos de avanço: em cada etapa, toque em 📷 Câmera para tirar na hora ou em 🖼 Galeria para escolher fotos já tiradas (até 10 de uma vez). Cada foto é reduzida no celular antes de enviar (~100 KB): economiza o pacote de dados e apaga a localização (GPS). Limite: 10 fotos/documentos por pessoa e 20 por empresa por dia.
 
 Mudar o texto ou apagar uma etapa: só quem criou ou um superior dele. Apagar uma etapa apaga também as sub-etapas e as fotos; se alguma delas é de alguém do seu nível ou acima, essa pessoa tem que apagar antes.
 
