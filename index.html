@@ -4184,22 +4184,42 @@ function GestorObras() {
 
 ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
 </script>
-<script src="vendor/react.production.min.js"></script>
-<script src="vendor/react-dom.production.min.js"></script>
-<script src="vendor/babel.min.js"></script>
-<script src="vendor/jszip.min.js"></script>
 <script>
-  // Compilamos manualmente forzando runtime clásico (React.createElement),
-  // porque el runtime "automático" por default de Babel genera imports de
-  // módulo ES que un <script> normal no puede ejecutar (pantalla en blanco).
+  // Carga do app SEM travar a abertura:
+  //  1) a página (splash) termina de carregar sozinha → o Android já tira o ícone dele e mostra o NOSSO splash;
+  //  2) só depois baixamos React/Babel e montamos o app por cima.
+  //  3) o código já compilado fica guardado neste aparelho: nas próximas aberturas nem precisa do Babel.
+  // Compilamos com runtime clássico (React.createElement): o "automático" do Babel gera imports
+  // de módulo ES que um <script> normal não executa (tela em branco).
   (function () {
-    var src = document.getElementById("app-source").textContent;
-    var out = Babel.transform(src, {
-      presets: [["react", { runtime: "classic" }]],
-    }).code;
-    var s = document.createElement("script");
-    s.textContent = out;
-    document.body.appendChild(s);
+    function carregar(src) {
+      return new Promise(function (ok, falha) {
+        var s = document.createElement("script"); s.src = src; s.async = false;
+        s.onload = ok; s.onerror = function () { falha(new Error("falhou " + src)); };
+        document.body.appendChild(s);
+      });
+    }
+    function hash(t) { var h = 2166136261; for (var i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + "-" + t.length; }
+    function rodar(code) { var s = document.createElement("script"); s.textContent = code; document.body.appendChild(s); }
+    function iniciar() {
+      var src = document.getElementById("app-source").textContent;
+      var chave = hash(src), guardado = null;
+      try { if (localStorage.getItem("gc-app-hash") === chave) guardado = localStorage.getItem("gc-app-js"); } catch (e) {}
+      var libs = [carregar("vendor/react.production.min.js"), carregar("vendor/react-dom.production.min.js")];
+      if (!guardado) libs.push(carregar("vendor/babel.min.js"));
+      Promise.all(libs).then(function () {
+        var code = guardado;
+        if (!code) {
+          code = Babel.transform(src, { presets: [["react", { runtime: "classic" }]] }).code;
+          try { localStorage.setItem("gc-app-js", code); localStorage.setItem("gc-app-hash", chave); }
+          catch (e) { try { localStorage.removeItem("gc-app-js"); localStorage.removeItem("gc-app-hash"); } catch (e2) {} }
+        }
+        rodar(code);
+        carregar("vendor/jszip.min.js").catch(function () {}); // só para o backup: vem depois, sem pressa
+      }).catch(function (e) { console.error(e); if (window.gcFecharSplash) window.gcFecharSplash(); });
+    }
+    if (document.readyState === "complete") setTimeout(iniciar, 0);
+    else window.addEventListener("load", function () { setTimeout(iniciar, 0); });
   })();
 </script>
 <script>
