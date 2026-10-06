@@ -36,6 +36,7 @@ CREATE TABLE usuarios (
   removido_por integer,
   termos_versao text,
   termos_aceito_em timestamp with time zone,
+  apresentacao_vista_em timestamp with time zone,
   pin_rodadas integer DEFAULT 0,
   login_tentativas integer DEFAULT 0,
   login_bloqueado_ate timestamp with time zone,

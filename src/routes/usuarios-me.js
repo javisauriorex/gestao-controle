@@ -30,6 +30,12 @@ export default async function usuariosMeHandler(req, env) {
       return jsonResponse({ ok: true, novoToken });
     }
 
+    // Apresentação do começo (slides) vista ou pulada: não aparece mais sozinha.
+    if (body.apresentacaoVista) {
+      await getSql(env)`UPDATE usuarios SET apresentacao_vista_em = now() WHERE id = ${usuario.id}`;
+      return jsonResponse({ ok: true });
+    }
+
     // Aceite dos Termos de Uso e da Política de Privacidade (versão vigente) — L4
     if (body.aceitarTermos) {
       await getSql(env)`UPDATE usuarios SET termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now() WHERE id = ${usuario.id}`;

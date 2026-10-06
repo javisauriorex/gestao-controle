@@ -1503,7 +1503,7 @@ function AjudaModulo({ modulo }) {
   );
 }
 
-function AjudaScreen({ usuarioAPI }) {
+function AjudaScreen({ usuarioAPI, onVerApresentacao }) {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState("");
   const [conversa, setConversa] = useState([]); // [{role, content}]
@@ -1544,6 +1544,11 @@ function AjudaScreen({ usuarioAPI }) {
       <a href="/manual" target="_blank" rel="noopener" style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="w-full border rounded-md px-3 py-2.5 mb-4 text-sm font-mono flex items-center gap-3">
         <span className="text-base leading-none">📘</span><span className="flex-1">Manual completo <span style={{ color: C.inkMuted }}>(ler, imprimir ou salvar em PDF)</span></span>
       </a>
+      {onVerApresentacao && (
+        <button onClick={onVerApresentacao} style={{ borderColor: C.border, color: C.ink, background: C.surface }} className="w-full border rounded-md px-3 py-2.5 -mt-2 mb-4 text-sm font-mono flex items-center gap-3 text-left">
+          <span className="text-base leading-none">🎞</span><span className="flex-1">Ver apresentação <span style={{ color: C.inkMuted }}>(o passo a passo do começo)</span></span>
+        </button>
+      )}
 
       {dados.assistente && (
         <div style={{ background: C.surface, borderColor: C.border }} className="border rounded-md p-3 mb-5">
@@ -1591,23 +1596,87 @@ function AjudaScreen({ usuarioAPI }) {
 }
 
 // Cartão de boas-vindas no primeiro acesso (some ao tocar em "Entendi")
-function BoasVindas({ usuarioAPI, onAbrirAjuda }) {
-  const chave = `gc-boasvindas-${usuarioAPI.id}`;
-  const [visivel, setVisivel] = useState(() => { try { return !localStorage.getItem(chave); } catch (e) { return false; } });
-  if (!visivel) return null;
-  const fechar = () => { try { localStorage.setItem(chave, "1"); } catch (e) {} setVisivel(false); };
-  const chefe = usuarioAPI.rank <= 5;
+// ---------- Apresentação (slides do começo): aparece uma vez por pessoa, depois do splash ----------
+function slidesApresentacao(usuarioAPI) {
+  const primeiro = (usuarioAPI.nome || "").split(" ")[0];
+  const img = (src, cls = "w-40 h-40") => <img src={src} alt="" className={`${cls} object-contain mx-auto`} draggable="false" />;
+  const lista = [
+    { arte: img("logo.png", "w-44 h-44 rounded-full"), titulo: `Bem-vindo ao G&C${primeiro ? `, ${primeiro}` : ""}!`,
+      texto: <>A sua obra organizada num só lugar, no celular. Você entrou como <b>{RANK_LABELS[usuarioAPI.rank]}</b>.</> },
+    { arte: <div className="flex justify-center items-center gap-1">{img("selo_ativa_8.webp", "w-28 h-28")}{img("selo_pausada_9.webp", "w-24 h-24")}{img("selo_concluida_10.webp", "w-28 h-28")}</div>,
+      titulo: "Suas obras", texto: "Na tela inicial ficam as obras em que você participa. O selo mostra se está ATIVA, PAUSADA ou CONCLUÍDA. Toque numa obra para abrir." },
+    { arte: img("arquivero_completo_16.webp", "h-56 w-auto"), titulo: "O arquivo da obra",
+      texto: "Cada obra é um arquivo com 6 gavetas: Equipe, Etapas, Ferramentas, Materiais, Observações e Documentos. Gaveta com 🔒 é porque o seu rank não vê." },
+    { equipe: true, arte: img("icone_equipe_2.webp"), titulo: "Monte sua equipe",
+      texto: "Na gaveta Equipe → 📲 Novo por link você convida pelo WhatsApp. A pessoa entra com CPF + PIN, sem precisar de e-mail." },
+    { arte: img("icone_etapas_1.webp"), titulo: "Etapas e fotos",
+      texto: "As etapas são o passo a passo da obra. Marque como concluída e registre com fotos: 📷 Câmera na hora ou 🖼 Galeria (até 10 de uma vez)." },
+    { arte: <div className="flex justify-center gap-3">{img("icone_materiais_5.webp", "w-28 h-28")}{img("icone_ferramentas_4.webp", "w-28 h-28")}</div>, titulo: "Pedir e entregar",
+      texto: <>Faltou material ou ferramenta? Faça um pedido. Quem entrega toca <b>Entreguei</b> e quem recebe confirma com <b>Recebi</b>. Tudo fica no histórico.</> },
+    { arte: img("icone_observacoes_6.webp"), titulo: "Livro de obra",
+      texto: "Em Observações fica o diário da obra, com nome, rank e data de quem escreveu. Nada se perde: o que é editado guarda as versões anteriores." },
+    { arte: <div className="text-7xl leading-none text-center">🔔 ✋</div>, titulo: "Avisos e presença",
+      texto: "O sininho 🔔 mostra as novidades das suas obras — ligue as notificações para recebê-las no celular. Na Equipe você marca a sua presença do dia." },
+    { arte: img("logo.png", "w-36 h-36 rounded-full"), titulo: "Pronto!",
+      texto: <>Ficou alguma dúvida? Em <b>Config → ❓ Ajuda</b> tem o manual e um assistente que responde perguntas. Esta apresentação também fica lá.</> },
+  ];
+  // "Monte sua equipe" só para quem pode convidar (Profissional, Almoxarife e Estagiário não convidam).
+  return lista.filter((s) => !s.equipe || [1, 2, 4, 5, 7].includes(usuarioAPI.rank));
+}
+
+function Apresentacao({ usuarioAPI, onFim }) {
+  const slides = slidesApresentacao(usuarioAPI);
+  const [i, setI] = useState(0);
+  const [arraste, setArraste] = useState(0);
+  const toque = useRef(null);
+  const ultimo = i === slides.length - 1;
+  const ir = (n) => setI(Math.max(0, Math.min(slides.length - 1, n)));
+  useEffect(() => {
+    const tecla = (e) => { if (e.key === "ArrowRight") ir(i + 1); else if (e.key === "ArrowLeft") ir(i - 1); };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  });
+  const inicio = (e) => { const t = e.touches[0]; toque.current = { x: t.clientX, y: t.clientY, horizontal: null }; };
+  const mover = (e) => {
+    const c = toque.current; if (!c) return;
+    const t = e.touches[0]; const dx = t.clientX - c.x, dy = t.clientY - c.y;
+    if (c.horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) c.horizontal = Math.abs(dx) > Math.abs(dy);
+    if (c.horizontal) setArraste(dx);
+  };
+  const fim = () => {
+    const c = toque.current; toque.current = null;
+    if (c && c.horizontal) { if (arraste < -50) ir(i + 1); else if (arraste > 50) ir(i - 1); }
+    setArraste(0);
+  };
   return (
-    <div style={{ background: C.surface, borderColor: C.amber }} className="border-2 rounded-md p-4 mb-4">
-      <p style={{ color: C.ink }} className="font-bold text-sm">👋 Bem-vindo ao G&C, {(usuarioAPI.nome || "").split(" ")[0]}!</p>
-      <p style={{ color: C.inkMuted }} className="text-sm mt-1">Você é <b style={{ color: C.ink }}>{RANK_LABELS[usuarioAPI.rank]}</b>.{" "}
-        {chefe
-          ? "Comece abrindo uma obra (ou criando uma) e convide sua equipe pela gaveta Equipe → 📲 Novo por link."
-          : "Toque numa obra para abrir. Dentro dela, cada gaveta tem um botão ? que explica o que dá para fazer."}
-      </p>
-      <div className="flex gap-2 mt-3">
-        <button onClick={() => { fechar(); onAbrirAjuda(); }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-xs rounded px-3 py-2">❓ Abrir Ajuda</button>
-        <button onClick={fechar} style={{ borderColor: C.border, color: C.ink }} className="border font-bold uppercase tracking-wide text-xs rounded px-3 py-2">Entendi</button>
+    <div style={{ background: C.bg, color: C.ink }} className="fixed inset-0 z-50 flex flex-col select-none" role="dialog" aria-label="Apresentação do G&C">
+      <div className="flex justify-end p-3" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
+        {!ultimo && <button onClick={onFim} style={{ color: C.inkMuted }} className="font-bold uppercase tracking-wide text-sm px-3 py-2">Pular ›</button>}
+        {ultimo && <span className="py-2 text-sm">&nbsp;</span>}
+      </div>
+      <div className="flex-1 overflow-hidden" onTouchStart={inicio} onTouchMove={mover} onTouchEnd={fim} onTouchCancel={fim}>
+        <div className="flex h-full" style={{ transform: `translateX(calc(${-i * 100}% + ${arraste}px))`, transition: arraste ? "none" : "transform 0.3s ease" }}>
+          {slides.map((s, k) => (
+            <div key={k} className="w-full h-full shrink-0 flex flex-col items-center justify-center px-8 text-center" aria-hidden={k !== i}>
+              <div className="mb-6 flex items-center justify-center" style={{ minHeight: "10rem" }}>{s.arte}</div>
+              <h2 className="font-comic text-3xl tracking-wide mb-3">{s.titulo}</h2>
+              <p style={{ color: C.inkMuted }} className="text-base leading-relaxed max-w-sm">{s.texto}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="px-6 pb-6" style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+        <div className="flex justify-center gap-2 mb-5">
+          {slides.map((_, k) => (
+            <button key={k} onClick={() => ir(k)} aria-label={`Ir para ${k + 1}`} style={{ background: k === i ? C.amber : C.border, width: k === i ? 22 : 8 }} className="h-2 rounded-full transition-all" />
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => ir(i - 1)} disabled={i === 0} style={{ borderColor: C.border, color: C.ink }} className="border rounded-md w-14 py-3 text-xl font-bold disabled:opacity-0" aria-label="Anterior">‹</button>
+          {ultimo
+            ? <button onClick={onFim} style={{ background: C.amber }} className="flex-1 text-white font-bold uppercase tracking-wide rounded-md py-3">Começar</button>
+            : <button onClick={() => ir(i + 1)} style={{ background: C.ink, color: C.bg }} className="flex-1 font-bold uppercase tracking-wide rounded-md py-3">Próximo ›</button>}
+        </div>
       </div>
     </div>
   );
@@ -3363,6 +3432,7 @@ function GestorObras() {
   };
   const [showMeusDados, setShowMeusDados] = useState(false);
   const [termosVigente, setTermosVigente] = useState(null);
+  const [vendoApresentacao, setVendoApresentacao] = useState(false);
   const [meusNiveis, setMeusNiveis] = useState(null);
   const [fazendoBackup, setFazendoBackup] = useState(false);
   const navRestauradaRef = useRef(false);
@@ -3948,6 +4018,15 @@ function GestorObras() {
     content = <SplashScreen />;
   } else if (termosVigente && usuarioAPI.termos_versao !== termosVigente) {
     content = <AceiteTermosScreen usuario={usuarioAPI} onAceito={() => setUsuarioAPI((u) => ({ ...u, termos_versao: termosVigente }))} onSair={sair} />;
+  } else if (vendoApresentacao || usuarioAPI.apresentacao_vista_em === null) {
+    // null = coluna existe e a pessoa ainda não viu. (undefined = SQL ainda não rodado: não mostra.)
+    content = <Apresentacao usuarioAPI={usuarioAPI} onFim={() => {
+      setVendoApresentacao(false);
+      if (usuarioAPI.apresentacao_vista_em === null) {
+        setUsuarioAPI((u) => ({ ...u, apresentacao_vista_em: new Date().toISOString() }));
+        apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ apresentacaoVista: true }) }).catch(() => {});
+      }
+    }} />;
   } else {
     content = (
     <div className="p-4 pb-24">
@@ -3963,7 +4042,6 @@ function GestorObras() {
               <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
             </div>
           </div>
-          <BoasVindas usuarioAPI={usuarioAPI} onAbrirAjuda={() => irParaView("ajuda")} />
           <div className="flex flex-wrap gap-2 mb-4">
             {[1, 2, 4].includes(usuarioAPI.rank) && <button onClick={async () => { setShowModal(true); try { const r = await apiFetch(`/api/equipe`); setEquipeParaEditar(r.equipe); } catch (e) { setEquipeParaEditar([]); } }} style={{ background: C.amber }} className="text-white font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">+ Nova obra</button>}
             <button onClick={() => irParaView("pendientes")} style={{ background: totalPendientes > 0 ? C.rust : "transparent", borderColor: C.rust, color: totalPendientes > 0 ? "#fff" : C.rust }} className="border font-bold uppercase tracking-wide text-sm rounded px-4 py-2.5">● Pendências {totalPendientes > 0 && `(${totalPendientes})`}</button>
@@ -4008,7 +4086,7 @@ function GestorObras() {
       {view === "report" && <ReportView obras={obras} onBack={() => window.history.back()} />}
       {view === "permissoes" && <PermissoesScreen onBack={() => window.history.back()} usuarioRank={usuarioAPI.rank} />}
       {view === "leads" && <LeadsScreen onBack={() => window.history.back()} />}
-      {view === "ajuda" && <AjudaScreen usuarioAPI={usuarioAPI} />}
+      {view === "ajuda" && <AjudaScreen usuarioAPI={usuarioAPI} onVerApresentacao={() => setVendoApresentacao(true)} />}
       {showModal && <NuevaObraModal onClose={() => setShowModal(false)} onSave={criarObra} obras={obras} equipe={equipeParaEditar} />}
       {editandoObra && <EditarObraModal obra={editandoObra} equipe={equipeParaEditar} onClose={() => setEditandoObra(null)} onSave={salvarEdicaoObra} />}
       {lightboxImg && <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />}
