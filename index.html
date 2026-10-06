@@ -11,20 +11,27 @@
 <link rel="icon" href="icon-192.png" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <title>Gestão & Controle</title>
-<!-- Bibliotecas em versão FIXA, servidas pelo próprio G&C (nada de unpkg/cdn). Ver src/build/LEIAME.md -->
-<script src="vendor/react.production.min.js"></script>
-<script src="vendor/react-dom.production.min.js"></script>
-<script src="vendor/babel.min.js"></script>
-<script src="vendor/jszip.min.js"></script>
+<!-- Bibliotecas em versão FIXA, servidas pelo próprio G&C (nada de unpkg/cdn). Ver src/build/LEIAME.md
+     React/Babel ficam no FIM do <body>: assim o splash aparece na hora, sem esperar baixar o Babel. -->
+<link rel="preload" href="vendor/fonts/bangers.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="vendor/tailwind.css" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
 <style>
+  /* Fontes servidas pelo próprio G&C (antes vinham do Google e apareciam trocadas por um instante). */
+  @font-face { font-family: 'Bangers'; font-style: normal; font-weight: 400; font-display: block; src: url(vendor/fonts/bangers.woff2) format('woff2'); }
+  @font-face { font-family: 'Special Elite'; font-style: normal; font-weight: 400; font-display: swap; src: url(vendor/fonts/special-elite.woff2) format('woff2'); }
   html, body { margin:0; padding:0; background:#EDEAE1; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
   * { box-sizing: border-box; }
   body { font-family: 'Special Elite', ui-monospace, monospace; }
   .font-comic { font-family: 'Bangers', cursive; letter-spacing: 0.03em; }
+  /* Letra de gibi "3D": amarelo → vermelho, contorno preto e sombra preta deslocada. */
+  .gc-3d {
+    background: linear-gradient(180deg, #FFEA00 0%, #FFA000 48%, #E52800 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent !important;
+    -webkit-text-stroke: 1.5px #141210;
+    filter: drop-shadow(1px 1px 0 #141210) drop-shadow(2px 2px 0 #141210);
+    padding: 0 0.04em;
+  }
   @keyframes logoPop {
     0% { transform: scale(0.2); opacity: 0; }
     60% { transform: scale(1.1); opacity: 1; }
@@ -37,12 +44,23 @@
   }
   .logo-blink-img { animation: blinkFade 3.5s infinite; }
 
-  /* Splash (06/10): logo + título juntos desde el inicio, más grandes. Sin la fase de "logo solo". */
+  /* Splash: el logo aparece grande y el título crece por debajo, empujando el conjunto hacia arriba. */
+  @keyframes splashTitleGrow {
+    0% { max-height: 0; margin-top: 0; }
+    100% { max-height: 180px; margin-top: 16px; }
+  }
   .splash-title-wrap {
-    margin-top: 18px;
+    max-height: 0;
+    overflow: hidden;
+    padding: 0 10px 6px;
     text-align: center;
     line-height: 1.12;
+    animation: splashTitleGrow 0.9s ease-out 1s forwards;
   }
+  /* Splash estático (HTML puro): aparece no mesmo instante em que o app abre e some quando o app está pronto. */
+  #gc-splash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: #EDEAE1; transition: opacity 0.3s ease; }
+  #gc-splash.escuro { background: #1C1B19; }
+  #gc-splash.saindo { opacity: 0; pointer-events: none; }
 
   /* Efecto "reparto de cartas": cada letra entra grande y se achica a su tamaño final */
   @keyframes dealLetter {
@@ -59,7 +77,7 @@
     animation-fill-mode: both;
   }
 
-  /* Barrita de carga estilo Windows XP: aparece recién en el segundo 2, en loop */
+  /* Barrita de carga estilo Windows XP: aparece en el segundo 2, en loop */
   .xp-loader-wrap {
     position: absolute;
     bottom: 56px;
@@ -68,7 +86,7 @@
     display: flex;
     justify-content: center;
     opacity: 0;
-    animation: fadeIn 0.2s ease 1.2s forwards;
+    animation: fadeIn 0.2s ease 2s forwards;
   }
   @keyframes fadeIn {
     to { opacity: 1; }
@@ -118,6 +136,30 @@
 </script>
 </head>
 <body>
+<div id="gc-splash" aria-hidden="true">
+  <div class="logo-pop" style="width:190px;height:190px">
+    <img src="logo.png" alt="" style="width:100%;height:100%;position:absolute;inset:0" />
+    <img src="logo-blink.png" alt="" class="logo-blink-img" style="width:100%;height:100%;position:absolute;inset:0" />
+  </div>
+  <div class="splash-title-wrap font-comic">
+    <div><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1000ms">G</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1067ms">E</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1133ms">S</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1200ms">T</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1267ms">Ã</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1333ms">O</span></div>
+    <div><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1400ms">&amp;</span></div>
+    <div><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1467ms">C</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1533ms">O</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1600ms">N</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1667ms">T</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1733ms">R</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1800ms">O</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1867ms">L</span><span class="deal-letter gc-3d" style="font-size:40px;animation-delay:1933ms">E</span></div>
+  </div>
+  <div class="xp-loader-wrap"><div class="xp-loader-track"><div class="xp-loader-bar"></div></div></div>
+</div>
+<script>
+  // O splash fica no mínimo até a animação terminar (~2,6 s) e some quando o app avisa que está pronto.
+  (function () {
+    var el = document.getElementById("gc-splash"), t0 = Date.now(), fechado = false;
+    try { if (localStorage.getItem("tema") === "escuro") el.className = "escuro"; } catch (e) {}
+    window.gcFecharSplash = function () {
+      if (fechado) return; fechado = true;
+      setTimeout(function () { el.classList.add("saindo"); setTimeout(function () { el.remove(); }, 350); }, Math.max(0, 2600 - (Date.now() - t0)));
+    };
+    setTimeout(window.gcFecharSplash, 15000); // se algo travar, não prende a pessoa no splash
+  })();
+</script>
 <div id="root"></div>
 <script type="text/babel-source" id="app-source">
 const { useState, useEffect, useRef, useMemo } = React;
@@ -2841,7 +2883,7 @@ function ReportView({ obras, onBack }) {
 // 15 caracteres totales (GESTÃO=6 + &=1 + CONTROLE=8) repartidos en 1 segundo -> ~66.7ms entre letra y letra.
 function DealText({ text, startIndex, color, fontSize }) {
   return text.split("").map((ch, i) => (
-    <span key={i} className="deal-letter" style={{ color, fontSize, animationDelay: `${150 + (startIndex + i) * (1000 / 15)}ms` }}>
+    <span key={i} className="deal-letter gc-3d" style={{ fontSize, animationDelay: `${1000 + (startIndex + i) * (1000 / 15)}ms` }}>
       {ch === " " ? "\u00A0" : ch}
     </span>
   ));
@@ -2879,7 +2921,7 @@ function LogoTitulo() {
   return (
     <div className="flex items-center justify-center gap-2.5 mb-1">
       <img src="logo.png" alt="G&C" className="w-11 h-11 rounded-full shrink-0" />
-      <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
+      <h1 className="font-comic gc-3d text-xl tracking-wide whitespace-nowrap">Gestão & Controle</h1>
     </div>
   );
 }
@@ -3354,6 +3396,7 @@ function GestorObras() {
   const [temaEscuro, setTemaEscuro] = useState(false);
 
   const [sessionLoading, setSessionLoading] = useState(true);
+  useEffect(() => { if (!sessionLoading && window.gcFecharSplash) window.gcFecharSplash(); }, [sessionLoading]);
   const [temSessao, setTemSessao] = useState(false);
   const [usuarioAPI, setUsuarioAPI] = useState(null);
   const [authView, setAuthView] = useState("login");
@@ -4039,7 +4082,7 @@ function GestorObras() {
                 <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{RANK_LABELS[usuarioAPI.rank] || ""}</span>
                 <span style={{ color: C.inkMuted }} className="text-[11px] font-mono truncate">{usuarioAPI.nome}</span>
               </div>
-              <h1 style={{ color: C.ink }} className="font-comic text-xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
+              <h1 className="font-comic gc-3d text-2xl tracking-wide leading-tight mt-0.5">Gestão & Controle</h1>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
@@ -4136,6 +4179,10 @@ function GestorObras() {
 
 ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
 </script>
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
 <script>
   // Compilamos manualmente forzando runtime clásico (React.createElement),
   // porque el runtime "automático" por default de Babel genera imports de
