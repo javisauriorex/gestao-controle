@@ -932,16 +932,20 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
 }
 
 // ---- Play Store: assetlinks.json (TWA) ----
+const FP0 = "15:58:AB:D5:11:15:92:C6:2F:19:2E:EE:15:70:6F:B6:BC:8C:58:68:33:8C:11:03:44:7D:33:96:1C:E7:C7:F6";
 const FP = Array.from({ length: 32 }, (_, i) => (i * 7 % 256).toString(16).padStart(2, "0").toUpperCase()).join(":");
 const al0 = await worker.fetch(new Request("https://t/.well-known/assetlinks.json"), env);
-check("PLAY: assetlinks sem variável → 200 com lista vazia", al0.status === 200 && /json/.test(al0.headers.get("content-type")) && JSON.stringify(await al0.json()) === "[]");
-env.TWA_SHA256 = "lixo, " + FP.toLowerCase() + " ,12:34";
-const al1 = await worker.fetch(new Request("https://t/.well-known/assetlinks.json"), env);
-const alj = await al1.json();
-check("PLAY: assetlinks com impressão válida (ignora lixo, aceita minúsculas)",
-  alj.length === 1 && alj[0].target.package_name === "br.app.gestaoecontrole" && alj[0].target.namespace === "android_app"
-  && alj[0].target.sha256_cert_fingerprints.length === 1 && alj[0].target.sha256_cert_fingerprints[0] === FP
-  && alj[0].relation[0] === "delegate_permission/common.handle_all_urls", JSON.stringify(alj));
+const alj0 = await al0.json();
+check("PLAY: assetlinks sem variável → 200 com a chave de upload do código",
+  al0.status === 200 && /json/.test(al0.headers.get("content-type")) && alj0.length === 1
+  && alj0[0].target.package_name === "br.app.gestaoecontrole" && alj0[0].target.namespace === "android_app"
+  && alj0[0].target.sha256_cert_fingerprints.length === 1 && alj0[0].target.sha256_cert_fingerprints[0] === FP0
+  && alj0[0].relation[0] === "delegate_permission/common.handle_all_urls", JSON.stringify(alj0));
+env.TWA_SHA256 = "lixo, " + FP.toLowerCase() + " ,12:34, " + FP0.toLowerCase();
+const alj = await (await worker.fetch(new Request("https://t/.well-known/assetlinks.json"), env)).json();
+check("PLAY: variável soma outra impressão, ignora lixo e não duplica",
+  alj.length === 1 && alj[0].target.sha256_cert_fingerprints.length === 2
+  && alj[0].target.sha256_cert_fingerprints.includes(FP0) && alj[0].target.sha256_cert_fingerprints.includes(FP), JSON.stringify(alj));
 delete env.TWA_SHA256;
 
 console.log(`\n${ok} ok, ${falhas} falhas`);
