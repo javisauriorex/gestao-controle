@@ -2318,6 +2318,25 @@ function MeusDadosModal({ onClose }) {
   );
 }
 
+// Campo de senha com o botão "ver senha" (olhinho). Vale para cadastro, login e troca de senha.
+// O botão só alterna a exibição neste aparelho; nada é enviado nem guardado.
+function CampoSenha({ value, onChange, onKeyDown, autoComplete, placeholder, autoFocus, margem }) {
+  const [ver, setVer] = useState(false);
+  return (
+    <div className={margem || "mt-1"}>
+      <div style={{ position: "relative" }}>
+        <input type={ver ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} autoComplete={autoComplete} placeholder={placeholder} autoFocus={autoFocus}
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          style={{ borderColor: C.border, color: C.ink, paddingRight: 46 }} className="w-full border rounded px-3 py-2 outline-none" />
+        <button type="button" onClick={() => setVer(!ver)} aria-label={ver ? "Ocultar senha" : "Mostrar senha"} aria-pressed={ver} title={ver ? "Ocultar senha" : "Mostrar senha"}
+          style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", fontSize: 18, lineHeight: 1, opacity: ver ? 1 : 0.6 }}>
+          {ver ? "🙈" : "👁"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DefinirSenhaModal({ usuario, onClose }) {
   const jaTemSenha = !!usuario?.tem_senha;
   const [senhaAtual, setSenhaAtual] = useState("");
@@ -2367,13 +2386,13 @@ function DefinirSenhaModal({ usuario, onClose }) {
             {jaTemSenha && (
               <>
                 <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha atual</label>
-                <input type="password" value={senhaAtual} onChange={(e) => setSenhaAtual(e.target.value)} autoComplete="current-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus />
+                <CampoSenha value={senhaAtual} onChange={(e) => setSenhaAtual(e.target.value)} autoComplete="current-password" margem="mt-1 mb-3" autoFocus />
               </>
             )}
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Nova senha</label>
-            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none" autoFocus={!jaTemSenha} />
+            <CampoSenha value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" margem="mt-1 mb-3" autoFocus={!jaTemSenha} />
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
-            <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} autoComplete="new-password" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+            <CampoSenha value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && salvar()} autoComplete="new-password" margem="mt-1" />
             {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
             <button onClick={salvar} disabled={salvando} style={{ background: C.amber }} className="w-full mt-5 text-white font-bold uppercase tracking-wide rounded py-2.5 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar senha"}</button>
           </>
@@ -3012,11 +3031,11 @@ function CadastroScreen({ onIrLogin, onCadastrado }) {
         </div>
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
-          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" placeholder="Mínimo 8 caracteres" />
+          <CampoSenha value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="new-password" placeholder="Mínimo 8 caracteres" margem="mt-1" />
         </div>
         <div>
           <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Confirmar senha</label>
-          <input type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cadastrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+          <CampoSenha value={senha2} onChange={(e) => setSenha2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cadastrar()} autoComplete="new-password" margem="mt-1" />
         </div>
         <label className="flex items-start gap-2 text-xs" style={{ color: C.inkMuted }}>
           <input type="checkbox" checked={aceito} onChange={(e) => setAceito(e.target.checked)} className="mt-0.5" />
@@ -3147,7 +3166,7 @@ function LoginScreen({ onLogado, onIrCadastro }) {
       </div>
       <div className="mt-3">
         <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Senha</label>
-        <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrar()} style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none" />
+        <CampoSenha value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrar()} autoComplete="current-password" margem="mt-1" />
       </div>
       {pedeTs && <Turnstile onToken={setTsToken} chave={tsChave} />}
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
