@@ -9,7 +9,7 @@
     "directory": "./",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/manual", "/confirmar-email", "/redefinir-senha"]
+    "run_worker_first": ["/api/*", "/manual", "/.well-known/assetlinks.json", "/confirmar-email", "/redefinir-senha"]
   },
   "triggers": { "crons": ["30 14 * * 6"] },
   "ai": { "binding": "AI" },

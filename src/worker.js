@@ -20,6 +20,7 @@ import arquivoDelete from "./routes/arquivo-delete.js";
 import ajuda from "./routes/ajuda.js";
 import encerrarEmpresa from "./routes/encerrar-empresa.js";
 import manual from "./routes/manual.js";
+import assetlinks from "./routes/assetlinks.js";
 import { reenviarConfirmacao, esqueciSenha, redefinirSenha, paginaConfirmarEmail, paginaRedefinirSenha } from "./routes/conta-email.js";
 import admin from "./routes/admin.js";
 import meusDados from "./routes/meus-dados.js";
@@ -106,6 +107,7 @@ export default {
     }
 
     if (url.pathname === "/manual" || url.pathname === "/manual/") return manual(request, env);
+    if (url.pathname === "/.well-known/assetlinks.json") return assetlinks(request, env);
     try {
       if (url.pathname === "/confirmar-email") return await paginaConfirmarEmail(request, env);
       if (url.pathname === "/redefinir-senha") return await paginaRedefinirSenha(request, env);

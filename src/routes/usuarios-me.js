@@ -114,6 +114,8 @@ export default async function usuariosMeHandler(req, env) {
       `);
     }
     q.push(sql`DELETE FROM convites WHERE usuario_id = ${alvo.id}`);
+    // Play Store / LGPD: a inscrição de notificações do celular também é dado da pessoa e sai junto com a conta.
+    q.push(sql`DELETE FROM push_inscricoes WHERE usuario_id = ${alvo.id}`);
     q.push(sql`
       UPDATE usuarios SET
         removido_em = now(), removido_por = ${usuario.id}, nome = 'Usuário removido',

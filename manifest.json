@@ -1,12 +1,18 @@
 {
+  "id": "/index.html",
   "name": "Gestão & Controle",
   "short_name": "G&C",
+  "description": "Gestão de obras de construção civil: etapas, equipe, materiais, ferramentas, documentos e livro de obra num só lugar.",
+  "lang": "pt-BR",
+  "dir": "ltr",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#EDEAE1",
   "theme_color": "#D98E04",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512-any.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

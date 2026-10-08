@@ -923,7 +923,26 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   check("PUSH: aparelho que não existe mais (410) sai da lista", (await call("GET", "/api/push", pp.encarr.token)).aparelhos === 0);
   check("PUSH: teste manda para os meus aparelhos", (await call("POST", "/api/push", pp.mestre.token, { teste: true })).enviados === 1);
   check("PUSH: desligar aparelho", (await call("DELETE", "/api/push", pp.mestre.token, { endpoint: "https://push.example/mestre" })).ok && (await call("GET", "/api/push", pp.mestre.token)).aparelhos === 0);
+  // Play Store / LGPD: excluir a conta apaga também a inscrição de notificações do celular.
+  const antes = await pool.query("SELECT count(*)::int AS n FROM push_inscricoes WHERE endpoint = $1", ["https://push.example/prof"]);
+  check("PLAY: profissional tem inscrição push antes de excluir a conta", antes.rows[0].n === 1, JSON.stringify(antes.rows));
+  check("PLAY: profissional exclui a própria conta", (await call("DELETE", "/api/usuarios-me", pp.prof.token)).ok);
+  const depois = await pool.query("SELECT count(*)::int AS n FROM push_inscricoes WHERE endpoint = $1", ["https://push.example/prof"]);
+  check("PLAY: inscrição push some junto com a conta excluída", depois.rows[0].n === 0, JSON.stringify(depois.rows));
 }
+
+// ---- Play Store: assetlinks.json (TWA) ----
+const FP = Array.from({ length: 32 }, (_, i) => (i * 7 % 256).toString(16).padStart(2, "0").toUpperCase()).join(":");
+const al0 = await worker.fetch(new Request("https://t/.well-known/assetlinks.json"), env);
+check("PLAY: assetlinks sem variável → 200 com lista vazia", al0.status === 200 && /json/.test(al0.headers.get("content-type")) && JSON.stringify(await al0.json()) === "[]");
+env.TWA_SHA256 = "lixo, " + FP.toLowerCase() + " ,12:34";
+const al1 = await worker.fetch(new Request("https://t/.well-known/assetlinks.json"), env);
+const alj = await al1.json();
+check("PLAY: assetlinks com impressão válida (ignora lixo, aceita minúsculas)",
+  alj.length === 1 && alj[0].target.package_name === "br.app.gestaoecontrole" && alj[0].target.namespace === "android_app"
+  && alj[0].target.sha256_cert_fingerprints.length === 1 && alj[0].target.sha256_cert_fingerprints[0] === FP
+  && alj[0].relation[0] === "delegate_permission/common.handle_all_urls", JSON.stringify(alj));
+delete env.TWA_SHA256;
 
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;
