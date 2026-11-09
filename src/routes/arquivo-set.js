@@ -1,7 +1,7 @@
 import { getUsuario, jsonResponse } from "../lib/auth.js";
 import { problemaNoPayload } from "../lib/arquivos.js";
 import { getSql } from "../lib/db.js";
-import { problemaLimiteUpload, registrarUpload } from "../lib/limites.js";
+import { problemaLimiteUpload, registrarUpload, excedeu, LIMITE_UPLOADS_TOTAL_DIA } from "../lib/limites.js";
 
 export default async function arquivoSetHandler(req, env) {
   if (req.method !== "POST") return jsonResponse({ ok: false, error: "method not allowed" }, 405);
@@ -22,10 +22,13 @@ export default async function arquivoSetHandler(req, env) {
   const sql = getSql(env);
   const limite = await problemaLimiteUpload(sql, usuario);
   if (limite) return jsonResponse({ ok: false, codigo: "limite_diario", error: limite }, 429);
+  if (await excedeu(sql, "uploads:total", LIMITE_UPLOADS_TOTAL_DIA)) {
+    return jsonResponse({ ok: false, codigo: "limite_diario", error: "O G&C chegou ao limite de arquivos de hoje. Amanhã libera de novo." }, 429);
+  }
 
   // O frontend já manda `payload` como string JSON pronta; gravamos tal qual.
   // metadata: quem enviou e de que empresa (usado para autorizar a leitura antes de vincular).
   await env.ARQUIVOS.put(id, payload, { metadata: { por: usuario.id, empresa: usuario.empresa_id } });
-  await registrarUpload(sql, usuario);
+  await registrarUpload(sql, usuario, id);
   return jsonResponse({ ok: true });
 }

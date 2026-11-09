@@ -66,3 +66,26 @@ export function problemaNoPayload(payload) {
   if (obj.tipo !== undefined && typeof obj.tipo !== "string") return "arquivo inválido";
   return null;
 }
+
+// ============================================================
+// Faxineiro diário (D2): arquivos enviados há mais de 24 h e que NUNCA foram vinculados a uma
+// obra (a pessoa fechou o app, caiu a rede...) são apagados do KV. No máximo `max` por dia,
+// porque apagar também gasta a cota diária de gravações do plano grátis.
+// ============================================================
+export async function varrerOrfaos(sql, env, max = 100) {
+  const orfaos = await sql`
+    SELECT u.arquivo_id FROM uploads u
+    WHERE u.arquivo_id IS NOT NULL
+      AND u.criado_em < now() - interval '24 hours' AND u.criado_em > now() - interval '7 days'
+      AND NOT EXISTS (SELECT 1 FROM documentos d WHERE d.arquivo_id = u.arquivo_id)
+      AND NOT EXISTS (SELECT 1 FROM etapa_fotos f WHERE f.arquivo_id = u.arquivo_id)
+      AND NOT EXISTS (SELECT 1 FROM etapas e WHERE e.foto_conclusao_id = u.arquivo_id)
+    ORDER BY u.criado_em
+    LIMIT ${max}
+  `;
+  const ids = orfaos.map((r) => r.arquivo_id);
+  if (!ids.length) return 0;
+  await apagarDoKV(env, ids);
+  await sql`UPDATE uploads SET arquivo_id = NULL WHERE arquivo_id = ANY(${ids})`;
+  return ids.length;
+}

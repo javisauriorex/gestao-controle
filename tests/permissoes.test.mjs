@@ -1,5 +1,6 @@
 import worker from "./src/worker.js";
-import { pool } from "./src/lib/db.js";
+import { pool, getSql as getSqlDb } from "./src/lib/db.js";
+const getSqlT = () => getSqlDb({});
 import { loginOuCriarComGoogle } from "./src/lib/auth.js";
 // KV de mentira (em memória) no lugar do Cloudflare KV
 const kv = new Map();
@@ -1028,6 +1029,56 @@ delete env.TWA_SHA256;
   emails.length = 0;
   for (let k = 0; k < 8; k++) await call("POST", "/api/auth/esqueci-senha", null, { email: "dono@x.com" });
   check("D: no máximo 5 e-mails por hora da mesma rede", emails.length <= 5, String(emails.length));
+}
+
+// ============================================================
+// BLOCO D2 (10/11/2026)
+// ============================================================
+{
+  const { verifyJWT, signJWT } = await import("./src/lib/auth.js");
+  const { varrerOrfaos } = await import("./src/lib/arquivos.js");
+  await pool.query("DELETE FROM contadores");
+  await pool.query("DELETE FROM falhas_login");
+
+  // Cadastro com e-mail que já existe: resposta igual + aviso por e-mail ao dono
+  emails.length = 0;
+  const dup = await call("POST", "/api/auth/signup", null, { email: "dono@x.com", senha: "outraSenha99", nome: "Intruso", aceitouTermos: true });
+  const novo = await call("POST", "/api/auth/signup", null, { email: "ninguem.d2@x.com", senha: "outraSenha99", nome: "Novo D2", aceitouTermos: true });
+  check("D2: cadastro com e-mail existente responde igual a um novo", dup.ok && dup.confirmarEmail && novo.ok && novo.confirmarEmail && Object.keys(dup).sort().join() === Object.keys(novo).sort().join(), JSON.stringify(dup));
+  check("D2: dono do e-mail recebe aviso de tentativa", emails.some((e) => e.to[0] === "dono@x.com" && /Tentativa de cadastro/.test(e.subject)));
+  check("D2: a senha do intruso não foi gravada", (await call("POST", "/api/auth/login", null, { email: "dono@x.com", senha: "outraSenha99" })).status === 401);
+
+  // Sessão de 7 dias, com sid e hora do login
+  const lg = await call("POST", "/api/auth/login", null, { email: "dono@x.com", senha: "12345678" });
+  const pl = await verifyJWT(lg.token, env.JWT_SECRET);
+  check("D2: sessão vale 7 dias e tem identidade própria", pl.exp - pl.iat === 7 * 86400 && /^[0-9a-f]{32}$/.test(pl.sid) && pl.auth === pl.iat, JSON.stringify(pl));
+  const me1 = await call("GET", "/api/usuarios-me", lg.token);
+  check("D2: sessão nova não é renovada à toa", me1.ok && !me1.novoToken);
+  check("D2: usuarios-me não expõe dados internos da sessão", !("sessao_sid" in me1.usuario) && !("sessao_iat" in me1.usuario));
+  // Renovação: token emitido há 2 dias → recebe um novo, mantendo a hora do login
+  const ag = Math.floor(Date.now() / 1000);
+  const uDono = (await pool.query("SELECT id, sessao_versao FROM usuarios WHERE email='dono@x.com'")).rows[0];
+  const velho = await signJWT({ usuarioId: uDono.id, sv: uDono.sessao_versao, sid: "a".repeat(32), iat: ag - 2 * 86400, auth: ag - 2 * 86400, exp: ag + 5 * 86400 }, env.JWT_SECRET);
+  const me2 = await call("GET", "/api/usuarios-me", velho);
+  const pl2 = me2.novoToken ? await verifyJWT(me2.novoToken, env.JWT_SECRET) : {};
+  check("D2: sessão com mais de 1 dia é renovada (mesma hora de login)", !!me2.novoToken && pl2.auth === ag - 2 * 86400 && pl2.exp > ag + 6 * 86400, JSON.stringify(pl2));
+  // Sair encerra só esta sessão
+  const outra = await call("POST", "/api/auth/login", null, { email: "dono@x.com", senha: "12345678" });
+  check("D2: Sair → ok", (await call("PATCH", "/api/usuarios-me", lg.token, { sair: true })).ok);
+  check("D2: depois de Sair, a chave deste aparelho não abre mais", (await call("GET", "/api/usuarios-me", lg.token)).status === 401);
+  check("D2: a sessão de outro aparelho continua valendo", (await call("GET", "/api/usuarios-me", outra.token)).ok);
+
+  // Faxineiro de arquivos órfãos
+  const tkU = outra.token;
+  const idOrfao = crypto.randomUUID(), idUsado = crypto.randomUUID();
+  const PDFd = JSON.stringify({ nome: "a.pdf", tipo: "application/pdf", dataUrl: "data:application/pdf;base64,JVBERi0xLjQK" });
+  check("D2: upload registra o id do arquivo", (await call("POST", "/api/arquivo-set", tkU, { id: idOrfao, payload: PDFd })).ok
+    && (await pool.query("SELECT count(*)::int n FROM uploads WHERE arquivo_id=$1", [idOrfao])).rows[0].n === 1);
+  await call("POST", "/api/arquivo-set", tkU, { id: idUsado, payload: PDFd });
+  await call("POST", "/api/documentos", tkU, { obraId: A, nome: "Usado", tipo: "pdf", arquivoId: idUsado });
+  await pool.query("UPDATE uploads SET criado_em = now() - interval '2 days' WHERE arquivo_id = ANY($1)", [[idOrfao, idUsado]]);
+  const n = await varrerOrfaos(getSqlT(), env);
+  check("D2: faxineiro apaga só o arquivo nunca usado", n >= 1 && !kv.has(idOrfao) && kv.has(idUsado), String(n));
 }
 
 console.log(`\n${ok} ok, ${falhas} falhas`);

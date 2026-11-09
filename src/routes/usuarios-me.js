@@ -1,5 +1,5 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, hashSenha, verificarSenha, renovarSessoes, loginRecente } from "../lib/auth.js";
+import { getUsuario, jsonResponse, hashSenha, verificarSenha, renovarSessoes, loginRecente, emitirToken } from "../lib/auth.js";
 import { reservarTentativa, bloquearTentativas } from "../lib/limites.js";
 import { MAX_TENTATIVAS, duracaoBloqueioMin } from "../lib/legal.js";
 import { limparCpf, cpfValido, problemaPin } from "./convite-link.js";
@@ -11,10 +11,12 @@ export default async function usuariosMeHandler(req, env) {
   if (!usuario) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
 
   if (req.method === "GET") {
-    const { senha_hash, pin_hash, cpf, cpf_hash, cpf_mascarado, sessao_versao, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, ...publico } = usuario; // nunca mandar hashes nem CPF inteiro pro navegador
+    const { senha_hash, pin_hash, cpf, cpf_hash, cpf_mascarado, sessao_versao, login_tentativas, login_rodadas, login_bloqueado_ate, pin_tentativas, pin_rodadas, pin_bloqueado_ate, sessao_iat, sessao_emitida, sessao_sid, sessao_exp, ...publico } = usuario;
+    // D2: renovação da sessão — no máximo uma vez por dia, mantendo a hora do login de verdade.
+    const novoToken = Date.now() / 1000 - (sessao_emitida || 0) > 24 * 3600 ? await emitirToken(usuario, env, { auth: sessao_iat }) : undefined; // nunca mandar hashes nem CPF inteiro pro navegador
     const cpfMascarado = mascaraDe(usuario);
     const emp = await getSql(env)`SELECT nome FROM empresas WHERE id = ${usuario.empresa_id}`;
-    return jsonResponse({ ok: true, termos_vigente: TERMOS_VERSAO, usuario: {
+    return jsonResponse({ ok: true, novoToken, termos_vigente: TERMOS_VERSAO, usuario: {
       ...publico, empresa_nome: emp[0] ? emp[0].nome : null, cpf_mascarado: cpfMascarado, tem_senha: !!senha_hash, tem_pin: !!pin_hash,
     } });
   }
@@ -25,6 +27,15 @@ export default async function usuariosMeHandler(req, env) {
   // a senha no Google Password Manager.
   if (req.method === "PATCH") {
     const body = await req.json();
+
+    // D2: "Sair" — encerra a sessão DESTE aparelho no servidor (a chave deixa de abrir na hora).
+    if (body.sair) {
+      if (usuario.sessao_sid) {
+        await getSql(env)`INSERT INTO sessoes_revogadas (sid, expira_em) VALUES (${usuario.sessao_sid}, to_timestamp(${usuario.sessao_exp}))
+          ON CONFLICT (sid) DO NOTHING`;
+      }
+      return jsonResponse({ ok: true });
+    }
 
     // "Sair de todos os aparelhos" (S8): derruba todas as sessões; este aparelho recebe um token novo.
     if (body.sairDeTodos) {

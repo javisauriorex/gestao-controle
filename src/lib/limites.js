@@ -80,9 +80,13 @@ export async function problemaLimiteUpload(sql, usuario) {
   return null;
 }
 
-export async function registrarUpload(sql, usuario) {
-  await sql`INSERT INTO uploads (usuario_id, empresa_id) VALUES (${usuario.id}, ${usuario.empresa_id})`;
+export async function registrarUpload(sql, usuario, arquivoId = null) {
+  await sql`INSERT INTO uploads (usuario_id, empresa_id, arquivo_id) VALUES (${usuario.id}, ${usuario.empresa_id}, ${arquivoId})`;
 }
+
+// Teto do app inteiro por dia (D2): o plano grátis do KV aceita ~1.000 gravações/dia; deixamos folga
+// para apagar arquivos e para o faxineiro.
+export const LIMITE_UPLOADS_TOTAL_DIA = 600;
 
 export async function falhasDoIp(sql, req) {
   const [r] = await sql`SELECT count(*)::int AS n FROM falhas_login WHERE ip = ${ipDe(req)} AND criado_em > now() - interval '1 hour'`;

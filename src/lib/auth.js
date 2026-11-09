@@ -1,7 +1,7 @@
 import { getSql } from "./db.js";
 import { TERMOS_VERSAO, registrarAcesso, MAX_TENTATIVAS, duracaoBloqueioMin, textoEspera } from "./legal.js";
-import { enviarConfirmacao } from "./email.js";
-import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO, reservarTentativa, bloquearTentativas } from "./limites.js";
+import { enviarConfirmacao, enviarEmail } from "./email.js";
+import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO, reservarTentativa, bloquearTentativas, excedeu, ipDe } from "./limites.js";
 import { turnstileOk, MSG_TURNSTILE, FALHAS_PARA_PEDIR_TURNSTILE } from "./turnstile.js";
 import { emailValido, textoLimpo } from "./validar.js";
 
@@ -81,8 +81,15 @@ export async function verifyJWT(token, secret) {
 // Sessão de 30 dias. "sv" = versão da sessão da pessoa (S8): trocar senha/PIN, "Sair de todos os
 // aparelhos" ou o Google assumir uma conta não verificada sobe usuarios.sessao_versao, e todos os
 // tokens antigos deixam de valer na hora.
-export async function emitirToken(usuario, env) {
-  return signJWT({ usuarioId: usuario.id, sv: usuario.sessao_versao || 0, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+// D2 (10/11/2026): a sessão vale 7 dias e se renova sozinha enquanto a pessoa usa o app
+// (GET /api/usuarios-me devolve um token novo uma vez por dia). Quem fica 7 dias sem abrir, entra de novo.
+//   sid  = identidade desta sessão (para "Sair" encerrar só este aparelho)
+//   auth = quando a pessoa REALMENTE entrou (senha/PIN/Google); a renovação mantém esse valor
+export const DURACAO_SESSAO_S = 60 * 60 * 24 * 7;
+export async function emitirToken(usuario, env, { auth } = {}) {
+  const agora = Math.floor(Date.now() / 1000);
+  const sid = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return signJWT({ usuarioId: usuario.id, sv: usuario.sessao_versao || 0, sid, iat: agora, auth: auth || agora, exp: agora + DURACAO_SESSAO_S }, env.JWT_SECRET);
 }
 
 // Derruba todas as sessões da pessoa e devolve um token novo (para o aparelho atual seguir logado).
@@ -202,8 +209,14 @@ export async function signup(req, env) {
 
   if (!(await turnstileOk(env, req, turnstile))) return jsonResponse({ ok: false, codigo: "turnstile", error: MSG_TURNSTILE }, 403);
   if (await cadastrosDemaisDoIp(sql, req)) return jsonResponse({ ok: false, error: "Muitos cadastros a partir desta rede. Tente de novo daqui a 1 hora." }, 429);
-  const existentes = await sql`SELECT id FROM usuarios WHERE email = ${email}`;
-  if (existentes.length > 0) return jsonResponse({ ok: false, error: "e-mail já cadastrado" }, 409);
+  // D2: resposta SEMPRE igual, exista ou não a conta (ninguém descobre quem usa o G&C).
+  // Quem já tem conta (ou convite) recebe um e-mail explicando o que fazer.
+  const respostaPadrao = jsonResponse({ ok: true, confirmarEmail: true, email, enviado: true });
+  const existentes = await sql`SELECT id, nome, email FROM usuarios WHERE email = ${email}`;
+  if (existentes.length > 0) {
+    await avisarCadastroRepetido(sql, env, req, email, "conta");
+    return respostaPadrao;
+  }
 
   const senhaHash = await hashSenha(senha);
   const convites = await sql`
@@ -212,7 +225,8 @@ export async function signup(req, env) {
        // Segurança: um convite por email NÃO pode ser reclamado só digitando o email.
      // Tem que usar o link do convite (WhatsApp) ou "Continuar com Google".
      if (convites.length > 0) {
-       return jsonResponse({ ok: false, error: "Este email tem um convite pendente. Use o link do convite que você recebeu, ou toque em \"Entrar com Google\"." }, 409);
+       await avisarCadastroRepetido(sql, env, req, email, "convite");
+       return respostaPadrao;
      }
 
   const novoUsuario = await criarEmpresaComDono(sql, { email, nome: textoLimpo(nome, 120), senhaHash, aceitouTermos: true });
@@ -220,6 +234,20 @@ export async function signup(req, env) {
   // A conta só entra depois de confirmar o e-mail (decisão 04/10): aqui NÃO devolvemos sessão.
   const enviado = await enviarConfirmacao(sql, env, novoUsuario);
   return jsonResponse({ ok: true, confirmarEmail: true, email: novoUsuario.email, enviado });
+}
+
+// Hash de uma senha qualquer, só para gastar o mesmo tempo quando o usuário não existe.
+export const SENHA_FICTICIA = "00112233445566778899aabbccddeeff:" + "0".repeat(64);
+
+// Cadastro com e-mail que já tem conta/convite: avisa o dono do e-mail (com freio, para não virar spam).
+async function avisarCadastroRepetido(sql, env, req, email, motivo) {
+  try {
+    if (await excedeu(sql, `mail:ip:${ipDe(req)}`, 5, "hora") || await excedeu(sql, "mail:total", 80, "dia")) return;
+    const texto = motivo === "convite"
+      ? "Alguém tentou criar uma conta no G&C com este e-mail, mas você tem um convite pendente. Para entrar, use o link do convite que você recebeu (WhatsApp) ou toque em \"Entrar com Google\"."
+      : "Alguém tentou criar uma conta no G&C com este e-mail, mas ele já tem uma conta. Se foi você, é só entrar. Esqueceu a senha? Na tela de entrada, toque em \"Esqueci a senha\".";
+    await enviarEmail(env, { para: email, assunto: "Tentativa de cadastro no G&C", texto: `Olá!\n\n${texto}\n\nSe não foi você, ignore este e-mail: nada muda na sua conta.\n\nO G&C nunca pede sua senha ou PIN por e-mail, WhatsApp ou telefone.\nGestão & Controle — https://gestaoecontrole.app.br` });
+  } catch (e) { console.error("avisarCadastroRepetido", e); }
 }
 
 // POST /api/auth/login  { email, senha }
@@ -236,7 +264,12 @@ export async function login(req, env) {
     return jsonResponse({ ok: false, codigo: "turnstile", error: MSG_TURNSTILE }, 403);
   }
   const rows = await sql`SELECT * FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
-  if (rows.length === 0 || !rows[0].senha_hash) { await registrarFalha(sql, req); return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401); }
+  if (rows.length === 0 || !rows[0].senha_hash) {
+    // D2: faz a mesma conta demorada mesmo sem usuário (o tempo de resposta não revela quem existe).
+    await verificarSenha(String(senha), SENHA_FICTICIA);
+    await registrarFalha(sql, req);
+    return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
+  }
   const usuario = rows[0];
   // A2: reserva a tentativa ANTES de conferir (sem "corrida" entre pedidos simultâneos).
   const r = await reservarTentativa(sql, usuario.id, "login");
@@ -348,15 +381,20 @@ export async function getUsuario(req, env) {
   const sql = getSql(env);
   // dono_principal: o Dono mais antigo (empresas.dono_usuario_id) — fica acima de um co-Dono.
   const rows = await sql`
-    SELECT u.*, (e.dono_usuario_id = u.id) AS dono_principal
+    SELECT u.*, (e.dono_usuario_id = u.id) AS dono_principal,
+      EXISTS (SELECT 1 FROM sessoes_revogadas r WHERE r.sid = ${String(payload.sid || "")}) AS sessao_revogada
     FROM usuarios u LEFT JOIN empresas e ON e.id = u.empresa_id
     WHERE u.id = ${payload.usuarioId} AND u.removido_em IS NULL
   `;
   if (rows.length === 0) return null;
   // S8: token de uma "versão" anterior (senha trocada, sair de todos, etc.) não vale mais.
   if ((payload.sv || 0) !== (rows[0].sessao_versao || 0)) return null;
-  // Momento em que esta sessão foi aberta (para ações sensíveis que pedem login recente — Bloco D, M2).
-  return { ...rows[0], sessao_iat: payload.iat || 0 };
+  // D2: esta sessão foi encerrada com "Sair".
+  if (rows[0].sessao_revogada) return null;
+  // Momento em que a pessoa entrou de verdade (para ações sensíveis que pedem login recente — Bloco D, M2),
+  // e dados da sessão (para renovar e para "Sair").
+  const { sessao_revogada, ...u } = rows[0];
+  return { ...u, sessao_iat: payload.auth || payload.iat || 0, sessao_emitida: payload.iat || 0, sessao_sid: payload.sid || null, sessao_exp: payload.exp || 0 };
 }
 
 // --- Reglas de permiso (idénticas a las que ya tenías, no se tocan) ---

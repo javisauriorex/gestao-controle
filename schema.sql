@@ -429,3 +429,8 @@ ALTER TABLE observacoes ADD CONSTRAINT lim_observacoes_texto CHECK (length(texto
 ALTER TABLE observacoes_historico ADD CONSTRAINT lim_obs_hist_texto CHECK (length(texto) <= 10000) NOT VALID;
 ALTER TABLE eventos     ADD CONSTRAINT lim_eventos_texto     CHECK (length(texto) <= 400) NOT VALID;
 
+
+-- ===== Bloco D2 (10/11/2026) — igual a sql/2026-11-10-seguranca-d2.sql =====
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS arquivo_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_uploads_criado ON uploads (criado_em);
+CREATE TABLE IF NOT EXISTS sessoes_revogadas (sid TEXT PRIMARY KEY, expira_em TIMESTAMPTZ NOT NULL);

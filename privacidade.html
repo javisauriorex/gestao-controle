@@ -60,7 +60,7 @@
 <tr><td>Notificações no celular (push)</td><td>Endereço técnico de entrega do seu navegador e chaves de criptografia da inscrição (não incluem nome, e-mail nem localização)</td><td>Quando você toca em "Ativar notificações" e permite. A mensagem viaja cifrada pelo serviço de notificações do seu navegador (Google, Mozilla ou Apple), que não consegue ler o conteúdo</td></tr>
 <tr><td>Avisos 🔔 (registro de atividade)</td><td>Quem fez o quê na obra (ex.: "criou a etapa", "entregou o material"), com nome, rank e data e hora; suas preferências de avisos</td><td>Registrados automaticamente a cada ação no aplicativo, para avisar a equipe conforme a hierarquia</td></tr>
 <tr><td>Formulário de interesse</td><td>Nome, empresa, e-mail ou WhatsApp</td><td>Você informa (ex.: feira ConstruNordeste)</td></tr>
-<tr><td>Dados no seu aparelho</td><td>Sessão de acesso (válida por 30 dias), preferências (tema, modo de login, última tela), identificador do desbloqueio biométrico</td><td>Guardados no armazenamento local (localStorage) do seu navegador</td></tr>
+<tr><td>Dados no seu aparelho</td><td>Sessão de acesso (válida por 7 dias, renovada automaticamente enquanto você usa o app), preferências (tema, modo de login, última tela), identificador do desbloqueio biométrico</td><td>Guardados no armazenamento local (localStorage) do seu navegador</td></tr>
 </table>
 <p><strong>Não coletamos:</strong> sua localização por GPS, sua biometria (o desbloqueio por digital ou rosto acontece só no seu aparelho), dados de pagamento. Também não usamos cookies de publicidade nem ferramentas de análise.</p>
 <p><strong>Atenção a arquivos:</strong> fotos de avanço são reduzidas no seu aparelho antes do envio, o que remove metadados como localização. <strong>Arquivos enviados em "Documentos" são guardados exatamente como foram enviados</strong>, e uma foto JPG pode conter a localização em que foi tirada. Evite enviar documentos com dados sensíveis (ex.: atestados médicos) sem necessidade.</p>
@@ -113,7 +113,7 @@ Ao abrir o G&amp;C, seu navegador se conecta a esses serviços, que podem recebe
 <tr><td>Notificações no celular</td><td>Enquanto estiverem ligadas; apagadas ao desligar no aplicativo ou quando o serviço do navegador avisa que o aparelho não existe mais</td></tr>
 <tr><td>Avisos 🔔</td><td>Novidades: 30 dias. Registros de alteração ou exclusão (auditoria): 12 meses. Depois são apagados automaticamente</td></tr>
 <tr><td>Formulário de interesse</td><td>Até você pedir a exclusão</td></tr>
-<tr><td>Dados no seu aparelho</td><td>Até você sair da conta ou limpar os dados do navegador; a sessão expira em 30 dias</td></tr>
+<tr><td>Dados no seu aparelho</td><td>Até você sair da conta ou limpar os dados do navegador; a sessão expira em 7 dias sem uso</td></tr>
 </table>
 <p><strong>Cópias de segurança:</strong> uma vez por semana é feita uma cópia automática da base de dados (sem fotos e documentos), enviada ao e-mail do responsável pelo G&amp;C e guardada por até 90 dias. Dados excluídos do aplicativo podem permanecer nessas cópias até elas serem apagadas.</p>
 <p>Mesmo após um pedido de exclusão, poderemos manter dados pelo tempo necessário para cumprir obrigação legal ou exercer direitos em processos (art. 16 da LGPD).</p>
@@ -146,7 +146,8 @@ Ao abrir o G&amp;C, seu navegador se conecta a esses serviços, que podem recebe
 <li>conexão criptografada (HTTPS);</li>
 <li>senhas e PINs guardados só como hash (PBKDF2);</li>
 <li>bloqueio temporário e progressivo após tentativas erradas de senha ou PIN (15 minutos, depois 1 hora, depois 24 horas);</li>
-<li>sessões com validade de 30 dias, que caem em todos os aparelhos ao trocar a senha ou o PIN;</li>
+<li>sessões com validade de 7 dias (renovadas enquanto você usa o app), encerradas no servidor ao tocar em "Sair" e em todos os aparelhos ao trocar a senha ou o PIN;</li>
+<li>arquivos enviados e nunca usados numa obra são apagados automaticamente em até 7 dias;</li>
 <li>confirmação do e-mail antes do primeiro acesso com senha, e links de nova senha de uso único, válidos por 1 hora;</li>
 <li>CPF guardado só como "impressão digital" criptográfica e versão mascarada, nunca o número completo;</li>
 <li>PIN e senha protegidos com hash e, no caso do PIN, também com uma chave secreta guardada fora do banco de dados;</li>

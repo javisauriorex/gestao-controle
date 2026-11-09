@@ -11,3 +11,10 @@
 # O service worker nunca fica em cache: versão nova chega na hora.
 /sw.js
   Cache-Control: no-cache, no-store, must-revalidate
+
+# D2 (10/11/2026): a tela do app não tem código escrito dentro da página → CSP sem 'unsafe-inline' para scripts.
+# (Somada à regra /* acima: o navegador aplica as duas e vale a mais rígida.)
+/
+  Content-Security-Policy: script-src 'self' https://challenges.cloudflare.com https://accounts.google.com/gsi/client; object-src 'none'; base-uri 'self'
+/index.html
+  Content-Security-Policy: script-src 'self' https://challenges.cloudflare.com https://accounts.google.com/gsi/client; object-src 'none'; base-uri 'self'

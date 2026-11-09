@@ -29,6 +29,7 @@ import sugestao from "./routes/sugestao.js";
 import avisos from "./routes/avisos.js";
 import push from "./routes/push.js";
 import { enviarBackup } from "./lib/backup.js";
+import { varrerOrfaos } from "./lib/arquivos.js";
 import { getSql } from "./lib/db.js";
 import { jsonResponse, CABECALHOS_SEGURANCA } from "./lib/auth.js";
 
@@ -73,6 +74,16 @@ const ROTAS = {
 export default {
   // Tarefa agendada (wrangler.jsonc → triggers.crons): backup semanal por e-mail, sábado 11:30 de Brasília.
   async scheduled(event, env, ctx) {
+    // Todo dia 03:00 de Brasília (D2): faxineiro de arquivos nunca usados + sessões encerradas vencidas.
+    if (event.cron === "0 6 * * *") {
+      ctx.waitUntil((async () => {
+        const sql = getSql(env);
+        const n = await varrerOrfaos(sql, env);
+        await sql`DELETE FROM sessoes_revogadas WHERE expira_em < now()`;
+        console.log("faxina diária: arquivos órfãos apagados", n);
+      })().catch((e) => console.error("faxina diária falhou", e)));
+      return;
+    }
     // Limpeza dos avisos: novidades somem em 30 dias; auditoria (editou/apagou) fica 12 meses (Política de Privacidade).
     ctx.waitUntil(Promise.resolve().then(() => getSql(env)`
       DELETE FROM eventos WHERE (criado_em < now() - interval '30 days' AND acao NOT IN ('editou', 'apagou', 'desmarcou', 'rank'))

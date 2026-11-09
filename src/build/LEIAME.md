@@ -13,3 +13,12 @@ As bibliotecas ficam em `vendor/`, em versão fixa:
 **Importante:** o `tailwind.css` só contém as classes que o index.html usa. Se o index.html
 ganhar classes novas, é preciso gerar o CSS de novo (comando em tailwind.config.cjs) e subir
 o `vendor/tailwind.css` junto. Atualizar versão = decisão consciente, nunca automática.
+
+## D2 (10/11/2026) — o app vem compilado
+
+- O código do app mora em `src/app/app.jsx` (não é publicado).
+- `node src/build/compilar.mjs` gera `app.js` (já sem JSX) e atualiza a versão (`app.js?v=…`) no `index.html`.
+- O celular não baixa mais o Babel (`vendor/babel.min.js` fica no repo só para compilar).
+- `index.html` não tem nenhum `<script>` escrito dentro: só `inicio.js` (head) e `carregar.js` (fim).
+  A CSP de `/` e `/index.html` (em `_headers`) proíbe código inline.
+- Toda entrega que muda o app leva juntos: `src/app/app.jsx`, `app.js`, `index.html` e, se mudou classe, `vendor/tailwind.css`.

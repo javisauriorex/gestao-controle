@@ -1,7 +1,7 @@
-// Gera vendor/tailwind.css a partir das classes usadas no index.html (Tailwind 3.4.17).
+// Gera vendor/tailwind.css a partir das classes usadas no index.html e em src/app/app.jsx (Tailwind 3.4.17).
 // Rodar (Claude faz isso): npx tailwindcss@3.4.17 -c src/build/tailwind.config.cjs -i src/build/tailwind.in.css -o vendor/tailwind.css --minify
 module.exports = {
-  content: ["./index.html"],
+  content: ["./index.html", "./src/app/app.jsx"],
   theme: {
     extend: {
       fontFamily: {

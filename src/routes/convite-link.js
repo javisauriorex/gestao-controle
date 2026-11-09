@@ -1,5 +1,5 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, emitirToken, reservarIds, podeAsignarRank } from "../lib/auth.js";
+import { getUsuario, jsonResponse, emitirToken, reservarIds, podeAsignarRank, SENHA_FICTICIA } from "../lib/auth.js";
 import { nivelNaObra } from "../lib/acesso.js";
 import { cpfHash, camposCpf, temCpf, cpfConfere, hashPin, conferirPin } from "../lib/cpf.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
@@ -271,7 +271,11 @@ export async function loginCpf(req, env) {
 
   const h = await cpfHash(env, cpf);
   const rows = await sql`SELECT * FROM usuarios WHERE (cpf_hash = ${h} OR cpf = ${cpf}) AND removido_em IS NULL`;
-  if (rows.length === 0 || !rows[0].pin_hash) { await registrarFalha(sql, req); return erroGenerico; }
+  if (rows.length === 0 || !rows[0].pin_hash) {
+    await conferirPin(env, String(pin), "v2$" + SENHA_FICTICIA); // D2: mesmo tempo de resposta, exista ou não a conta
+    await registrarFalha(sql, req);
+    return erroGenerico;
+  }
   const u = rows[0];
 
   // A2 (Bloco D): reserva a tentativa ANTES de conferir — sem "corrida" entre pedidos simultâneos.
