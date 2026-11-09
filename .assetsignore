@@ -10,3 +10,8 @@ migration_senha.sql
 sql/
 tests/
 *.md
+.dev.vars*
+.env*
+.wrangler/
+.github/
+.gitignore
