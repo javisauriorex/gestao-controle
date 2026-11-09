@@ -1,5 +1,6 @@
 import { getSql } from "../lib/db.js";
-import { jsonResponse, hashSenha, CABECALHOS_SEGURANCA } from "../lib/auth.js";
+import { jsonResponse, hashSenha, CABECALHOS_SEGURANCA, CSP_PAGINA_WORKER } from "../lib/auth.js";
+import { excedeu, ipDe } from "../lib/limites.js";
 import { enviarConfirmacao, enviarRedefinicao, consumirToken, tokenExiste, tokenValido } from "../lib/email.js";
 
 // ============================================================
@@ -15,6 +16,14 @@ import { enviarConfirmacao, enviarRedefinicao, consumirToken, tokenExiste, token
 
 const RESPOSTA_GENERICA = { ok: true, mensagem: "Se este e-mail tiver uma conta, enviamos o link. Olhe também a caixa de spam." };
 
+// Bloco D (M6): freio de e-mails — 5 por hora por rede e 80 por dia no total (o plano grátis do Resend dá 100).
+// Passou do limite: responde igual (genérico) e simplesmente não manda.
+async function podeMandarEmail(sql, req) {
+  if (await excedeu(sql, `mail:ip:${ipDe(req)}`, 5, "hora")) return false;
+  if (await excedeu(sql, "mail:total", 80, "dia")) { console.error("Limite diário de e-mails atingido"); return false; }
+  return true;
+}
+
 async function lerEmail(req) {
   try { const b = await req.json(); return String(b.email || "").trim().toLowerCase(); } catch { return ""; }
 }
@@ -24,6 +33,7 @@ export async function reenviarConfirmacao(req, env) {
   const email = await lerEmail(req);
   if (!email) return jsonResponse({ ok: false, error: "Informe o e-mail." }, 400);
   const sql = getSql(env);
+  if (!(await podeMandarEmail(sql, req))) return jsonResponse(RESPOSTA_GENERICA);
   const rows = await sql`SELECT id, nome, email, email_verificado FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
   if (rows.length && !rows[0].email_verificado) await enviarConfirmacao(sql, env, rows[0]);
   return jsonResponse(RESPOSTA_GENERICA);
@@ -34,6 +44,7 @@ export async function esqueciSenha(req, env) {
   const email = await lerEmail(req);
   if (!email) return jsonResponse({ ok: false, error: "Informe o e-mail." }, 400);
   const sql = getSql(env);
+  if (!(await podeMandarEmail(sql, req))) return jsonResponse(RESPOSTA_GENERICA);
   const rows = await sql`SELECT id, nome, email FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
   if (rows.length) await enviarRedefinicao(sql, env, rows[0]);
   return jsonResponse(RESPOSTA_GENERICA);
@@ -50,7 +61,13 @@ export async function redefinirSenha(req, env) {
   if (!usuarioId) return jsonResponse({ ok: false, error: "Este link venceu ou já foi usado. Peça um novo em \"Esqueci a senha\"." }, 400);
   // Quem recebeu o link no e-mail provou que o e-mail é dele: conta confirmada, sessões antigas caem.
   const rows = await sql`
-    UPDATE usuarios SET senha_hash = ${await hashSenha(senha)}, email_verificado = true,
+    UPDATE usuarios SET senha_hash = ${await hashSenha(senha)},
+      -- Bloco D (M1): se o e-mail nunca tinha sido comprovado, PIN e CPF podem ter sido criados por outra pessoa → apaga.
+      pin_hash = CASE WHEN email_verificado THEN pin_hash ELSE NULL END,
+      cpf = CASE WHEN email_verificado THEN cpf ELSE NULL END,
+      cpf_hash = CASE WHEN email_verificado THEN cpf_hash ELSE NULL END,
+      cpf_mascarado = CASE WHEN email_verificado THEN cpf_mascarado ELSE NULL END,
+      email_verificado = true,
       login_tentativas = 0, login_rodadas = 0, login_bloqueado_ate = NULL, sessao_versao = sessao_versao + 1
     WHERE id = ${usuarioId} AND removido_em IS NULL RETURNING id
   `;
@@ -73,24 +90,41 @@ function pagina(titulo, corpo) {
   .btn{display:block;width:100%;box-sizing:border-box;text-align:center;background:#D98E04;color:#fff;border:0;border-radius:6px;padding:12px;font-size:15px;font-weight:700;margin-top:18px;text-decoration:none;cursor:pointer}
   .erro{color:#B4432B;font-size:14px;min-height:1em;margin-top:10px} .ok{color:#2E7D4F}
 </style></head><body><div class="card">${corpo}</div></body></html>`, {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...CABECALHOS_SEGURANCA, "referrer-policy": "no-referrer" },
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...CABECALHOS_SEGURANCA, "referrer-policy": "no-referrer", "content-security-policy": CSP_PAGINA_WORKER },
   });
 }
 
 export async function paginaConfirmarEmail(req, env) {
-  const token = new URL(req.url).searchParams.get("token");
+  const url = new URL(req.url);
   const sql = getSql(env);
-  const usuarioId = await consumirToken(sql, token, "confirmar");
-  if (!usuarioId) {
-    return pagina("Link inválido", `<h1>Link inválido ou vencido</h1>
-      <p>Este link de confirmação já foi usado ou passou do prazo (24 horas).</p>
-      <p>Se você já confirmou, é só entrar. Se não, na tela de entrada tente entrar com seu e-mail e senha e toque em <b>"Reenviar e-mail de confirmação"</b>.</p>
-      <a class="btn" href="/">Ir para o G&amp;C</a>`);
+  // Bloco D (M10): abrir o link (GET) só MOSTRA o botão. Antivírus de e-mail que "visitam" links sozinhos
+  // não confirmam mais a conta: a confirmação só acontece quando a pessoa toca no botão (POST).
+  if (req.method !== "POST") {
+    const token = url.searchParams.get("token");
+    if (!tokenValido(token) || !(await tokenExiste(sql, token, "confirmar"))) return paginaLinkInvalido();
+    return pagina("Confirmar e-mail", `<h1>Confirmar seu e-mail</h1>
+      <p>Toque no botão para ativar sua conta no G&amp;C.</p>
+      <p style="font-size:13px;color:#666">Não foi você que criou esta conta? Então <b>não confirme</b>: feche esta página e ignore o e-mail.</p>
+      <form method="post" action="/confirmar-email">
+        <input type="hidden" name="token" value="${token}">
+        <button class="btn" type="submit">Confirmar meu e-mail</button>
+      </form>`);
   }
+  let token = "";
+  try { token = String((await req.formData()).get("token") || ""); } catch {}
+  const usuarioId = await consumirToken(sql, token, "confirmar");
+  if (!usuarioId) return paginaLinkInvalido();
   await sql`UPDATE usuarios SET email_verificado = true WHERE id = ${usuarioId}`;
   return pagina("E-mail confirmado", `<h1 class="ok">✓ E-mail confirmado!</h1>
     <p>Sua conta está ativa. Agora é só entrar com seu e-mail e senha.</p>
     <a class="btn" href="/">Entrar no G&amp;C</a>`);
+}
+
+function paginaLinkInvalido() {
+  return pagina("Link inválido", `<h1>Link inválido ou vencido</h1>
+      <p>Este link de confirmação já foi usado ou passou do prazo (24 horas).</p>
+      <p>Se você já confirmou, é só entrar. Se não, na tela de entrada tente entrar com seu e-mail e senha e toque em <b>"Reenviar e-mail de confirmação"</b>.</p>
+      <a class="btn" href="/">Ir para o G&amp;C</a>`);
 }
 
 export async function paginaRedefinirSenha(req, env) {

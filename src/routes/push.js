@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse } from "../lib/auth.js";
-import { chavesVapid, enviarPush } from "../lib/webpush.js";
+import { chavesVapid, enviarPush, hostDePushValido } from "../lib/webpush.js";
+import { excedeu } from "../lib/limites.js";
 
 // /api/push — notificações no celular (Web Push).
 //  GET            → { publicKey }  (chave pública VAPID para o navegador se inscrever)
@@ -24,6 +25,7 @@ export default async function pushHandler(req, env) {
   try { body = await req.json(); } catch {}
 
   if (req.method === "POST" && body.teste) {
+    if (await excedeu(sql, `pushteste:${usuario.id}`, 3, "hora")) return jsonResponse({ ok: false, error: "Teste já enviado várias vezes. Tente daqui a pouco." }, 429);
     const subs = await sql`SELECT id, endpoint, p256dh, auth FROM push_inscricoes WHERE usuario_id = ${usuario.id}`;
     if (!subs.length) return jsonResponse({ ok: false, error: "Nenhum aparelho com notificações ativadas." }, 400);
     const v = await chavesVapid(sql);
@@ -44,14 +46,15 @@ export default async function pushHandler(req, env) {
     const auth = String(s.keys?.auth || "");
     let url;
     try { url = new URL(endpoint); } catch { url = null; }
-    if (!url || url.protocol !== "https:" || endpoint.length > 1000 || !/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) {
+    if (!url || url.protocol !== "https:" || !hostDePushValido(url.hostname) || endpoint.length > 1000 || !/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) {
       return jsonResponse({ ok: false, error: "inscrição inválida" }, 400);
     }
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM push_inscricoes WHERE usuario_id = ${usuario.id} AND endpoint <> ${endpoint}`;
     if (n >= MAX_APARELHOS) await sql`DELETE FROM push_inscricoes WHERE id = (SELECT id FROM push_inscricoes WHERE usuario_id = ${usuario.id} ORDER BY criado_em LIMIT 1)`;
     await sql`
       INSERT INTO push_inscricoes (usuario_id, endpoint, p256dh, auth) VALUES (${usuario.id}, ${endpoint}, ${p256dh}, ${auth})
-      ON CONFLICT (endpoint) DO UPDATE SET usuario_id = EXCLUDED.usuario_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, criado_em = now()
+      ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, criado_em = now()
+      WHERE push_inscricoes.usuario_id = EXCLUDED.usuario_id
     `;
     return jsonResponse({ ok: true });
   }

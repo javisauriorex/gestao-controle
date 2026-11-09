@@ -1,8 +1,9 @@
 import { getSql } from "./db.js";
 import { TERMOS_VERSAO, registrarAcesso, MAX_TENTATIVAS, duracaoBloqueioMin, textoEspera } from "./legal.js";
 import { enviarConfirmacao } from "./email.js";
-import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO } from "./limites.js";
+import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, cadastrosDemaisDoIp, MSG_IP_BLOQUEADO, reservarTentativa, bloquearTentativas } from "./limites.js";
 import { turnstileOk, MSG_TURNSTILE, FALHAS_PARA_PEDIR_TURNSTILE } from "./turnstile.js";
+import { emailValido, textoLimpo } from "./validar.js";
 
 // Respostas da API: nunca guardar em cache, nunca "adivinhar" o tipo, nunca abrir dentro de outra página.
 export const CABECALHOS_SEGURANCA = {
@@ -11,6 +12,11 @@ export const CABECALHOS_SEGURANCA = {
   "referrer-policy": "same-origin",
   "strict-transport-security": "max-age=31536000; includeSubDomains",
 };
+// Páginas HTML geradas pelo Worker (login com Google, confirmar e-mail, manual): também com CSP.
+export const CSP_PAGINA_WORKER = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+// Login recente: a sessão foi aberta há menos de 15 minutos.
+export const loginRecente = (usuario) => Date.now() / 1000 - (usuario.sessao_iat || 0) < 15 * 60;
+
 export function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -76,7 +82,7 @@ export async function verifyJWT(token, secret) {
 // aparelhos" ou o Google assumir uma conta não verificada sobe usuarios.sessao_versao, e todos os
 // tokens antigos deixam de valer na hora.
 export async function emitirToken(usuario, env) {
-  return signJWT({ usuarioId: usuario.id, sv: usuario.sessao_versao || 0, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
+  return signJWT({ usuarioId: usuario.id, sv: usuario.sessao_versao || 0, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
 }
 
 // Derruba todas as sessões da pessoa e devolve um token novo (para o aparelho atual seguir logado).
@@ -190,7 +196,9 @@ export async function signup(req, env) {
   if (!rawEmail || !senha) return jsonResponse({ ok: false, error: "email e senha são obrigatórios" }, 400);
   if (!aceitouTermos) return jsonResponse({ ok: false, error: "É preciso aceitar os Termos de Uso e a Política de Privacidade." }, 400);
   if (String(senha).length < 8) return jsonResponse({ ok: false, error: "A senha precisa ter ao menos 8 caracteres." }, 400);
-  const email = rawEmail.toLowerCase();
+  const email = String(rawEmail).trim().toLowerCase();
+  if (!emailValido(email)) return jsonResponse({ ok: false, error: "E-mail inválido." }, 400);
+  if (String(senha).length > 200) return jsonResponse({ ok: false, error: "Senha longa demais." }, 400);
 
   if (!(await turnstileOk(env, req, turnstile))) return jsonResponse({ ok: false, codigo: "turnstile", error: MSG_TURNSTILE }, 403);
   if (await cadastrosDemaisDoIp(sql, req)) return jsonResponse({ ok: false, error: "Muitos cadastros a partir desta rede. Tente de novo daqui a 1 hora." }, 429);
@@ -207,7 +215,7 @@ export async function signup(req, env) {
        return jsonResponse({ ok: false, error: "Este email tem um convite pendente. Use o link do convite que você recebeu, ou toque em \"Entrar com Google\"." }, 409);
      }
 
-  const novoUsuario = await criarEmpresaComDono(sql, { email, nome, senhaHash, aceitouTermos: true });
+  const novoUsuario = await criarEmpresaComDono(sql, { email, nome: textoLimpo(nome, 120), senhaHash, aceitouTermos: true });
   await registrarAcesso(sql, req, novoUsuario.id, "cadastro");
   // A conta só entra depois de confirmar o e-mail (decisão 04/10): aqui NÃO devolvemos sessão.
   const enviado = await enviarConfirmacao(sql, env, novoUsuario);
@@ -230,22 +238,24 @@ export async function login(req, env) {
   const rows = await sql`SELECT * FROM usuarios WHERE email = ${email} AND removido_em IS NULL`;
   if (rows.length === 0 || !rows[0].senha_hash) { await registrarFalha(sql, req); return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401); }
   const usuario = rows[0];
-  if (usuario.login_bloqueado_ate && new Date(usuario.login_bloqueado_ate) > new Date()) {
-    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(usuario.login_bloqueado_ate)}.` }, 429);
+  // A2: reserva a tentativa ANTES de conferir (sem "corrida" entre pedidos simultâneos).
+  const r = await reservarTentativa(sql, usuario.id, "login");
+  if (r.bloqueado) {
+    const [b] = await sql`SELECT login_bloqueado_ate FROM usuarios WHERE id = ${usuario.id}`;
+    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(b.login_bloqueado_ate)}.` }, 429);
+  }
+  if (r.n > MAX_TENTATIVAS) {
+    const min = await bloquearTentativas(sql, usuario.id, "login", r.rodadas, duracaoBloqueioMin);
+    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${min >= 60 ? min / 60 + " h" : min + " min"}.` }, 429);
   }
   const ok = await verificarSenha(senha, usuario.senha_hash);
   if (!ok) {
     await registrarFalha(sql, req);
     // Bloqueio progressivo: 5 erros → 15 min, depois 1 h, depois 24 h.
-    const tent = (usuario.login_tentativas || 0) + 1;
-    if (tent >= MAX_TENTATIVAS) {
-      const rodadas = usuario.login_rodadas || 0;
-      const min = duracaoBloqueioMin(rodadas);
-      await sql`UPDATE usuarios SET login_tentativas = 0, login_rodadas = ${rodadas + 1},
-        login_bloqueado_ate = now() + (${min} * interval '1 minute') WHERE id = ${usuario.id}`;
+    if (r.n >= MAX_TENTATIVAS) {
+      const min = await bloquearTentativas(sql, usuario.id, "login", r.rodadas, duracaoBloqueioMin);
       return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${min >= 60 ? min / 60 + " h" : min + " min"}.` }, 429);
     }
-    await sql`UPDATE usuarios SET login_tentativas = ${tent} WHERE id = ${usuario.id}`;
     return jsonResponse({ ok: false, error: "credenciais inválidas" }, 401);
   }
   await sql`UPDATE usuarios SET login_tentativas = 0, login_rodadas = 0, login_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
@@ -282,7 +292,9 @@ export async function loginOuCriarComGoogle(email, nome, env, req) {
     if (!usuario.email_verificado) {
       const rows = await sql`
         UPDATE usuarios SET email_verificado = true, senha_hash = NULL, login_tentativas = 0, login_rodadas = 0,
-          login_bloqueado_ate = NULL, sessao_versao = sessao_versao + 1
+          login_bloqueado_ate = NULL, sessao_versao = sessao_versao + 1,
+          -- Bloco D (M1): o PIN/CPF também pode ter sido criado por outra pessoa (convite com e-mail alheio).
+          pin_hash = NULL, cpf = NULL, cpf_hash = NULL, cpf_mascarado = NULL, pin_tentativas = 0, pin_fraco = false
         WHERE id = ${usuario.id} RETURNING *
       `;
       usuario = rows[0];
@@ -343,7 +355,8 @@ export async function getUsuario(req, env) {
   if (rows.length === 0) return null;
   // S8: token de uma "versão" anterior (senha trocada, sair de todos, etc.) não vale mais.
   if ((payload.sv || 0) !== (rows[0].sessao_versao || 0)) return null;
-  return rows[0];
+  // Momento em que esta sessão foi aberta (para ações sensíveis que pedem login recente — Bloco D, M2).
+  return { ...rows[0], sessao_iat: payload.iat || 0 };
 }
 
 // --- Reglas de permiso (idénticas a las que ya tenías, no se tocan) ---

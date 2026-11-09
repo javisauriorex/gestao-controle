@@ -16,7 +16,7 @@ O Gestão & Controle (G&C) organiza a sua obra de construção civil no celular,
 
 O QUE VOCÊ FAZ NO G&C
 • Etapas: acompanhe o andamento da obra, marque o que foi concluído (com o nome de quem concluiu) e anexe fotos de avanço direto da câmera ou da galeria.
-• Equipe: monte a equipe de cada obra e convide pelo WhatsApp com um link. A pessoa entra com CPF e um PIN de 4 números, sem precisar de e-mail.
+• Equipe: monte a equipe de cada obra e convide pelo WhatsApp com um link. A pessoa entra com CPF e um PIN de 6 números, sem precisar de e-mail.
 • Materiais e ferramentas: registre o que a obra tem e o que precisa, e peça o que falta. A entrega só fecha quando quem recebe confirma.
 • Documentos: guarde PDFs, plantas, contratos e planilhas da obra ao alcance de quem precisa.
 • Livro de obra: registre observações com data, hora e autor. O texto só pode ser editado por quem escreveu, e as versões anteriores ficam guardadas.

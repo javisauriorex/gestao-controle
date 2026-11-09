@@ -1,3 +1,5 @@
+import { excedeu } from "../lib/limites.js";
+import { getSql } from "../lib/db.js";
 import { getUsuario, jsonResponse } from "../lib/auth.js";
 import { SECOES, SUGESTOES, RANKS, grupoDoRank, manualCompleto } from "../lib/ajuda-conhecimento.js";
 
@@ -54,6 +56,11 @@ export default async function ajudaHandler(req, env) {
     const { pergunta, historico } = await req.json();
     const texto = String(pergunta || "").trim().slice(0, 400);
     if (!texto) return jsonResponse({ ok: false, error: "Escreva uma pergunta." }, 400);
+    // Bloco D: freio de uso — 30 perguntas por pessoa e 150 por empresa por dia (a cota grátis da IA é do app inteiro).
+    const sqlL = getSql(env);
+    if (await excedeu(sqlL, `ajuda:u:${usuario.id}`, 30) || await excedeu(sqlL, `ajuda:e:${usuario.empresa_id}`, 150)) {
+      return jsonResponse({ ok: false, error: "Você chegou ao limite de perguntas de hoje. Amanhã libera de novo — enquanto isso, o manual tem tudo." }, 429);
+    }
     const conversa = (Array.isArray(historico) ? historico : [])
       .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
       .slice(-4)

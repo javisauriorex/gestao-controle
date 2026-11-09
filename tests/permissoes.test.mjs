@@ -19,9 +19,14 @@ const fetchOriginal = globalThis.fetch;
 globalThis.fetch = async (url, opts) => {
   if (String(url).startsWith("https://challenges.cloudflare.com/turnstile")) { const b = JSON.parse(opts.body); return new Response(JSON.stringify({ success: b.response === "ts-ok" && b.secret === "ts-secreto" }), { status: 200 }); }
   if (String(url).startsWith("https://api.resend.com")) { emails.push(JSON.parse(opts.body)); return new Response('{"id":"x"}', { status: 200 }); }
-  if (String(url).startsWith("https://push.example/")) { pushes.push({ url: String(url), headers: opts.headers, body: new Uint8Array(opts.body) }); return new Response("", { status: String(url).includes("morta") ? 410 : 201 }); }
+  if (String(url).startsWith("https://fcm.googleapis.com/")) { pushes.push({ url: String(url), headers: opts.headers, body: new Uint8Array(opts.body) }); return new Response("", { status: String(url).includes("morta") ? 410 : 201 }); }
   return fetchOriginal(url, opts);
 };
+// Confirmar e-mail = tocar no botão da página (POST), como a pessoa faz (Bloco D).
+async function confirmarEmail(tk) {
+  const fd = new FormData(); fd.set("token", tk || "");
+  return (await worker.fetch(new Request("https://t/confirmar-email", { method: "POST", body: fd }), env)).text();
+}
 const linkDe = (mail, caminho) => { const m = mail.text.match(new RegExp(caminho + "\\?token=([0-9a-f]{64})")); return m ? m[1] : null; };
 async function call(method, path, token, body) {
   // Cada chamada vem de um IP diferente (senão os freios por IP do Bloco B travariam as provas).
@@ -35,7 +40,7 @@ async function call(method, path, token, body) {
 async function cadastro(email, senha, nome) {
   const c = await call("POST", "/api/auth/signup", null, { email, senha, nome, aceitouTermos: true });
   const tk = linkDe(emails.filter((e) => e.to[0] === email).pop() || { text: "" }, "/confirmar-email");
-  await worker.fetch(new Request("https://t/confirmar-email?token=" + tk), env);
+  await confirmarEmail(tk);
   const l = await call("POST", "/api/auth/login", null, { email, senha });
   return { ...l, cadastro: c };
 }
@@ -57,7 +62,7 @@ let i = 0;
 for (const [k, r] of Object.entries(ranks)) {
   const c = await call("POST", "/api/convite-link", D, { obraId: A, nome: k, rank: r });
   check("convite " + k, c.ok, JSON.stringify(c));
-  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(234567890 + (i++) * 1111), pin: "8391", aceitouTermos: true });
+  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(234567890 + (i++) * 1111), pin: "839152", aceitouTermos: true });
   check("aceitar " + k, a.ok, JSON.stringify(a));
   pessoas[k] = { token: a.token, id: a.usuario.id };
 }
@@ -147,7 +152,7 @@ check("almox registra observação", (await call("POST", "/api/observacoes", T("
 const c2 = await call("POST", "/api/obras", D, { cliente: "Obra C" });
 const C_ = c2.obra.id;
 const e1 = await call("POST", "/api/convite-link", D, { obraId: C_, nome: "enc2", rank: 5 });
-const enc2 = await call("POST", "/api/auth/aceitar-convite", null, { token: e1.token, cpf: cpf(398765432), pin: "7302", aceitouTermos: true });
+const enc2 = await call("POST", "/api/auth/aceitar-convite", null, { token: e1.token, cpf: cpf(398765432), pin: "730284", aceitouTermos: true });
 check("aceitar enc2", enc2.ok, JSON.stringify(enc2));
 const convEnc = await call("POST", "/api/convite-link", enc2.token, { obraId: C_, nome: "pedreiro", rank: 8, funcao: "Pedreiro" });
 check("encarregado convida profissional", convEnc.ok, JSON.stringify(convEnc));
@@ -156,14 +161,14 @@ check("encarregado convida para obra onde não está → recusado", [403, 404].i
 check("encarregado gera Novo PIN → 403", (await call("POST", "/api/convite-link", enc2.token, { usuarioId: pessoas.almox.id })).status === 403);
 // Eng. Chefe edita outro Eng. Chefe
 const cc = await call("POST", "/api/convite-link", D, { obraId: C_, nome: "chefe2", rank: 2 });
-const chefe2 = await call("POST", "/api/auth/aceitar-convite", null, { token: cc.token, cpf: cpf(476543210), pin: "5190", aceitouTermos: true });
+const chefe2 = await call("POST", "/api/auth/aceitar-convite", null, { token: cc.token, cpf: cpf(476543210), pin: "519073", aceitouTermos: true });
 const eqC = await call("GET", `/api/equipe?obra_id=${C_}`, D);
 const linhaChefe2 = eqC.equipe.find((m) => m.usuario_id === chefe2.usuario.id);
 check("chefe NÃO muda rank de outro chefe (par) → 403 (05/10)", (await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 3 })).status === 403);
 check("chefe tenta dar rank 1 a um par → recusado", [400, 403].includes((await call("PATCH", `/api/equipe?id=${linhaChefe2.id}`, T("chefe"), { rank: 1 })).status));
 // Criar meu PIN (conta de email → também entra com CPF)
-check("dono cria PIN com CPF", (await call("PATCH", "/api/usuarios-me", D, { cpf: cpf(512345678), pin: "6027" })).ok);
-check("dono entra com CPF + PIN", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(512345678), pin: "6027" })).ok);
+check("dono cria PIN com CPF", (await call("PATCH", "/api/usuarios-me", D, { cpf: cpf(512345678), pin: "602741" })).ok);
+check("dono entra com CPF + PIN", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(512345678), pin: "602741" })).ok);
 const me = await call("GET", "/api/usuarios-me", D);
 check("usuarios-me não devolve CPF inteiro nem hashes", !("cpf" in me.usuario) && !("pin_hash" in me.usuario) && !!me.usuario.cpf_mascarado, JSON.stringify(me.usuario));
 // Etapa: quem concluiu
@@ -220,8 +225,8 @@ const me2 = await call("GET", "/api/usuarios-me", D);
 check("dono tem termos aceitos na versão vigente", me2.usuario.termos_versao === me2.termos_vigente && !!me2.usuario.termos_aceito_em, JSON.stringify(me2));
 check("usuarios-me não expõe contadores de login", !("login_tentativas" in me2.usuario) && !!me2.usuario.empresa_nome);
 const cConv = await call("POST", "/api/convite-link", D, { obraId: A, nome: "semaceite", rank: 8 });
-check("aceitar convite sem termos → 400", (await call("POST", "/api/auth/aceitar-convite", null, { token: cConv.token, cpf: cpf(611122233), pin: "4816" })).status === 400);
-const okConv = await call("POST", "/api/auth/aceitar-convite", null, { token: cConv.token, cpf: cpf(611122233), pin: "4816", aceitouTermos: true });
+check("aceitar convite sem termos → 400", (await call("POST", "/api/auth/aceitar-convite", null, { token: cConv.token, cpf: cpf(611122233), pin: "481637" })).status === 400);
+const okConv = await call("POST", "/api/auth/aceitar-convite", null, { token: cConv.token, cpf: cpf(611122233), pin: "481637", aceitouTermos: true });
 check("aceitar convite com termos", okConv.ok);
 const { pool: poolDb } = await import("./src/lib/db.js");
 const convRest = await poolDb.query("SELECT count(*)::int n FROM convites WHERE token = $1", [cConv.token]);
@@ -300,7 +305,7 @@ const p3 = {};
 let j3 = 0;
 for (const [k, r] of Object.entries({ chefe: 2, mestre: 4, encarr: 5, almox: 6, prof: 8, prof2: 8 })) {
   const c = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: k, rank: r, telefone: "71999990000" });
-  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(345678901 + (j3++) * 1313), pin: "8391", aceitouTermos: true });
+  const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(345678901 + (j3++) * 1313), pin: "839152", aceitouTermos: true });
   check("S: aceitar " + k, a.ok, JSON.stringify(a));
   p3[k] = { token: a.token, id: a.usuario.id };
 }
@@ -335,13 +340,13 @@ const cpfCerto = cpf(456789012);
 const np2 = await call("POST", "/api/convite-link", D3, { usuarioId: semCpf, cpf: cpfCerto });
 check("S2: Novo PIN com CPF do chefe → ok", np2.ok && np2.token, JSON.stringify(np2));
 check("S2: resposta do Novo PIN não devolve o CPF", np2.convite && np2.convite.cpf === undefined);
-check("S2: aceitar Novo PIN com OUTRO CPF → 400", (await call("POST", "/api/auth/aceitar-convite", null, { token: np2.token, cpf: cpf(567890123), pin: "7351", aceitouTermos: true })).status === 400);
-const np3 = await call("POST", "/api/auth/aceitar-convite", null, { token: np2.token, cpf: cpfCerto, pin: "7351", aceitouTermos: true });
+check("S2: aceitar Novo PIN com OUTRO CPF → 400", (await call("POST", "/api/auth/aceitar-convite", null, { token: np2.token, cpf: cpf(567890123), pin: "735168", aceitouTermos: true })).status === 400);
+const np3 = await call("POST", "/api/auth/aceitar-convite", null, { token: np2.token, cpf: cpfCerto, pin: "735168", aceitouTermos: true });
 check("S2: aceitar Novo PIN com o CPF certo → entra", np3.ok && np3.usuario.id === semCpf, JSON.stringify(np3));
 // Link antigo (de antes desta versão) sem CPF fixado para conta sem CPF → recusado
 const semCpf2 = (await pool.query("INSERT INTO usuarios (email, nome, empresa_id, rank, email_verificado) SELECT 'semcpf2@x.com', 'Sem CPF 2', empresa_id, 6, true FROM usuarios WHERE id=$1 RETURNING id", [d3.usuario.id])).rows[0].id;
 await pool.query("INSERT INTO convites (empresa_id, nome, rank, criado_por, token, expira_em, usuario_id) SELECT empresa_id, 'x', 6, id, 'tokenantigo123', now() + interval '1 day', $2 FROM usuarios WHERE id=$1", [d3.usuario.id, semCpf2]);
-check("S2: link antigo sem CPF → recusado", (await call("POST", "/api/auth/aceitar-convite", null, { token: "tokenantigo123", cpf: cpf(678901234), pin: "7351", aceitouTermos: true })).status === 400);
+check("S2: link antigo sem CPF → recusado", (await call("POST", "/api/auth/aceitar-convite", null, { token: "tokenantigo123", cpf: cpf(678901234), pin: "735168", aceitouTermos: true })).status === 400);
 
 // --- S3: pré-cadastro de e-mail alheio ---
 const golpe = await call("POST", "/api/auth/signup", null, { email: "fulano@gmail.com", senha: "senhaDoGolpista", nome: "Fulano?", aceitouTermos: true });
@@ -427,9 +432,11 @@ check("E: reenviar mandou 1 e-mail só (para quem existe)", emails.length === 1)
 const tkC2 = linkDe(emails[0], "/confirmar-email");
 const velho = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC), env)).text();
 check("E: link anterior deixou de valer ao reenviar", /inválido/.test(velho));
-const conf = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC2), env)).text();
+const soAbrir = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC2), env)).text();
+check("E: só ABRIR o link (antivírus do e-mail) não confirma: mostra o botão", /Confirmar meu e-mail/.test(soAbrir) && (await pool.query("SELECT email_verificado v FROM usuarios WHERE email='novo.cliente@x.com'")).rows[0].v === false);
+const conf = await confirmarEmail(tkC2);
 check("E: link novo confirma", /E-mail confirmado/.test(conf));
-const conf2 = await (await worker.fetch(new Request("https://t/confirmar-email?token=" + tkC2), env)).text();
+const conf2 = await confirmarEmail(tkC2);
 check("E: link de confirmação só serve uma vez", /inválido/.test(conf2));
 check("E: depois de confirmar, entra", (await call("POST", "/api/auth/login", null, { email: "novo.cliente@x.com", senha: "senhaBoa123" })).ok);
 check("E: token lixo na página → inválido, sem erro", /inválido/.test(await (await worker.fetch(new Request("https://t/confirmar-email?token=<script>"), env)).text()));
@@ -483,9 +490,9 @@ for (let i = 0; i < 11; i++) { ultimo = await call("POST", "/api/arquivo-set", l
 check("B: pessoa sobe 10 arquivos e o 11º é recusado (429)", okUp === 10 && ultimo.status === 429 && ultimo.codigo === "limite_diario", JSON.stringify(ultimo));
 const lbObra = (await call("POST", "/api/obras", lb.token, { cliente: "Obra Lim" })).obra.id;
 const conv = await call("POST", "/api/convite-link", lb.token, { obraId: lbObra, nome: "colega", rank: 4 });
-const colega = await call("POST", "/api/auth/aceitar-convite", null, { token: conv.token, cpf: cpf(789012345), pin: "8391", aceitouTermos: true });
+const colega = await call("POST", "/api/auth/aceitar-convite", null, { token: conv.token, cpf: cpf(789012345), pin: "839152", aceitouTermos: true });
 const conv2 = await call("POST", "/api/convite-link", lb.token, { obraId: lbObra, nome: "colega2", rank: 4 });
-const colega2 = await call("POST", "/api/auth/aceitar-convite", null, { token: conv2.token, cpf: cpf(890123456), pin: "8391", aceitouTermos: true });
+const colega2 = await call("POST", "/api/auth/aceitar-convite", null, { token: conv2.token, cpf: cpf(890123456), pin: "839152", aceitouTermos: true });
 let okColega = 0;
 for (let i = 0; i < 10; i++) if ((await call("POST", "/api/arquivo-set", colega.token, { id: crypto.randomUUID(), payload: fotoOk })).ok) okColega++;
 const terceiro = await call("POST", "/api/arquivo-set", colega2.token, { id: crypto.randomUUID(), payload: fotoOk });
@@ -534,8 +541,8 @@ for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", null, { email:
 const semTs = await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123" });
 check("T: depois de 5 erros, login sem Turnstile → 403 turnstile", semTs.status === 403 && semTs.codigo === "turnstile", JSON.stringify(semTs));
 check("T: com Turnstile entra", (await call("POST", "/api/auth/login", null, { email: "limites@x.com", senha: "senhaBoa123", turnstile: "ts-ok" })).ok);
-check("T: CPF também pede Turnstile nessa rede", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391" })).codigo === "turnstile");
-check("T: CPF com Turnstile entra", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391", turnstile: "ts-ok" })).ok);
+check("T: CPF também pede Turnstile nessa rede", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "839152" })).codigo === "turnstile");
+check("T: CPF com Turnstile entra", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "839152", turnstile: "ts-ok" })).ok);
 delete globalThis.IP_FIXO;
 delete env.TURNSTILE_SECRET;
 
@@ -552,8 +559,8 @@ check("C1: obra nasce com quem criou na equipe", c1o.ok && c1eq === 1);
 const c1cv = await call("POST", "/api/convite-link", c1.token, { obraId: c1o.obra.id, nome: "Duplo", rank: 8 });
 const cpfDuplo = cpf(901234567);
 const [r1, r2] = await Promise.all([
-  call("POST", "/api/auth/aceitar-convite", null, { token: c1cv.token, cpf: cpfDuplo, pin: "7351", aceitouTermos: true }),
-  call("POST", "/api/auth/aceitar-convite", null, { token: c1cv.token, cpf: cpfDuplo, pin: "7351", aceitouTermos: true }),
+  call("POST", "/api/auth/aceitar-convite", null, { token: c1cv.token, cpf: cpfDuplo, pin: "735168", aceitouTermos: true }),
+  call("POST", "/api/auth/aceitar-convite", null, { token: c1cv.token, cpf: cpfDuplo, pin: "735168", aceitouTermos: true }),
 ]);
 const nDuplo = (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf = $1", [cpfDuplo])).rows[0].n;
 check("C1: dois toques simultâneos no mesmo convite → uma conta só", nDuplo === 1 && [r1, r2].filter((r) => r.ok).length >= 1, JSON.stringify([r1.status, r2.status]));
@@ -640,33 +647,33 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   // Antes da chave: conta criada no modo antigo (CPF em claro, PIN sem pepper)
   const cv4 = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "Velho", rank: 8 });
   const cpfVelho = cpf(612345678);
-  const velho = await call("POST", "/api/auth/aceitar-convite", null, { token: cv4.token, cpf: cpfVelho, pin: "7351", aceitouTermos: true });
+  const velho = await call("POST", "/api/auth/aceitar-convite", null, { token: cv4.token, cpf: cpfVelho, pin: "735168", aceitouTermos: true });
   check("C4: sem chave, cadastro segue no modo antigo", velho.ok && (await pool.query("SELECT cpf FROM usuarios WHERE id=$1", [velho.usuario.id])).rows[0].cpf === cpfVelho);
   env.PIN_PEPPER = "chave-secreta-de-teste-0123456789";
-  const l1 = await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "7351" });
+  const l1 = await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "735168" });
   const rowV = (await pool.query("SELECT cpf, cpf_hash, cpf_mascarado, pin_hash FROM usuarios WHERE id=$1", [velho.usuario.id])).rows[0];
   check("C4: login antigo funciona e já converte (CPF some, fica huella; PIN vira v2)", l1.ok && rowV.cpf === null && /^[0-9a-f]{64}$/.test(rowV.cpf_hash) && rowV.cpf_mascarado === cpfVelho.slice(0, 3) + ".***.***-" + cpfVelho.slice(9) && rowV.pin_hash.startsWith("v2$"), JSON.stringify(rowV));
-  check("C4: segundo login (formato novo) funciona", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "7351" })).ok);
-  check("C4: PIN errado não entra", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "7352" })).status === 401);
+  check("C4: segundo login (formato novo) funciona", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "735168" })).ok);
+  check("C4: PIN errado não entra", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfVelho, pin: "735169" })).status === 401);
   // Cadastro novo já nasce protegido
   const cv5 = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "Novo", rank: 8 });
   const cpfNovo = cpf(623456789);
-  const novo4 = await call("POST", "/api/auth/aceitar-convite", null, { token: cv5.token, cpf: cpfNovo, pin: "7351", aceitouTermos: true });
+  const novo4 = await call("POST", "/api/auth/aceitar-convite", null, { token: cv5.token, cpf: cpfNovo, pin: "735168", aceitouTermos: true });
   const rowN = (await pool.query("SELECT cpf, cpf_hash, pin_hash FROM usuarios WHERE id=$1", [novo4.usuario.id])).rows[0];
   check("C4: conta nova não guarda CPF completo", novo4.ok && rowN.cpf === null && rowN.cpf_hash && rowN.pin_hash.startsWith("v2$"));
   const cv6 = await call("POST", "/api/convite-link", D3, { obraId: o3, nome: "Repetido", rank: 8 });
-  check("C4: CPF repetido continua bloqueado (pela huella)", (await call("POST", "/api/auth/aceitar-convite", null, { token: cv6.token, cpf: cpfNovo, pin: "7351", aceitouTermos: true })).status === 409);
+  check("C4: CPF repetido continua bloqueado (pela huella)", (await call("POST", "/api/auth/aceitar-convite", null, { token: cv6.token, cpf: cpfNovo, pin: "735168", aceitouTermos: true })).status === 409);
   // Trocar PIN pede o CPF certo
-  check("C4: trocar PIN com CPF errado → 400", (await call("PATCH", "/api/usuarios-me", novo4.token, { cpf: cpf(634567890), pin: "2580" })).status === 400);
-  const troca4 = await call("PATCH", "/api/usuarios-me", novo4.token, { cpf: cpfNovo, pin: "2580" });
-  check("C4: trocar PIN com o CPF certo → ok e o PIN novo entra", troca4.ok && (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfNovo, pin: "2580" })).ok);
+  check("C4: trocar PIN com CPF errado → 400", (await call("PATCH", "/api/usuarios-me", novo4.token, { cpf: cpf(634567890), pin: "258094" })).status === 400);
+  const troca4 = await call("PATCH", "/api/usuarios-me", novo4.token, { cpf: cpfNovo, pin: "258094" });
+  check("C4: trocar PIN com o CPF certo → ok e o PIN novo entra", troca4.ok && (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfNovo, pin: "258094" })).ok);
   check("C4: usuarios-me mostra CPF mascarado e não a huella", (await call("GET", "/api/usuarios-me", troca4.novoToken)).usuario.cpf_mascarado === cpfNovo.slice(0, 3) + ".***.***-" + cpfNovo.slice(9));
   // Migração em massa pelo admin
   const antes = (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf IS NOT NULL")).rows[0].n;
   const mig = await call("POST", "/api/admin?acao=migrar-cpf", AD);
   check("C4: admin protege todos os CPFs de uma vez", mig.ok && mig.usuarios === antes && mig.restam === 0 && antes > 3, JSON.stringify(mig));
   check("C4: Dono comum não migra", (await call("POST", "/api/admin?acao=migrar-cpf", D3)).status === 403);
-  check("C4: depois da migração, login de conta antiga segue funcionando", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "8391" })).ok);
+  check("C4: depois da migração, login de conta antiga segue funcionando", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpf(789012345), pin: "839152" })).ok);
   check("C4: base não tem mais nenhum CPF em claro", (await pool.query("SELECT count(*)::int n FROM usuarios WHERE cpf IS NOT NULL")).rows[0].n === 0);
 }
 
@@ -678,7 +685,7 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const novo = async (obraId, nome, rank, tokenQuem = D3) => {
     const c = await call("POST", "/api/convite-link", tokenQuem, { obraId, nome, rank, telefone: "71999990000" });
-    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(456789012 + (j3++) * 1717), pin: "8391", aceitouTermos: true });
+    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(456789012 + (j3++) * 1717), pin: "839152", aceitouTermos: true });
     return { token: a.token, id: a.usuario?.id, convite: c };
   };
   const estag = await novo(o3, "Estagiario", 3);
@@ -798,7 +805,7 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   let ja = 0;
   for (const [k, r] of Object.entries({ chefe: 2, estag: 3, mestre: 4, encarr: 5, almox: 6, turma: 7, prof: 8, prof2: 8 })) {
     const c = await call("POST", "/api/convite-link", DA.token, { obraId: oA, nome: "Av " + k, rank: r, telefone: "71999990000" });
-    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(567890123 + (ja++) * 1919), pin: "8391", aceitouTermos: true });
+    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(567890123 + (ja++) * 1919), pin: "839152", aceitouTermos: true });
     pa[k] = { token: a.token, id: a.usuario?.id };
   }
   const avisos = async (k) => (await call("GET", "/api/avisos", k === "dono" ? DA.token : pa[k].token));
@@ -885,14 +892,14 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   let jp = 0;
   for (const [k, r] of Object.entries({ mestre: 4, encarr: 5, prof: 8 })) {
     const c = await call("POST", "/api/convite-link", DP.token, { obraId: oP, nome: "Push " + k, rank: r, telefone: "71999990000" });
-    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(678901234 + (jp++) * 2121), pin: "8391", aceitouTermos: true });
+    const a = await call("POST", "/api/auth/aceitar-convite", null, { token: c.token, cpf: cpf(678901234 + (jp++) * 2121), pin: "839152", aceitouTermos: true });
     pp[k] = { token: a.token, id: a.usuario?.id };
   }
   const g = await call("GET", "/api/push", pp.mestre.token);
   check("PUSH: chave pública VAPID (65 bytes)", g.ok && deB64url(g.publicKey).length === 65);
   check("PUSH: a mesma chave na segunda vez", (await call("GET", "/api/push", DP.token)).publicKey === g.publicKey);
   const cel = { mestre: await novoCelular(), dono: await novoCelular(), prof: await novoCelular() };
-  const inscrever = (tk, c, nome) => call("POST", "/api/push", tk, { subscription: { endpoint: "https://push.example/" + nome, keys: { p256dh: c.p256dh, auth: c.authB64 } } });
+  const inscrever = (tk, c, nome) => call("POST", "/api/push", tk, { subscription: { endpoint: "https://fcm.googleapis.com/" + nome, keys: { p256dh: c.p256dh, auth: c.authB64 } } });
   check("PUSH: mestre inscreve o celular", (await inscrever(pp.mestre.token, cel.mestre, "mestre")).ok);
   await inscrever(DP.token, cel.dono, "dono");
   await inscrever(pp.prof.token, cel.prof, "prof");
@@ -911,23 +918,23 @@ check("reingresso: mesmo e-mail cadastra de novo", re2.ok, JSON.stringify(re2));
   const jwt = h.authorization.match(/t=([^,]+)/)[1].split(".");
   const pubKey = await crypto.subtle.importKey("raw", deB64url(g.publicKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
   check("PUSH: JWT VAPID assinado corretamente", await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pubKey, deB64url(jwt[2]), enc.encode(jwt[0] + "." + jwt[1])));
-  check("PUSH: aud = origem do serviço de push", JSON.parse(new TextDecoder().decode(deB64url(jwt[1]))).aud === "https://push.example");
+  check("PUSH: aud = origem do serviço de push", JSON.parse(new TextDecoder().decode(deB64url(jwt[1]))).aud === "https://fcm.googleapis.com");
   // pedido → só a parte afetada
   pushes.length = 0;
   await call("POST", "/api/pedidos", pp.prof.token, { obraId: oP, tipo: "material", descricao: "Areia", remetenteId: pp.mestre.id, destinatarioId: pp.prof.id });
   check("PUSH: pedido chega só a quem foi pedido", para("mestre").length === 1 && para("dono").length === 0);
   // inscrição morta (410) é apagada
   const cm = await novoCelular();
-  await call("POST", "/api/push", pp.encarr.token, { subscription: { endpoint: "https://push.example/morta", keys: { p256dh: cm.p256dh, auth: cm.authB64 } } });
+  await call("POST", "/api/push", pp.encarr.token, { subscription: { endpoint: "https://fcm.googleapis.com/morta", keys: { p256dh: cm.p256dh, auth: cm.authB64 } } });
   await call("POST", "/api/etapas", pp.mestre.token, { obraId: oP, texto: "Forro" });
   check("PUSH: aparelho que não existe mais (410) sai da lista", (await call("GET", "/api/push", pp.encarr.token)).aparelhos === 0);
   check("PUSH: teste manda para os meus aparelhos", (await call("POST", "/api/push", pp.mestre.token, { teste: true })).enviados === 1);
-  check("PUSH: desligar aparelho", (await call("DELETE", "/api/push", pp.mestre.token, { endpoint: "https://push.example/mestre" })).ok && (await call("GET", "/api/push", pp.mestre.token)).aparelhos === 0);
+  check("PUSH: desligar aparelho", (await call("DELETE", "/api/push", pp.mestre.token, { endpoint: "https://fcm.googleapis.com/mestre" })).ok && (await call("GET", "/api/push", pp.mestre.token)).aparelhos === 0);
   // Play Store / LGPD: excluir a conta apaga também a inscrição de notificações do celular.
-  const antes = await pool.query("SELECT count(*)::int AS n FROM push_inscricoes WHERE endpoint = $1", ["https://push.example/prof"]);
+  const antes = await pool.query("SELECT count(*)::int AS n FROM push_inscricoes WHERE endpoint = $1", ["https://fcm.googleapis.com/prof"]);
   check("PLAY: profissional tem inscrição push antes de excluir a conta", antes.rows[0].n === 1, JSON.stringify(antes.rows));
   check("PLAY: profissional exclui a própria conta", (await call("DELETE", "/api/usuarios-me", pp.prof.token)).ok);
-  const depois = await pool.query("SELECT count(*)::int AS n FROM push_inscricoes WHERE endpoint = $1", ["https://push.example/prof"]);
+  const depois = await pool.query("SELECT count(*)::int AS n FROM push_inscricoes WHERE endpoint = $1", ["https://fcm.googleapis.com/prof"]);
   check("PLAY: inscrição push some junto com a conta excluída", depois.rows[0].n === 0, JSON.stringify(depois.rows));
 }
 
@@ -947,6 +954,81 @@ check("PLAY: variável soma outra impressão, ignora lixo e não duplica",
   alj.length === 1 && alj[0].target.sha256_cert_fingerprints.length === 2
   && alj[0].target.sha256_cert_fingerprints.includes(FP0) && alj[0].target.sha256_cert_fingerprints.includes(FP), JSON.stringify(alj));
 delete env.TWA_SHA256;
+
+// ============================================================
+// BLOCO D — SEGURANÇA (09/11/2026)
+// ============================================================
+{
+  const { signJWT } = await import("./src/lib/auth.js");
+  const { hashPin } = await import("./src/lib/cpf.js");
+  await pool.query("DELETE FROM falhas_login");
+  await pool.query("DELETE FROM contadores");
+
+  // 404 de verdade para endereços de robô
+  const envA = { ...env, ASSETS: { fetch: () => new Response("", { status: 404 }) } };
+  const r404 = await worker.fetch(new Request("https://t/wp-login.php"), envA);
+  check("D: endereço desconhecido → 404 em texto (não o app)", r404.status === 404 && /text\/plain/.test(r404.headers.get("content-type")));
+  check("D: arquivo existente continua saindo", (await (await worker.fetch(new Request("https://t/logo.png"), env)).text()) === "asset");
+
+  // Tamanho dos pedidos e dos textos
+  const grande = await worker.fetch(new Request("https://t/api/materiais", { method: "POST", headers: { authorization: "Bearer " + D, "content-type": "application/json" }, body: JSON.stringify({ obraId: A, texto: "x".repeat(70000) }) }), env);
+  check("D: pedido > 64 KB → 413", grande.status === 413);
+  const longo = await call("POST", "/api/materiais", D, { obraId: A, texto: "x".repeat(3000) });
+  check("D: texto acima do limite do banco → 400 claro", longo.status === 400 && /grande/.test(longo.error), JSON.stringify(longo));
+  check("D: texto normal continua entrando", (await call("POST", "/api/materiais", D, { obraId: A, texto: "Cimento 10 sacos" })).ok);
+  check("D: estado de obra inválido → 400", (await call("PATCH", "/api/obras?id=" + A, D, { estado: "<b>x</b>" })).status === 400);
+
+  // PIN de 6 números
+  const cvD = await call("POST", "/api/convite-link", D, { obraId: A, nome: "Alvo D", rank: 8 });
+  const cpfD = cpf(612398745);
+  check("D: PIN de 4 números não é mais aceito ao criar", (await call("POST", "/api/auth/aceitar-convite", null, { token: cvD.token, cpf: cpfD, pin: "4827", aceitouTermos: true })).status === 400);
+  check("D: PIN 121212 recusado (padrão)", (await call("POST", "/api/auth/aceitar-convite", null, { token: cvD.token, cpf: cpfD, pin: "121212", aceitouTermos: true })).status === 400);
+  const alvoD = await call("POST", "/api/auth/aceitar-convite", null, { token: cvD.token, cpf: cpfD, pin: "640273", aceitouTermos: true });
+  check("D: PIN de 6 números aceito", alvoD.ok, JSON.stringify(alvoD));
+  check("D: link de convite não serve duas vezes", (await call("POST", "/api/auth/aceitar-convite", null, { token: cvD.token, cpf: cpf(612398999), pin: "640273", aceitouTermos: true })).ok !== true);
+
+  // Corrida no PIN: 20 tentativas erradas AO MESMO TEMPO
+  const rajada = await Promise.all(Array.from({ length: 20 }, (_, k) => call("POST", "/api/auth/login-cpf", null, { cpf: cpfD, pin: String(100000 + k * 37) })));
+  const conferidas = rajada.filter((r) => r.status === 401).length;
+  check("D: rajada simultânea — no máximo 5 PINs chegam a ser conferidos", conferidas <= 5 && rajada.every((r) => r.status === 401 || r.status === 429), rajada.map((r) => r.status).join(","));
+  check("D: depois da rajada, a conta fica bloqueada (até com o PIN certo)", (await call("POST", "/api/auth/login-cpf", null, { cpf: cpfD, pin: "640273" })).status === 429);
+  await pool.query("UPDATE usuarios SET pin_bloqueado_ate = NULL, pin_tentativas = 0, pin_rodadas = 0 WHERE id = $1", [alvoD.usuario.id]);
+  await pool.query("DELETE FROM falhas_login");
+
+  // PIN antigo de 4: ainda entra, mas fica marcado para trocar
+  await pool.query("UPDATE usuarios SET pin_hash = $1, pin_fraco = true WHERE id = $2", [await hashPin(env, "4827"), alvoD.usuario.id]);
+  const l4 = await call("POST", "/api/auth/login-cpf", null, { cpf: cpfD, pin: "4827" });
+  check("D: PIN antigo de 4 ainda entra", l4.ok, JSON.stringify(l4));
+  const me4 = await call("GET", "/api/usuarios-me", l4.token);
+  check("D: conta com PIN de 4 vem marcada pin_fraco (o app pede um novo)", me4.usuario.pin_fraco === true);
+  const tr4 = await call("PATCH", "/api/usuarios-me", l4.token, { cpf: cpfD, pin: "640273", pinAtual: "4827" });
+  check("D: troca para PIN de 6 tira a marca", tr4.ok && (await pool.query("SELECT pin_fraco FROM usuarios WHERE id=$1", [alvoD.usuario.id])).rows[0].pin_fraco === false, JSON.stringify(tr4));
+
+  // Token roubado (sessão antiga) não troca PIN sem o PIN atual
+  const urow = (await pool.query("SELECT sessao_versao FROM usuarios WHERE id=$1", [alvoD.usuario.id])).rows[0];
+  const agora = Math.floor(Date.now() / 1000);
+  const velhoTk = await signJWT({ usuarioId: alvoD.usuario.id, sv: urow.sessao_versao, iat: agora - 3600, exp: agora + 3600 }, env.JWT_SECRET);
+  const semPin = await call("PATCH", "/api/usuarios-me", velhoTk, { cpf: cpfD, pin: "507319" });
+  check("D: sessão antiga sem PIN atual → 403 reautenticar", semPin.status === 403 && semPin.codigo === "reautenticar", JSON.stringify(semPin));
+  check("D: sessão antiga com PIN atual errado → 400", (await call("PATCH", "/api/usuarios-me", velhoTk, { cpf: cpfD, pin: "507319", pinAtual: "999111" })).status === 400);
+  check("D: sessão antiga com PIN atual certo → troca", (await call("PATCH", "/api/usuarios-me", velhoTk, { cpf: cpfD, pin: "507319", pinAtual: "640273" })).ok);
+
+  // Push: só serviços de push de verdade
+  const pRuim = await call("POST", "/api/push", D, { subscription: { endpoint: "https://api.terceiro.com/hook", keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) } } });
+  check("D: push para endereço que não é serviço de push → 400 (sem SSRF)", pRuim.status === 400);
+
+  // Fotos de etapa de OUTRA empresa
+  const outro = await cadastro("outro.dono@x.com", "senhaBoa123", "Outro");
+  const obO = await call("POST", "/api/obras", outro.token, { cliente: "Obra Outro" });
+  const etO = await call("POST", "/api/etapas", outro.token, { obraId: obO.obra.id, texto: "Fundação" });
+  const idor = await call("GET", `/api/etapa-fotos?obra_id=${A}&etapa_id=${etO.etapa.id}`, D);
+  check("D: fotos de etapa de outra empresa → sem acesso", !idor.ok && !idor.fotos, JSON.stringify(idor));
+
+  // E-mails: freio por rede
+  emails.length = 0;
+  for (let k = 0; k < 8; k++) await call("POST", "/api/auth/esqueci-senha", null, { email: "dono@x.com" });
+  check("D: no máximo 5 e-mails por hora da mesma rede", emails.length <= 5, String(emails.length));
+}
 
 console.log(`\n${ok} ok, ${falhas} falhas`);
 process.exitCode = falhas ? 1 : 0;

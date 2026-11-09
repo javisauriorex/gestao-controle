@@ -1,7 +1,9 @@
 import { getSql } from "../lib/db.js";
-import { getUsuario, jsonResponse, hashSenha, verificarSenha, renovarSessoes } from "../lib/auth.js";
+import { getUsuario, jsonResponse, hashSenha, verificarSenha, renovarSessoes, loginRecente } from "../lib/auth.js";
+import { reservarTentativa, bloquearTentativas } from "../lib/limites.js";
+import { MAX_TENTATIVAS, duracaoBloqueioMin } from "../lib/legal.js";
 import { limparCpf, cpfValido, problemaPin } from "./convite-link.js";
-import { camposCpf, temCpf, cpfConfere, hashPin, mascaraDe } from "../lib/cpf.js";
+import { camposCpf, temCpf, cpfConfere, hashPin, mascaraDe, conferirPin } from "../lib/cpf.js";
 import { TERMOS_VERSAO } from "../lib/legal.js";
 
 export default async function usuariosMeHandler(req, env) {
@@ -45,11 +47,28 @@ export default async function usuariosMeHandler(req, env) {
     // Criar/trocar meu PIN (para também entrar com CPF + PIN). Quem já tem CPF não troca o CPF.
     if (body.pin !== undefined) {
       const sql = getSql(env);
+      // Bloco D (M2): um token roubado não basta para criar/trocar o PIN. Precisa do PIN atual
+      // ou de ter entrado há menos de 15 minutos. Erros de PIN/CPF contam para o bloqueio da conta.
+      const temPin = !!usuario.pin_hash;
+      const pinAtualInformado = body.pinAtual !== undefined && body.pinAtual !== null && String(body.pinAtual) !== "";
+      if (!loginRecente(usuario) && !(temPin && pinAtualInformado)) {
+        return jsonResponse({ ok: false, codigo: "reautenticar", error: temPin ? "Informe seu PIN atual." : "Por segurança, saia e entre de novo para criar o PIN." }, 403);
+      }
+      const r = await reservarTentativa(sql, usuario.id, "pin");
+      if (r.bloqueado || r.n > MAX_TENTATIVAS) return jsonResponse({ ok: false, error: "Muitas tentativas erradas. Tente mais tarde ou peça um Novo PIN ao seu chefe." }, 429);
+      const errou = async (msg) => {
+        if (r.n >= MAX_TENTATIVAS) await bloquearTentativas(sql, usuario.id, "pin", r.rodadas, duracaoBloqueioMin);
+        return jsonResponse({ ok: false, error: msg }, 400);
+      };
+      if (temPin && pinAtualInformado && !loginRecente(usuario)) {
+        const { ok } = await conferirPin(env, String(body.pinAtual), usuario.pin_hash);
+        if (!ok) return errou("O PIN atual não confere.");
+      }
       // Quem já tem CPF confirma o CPF (prova de que é a pessoa e permite conferir que o PIN não é parte dele).
       const cpf = limparCpf(body.cpf);
       if (!cpfValido(cpf)) return jsonResponse({ ok: false, error: "CPF inválido. Confira os números." }, 400);
       if (temCpf(usuario) && !(await cpfConfere(env, usuario, cpf))) {
-        return jsonResponse({ ok: false, error: "Este CPF não é o cadastrado na sua conta." }, 400);
+        return errou("Este CPF não é o cadastrado na sua conta.");
       }
       const prob = problemaPin(body.pin, cpf);
       if (prob) return jsonResponse({ ok: false, error: prob }, 400);
@@ -60,7 +79,7 @@ export default async function usuariosMeHandler(req, env) {
       }
       const pinHash = await hashPin(env, body.pin);
       await sql`UPDATE usuarios SET cpf = ${campos.cpf}, cpf_hash = ${campos.cpf_hash}, cpf_mascarado = ${campos.cpf_mascarado},
-        pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL WHERE id = ${usuario.id}`;
+        pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL, pin_fraco = false WHERE id = ${usuario.id}`;
       // Trocou o PIN: as outras sessões caem (S8); este aparelho segue logado com o token novo.
       const novoToken = usuario.pin_hash ? await renovarSessoes(sql, usuario.id, env) : null;
       return jsonResponse({ ok: true, novoToken });
@@ -71,8 +90,18 @@ export default async function usuariosMeHandler(req, env) {
       return jsonResponse({ ok: false, error: "a senha precisa ter ao menos 8 caracteres" }, 400);
     }
     // S8: quem já tem senha precisa informar a atual (um token roubado não basta para trocar a senha).
-    if (usuario.senha_hash && !(senhaAtual && (await verificarSenha(String(senhaAtual), usuario.senha_hash)))) {
-      return jsonResponse({ ok: false, error: "A senha atual não confere." }, 403);
+    // Bloco D (M2): quem ainda não tem senha (entrou com Google/PIN) precisa ter entrado há menos de 15 min.
+    if (!usuario.senha_hash && !loginRecente(usuario)) {
+      return jsonResponse({ ok: false, codigo: "reautenticar", error: "Por segurança, saia e entre de novo para criar a senha." }, 403);
+    }
+    if (usuario.senha_hash) {
+      const sqlT = getSql(env);
+      const r = await reservarTentativa(sqlT, usuario.id, "login");
+      if (r.bloqueado || r.n > MAX_TENTATIVAS) return jsonResponse({ ok: false, error: "Muitas tentativas erradas. Tente mais tarde." }, 429);
+      if (!(senhaAtual && (await verificarSenha(String(senhaAtual), usuario.senha_hash)))) {
+        if (r.n >= MAX_TENTATIVAS) await bloquearTentativas(sqlT, usuario.id, "login", r.rodadas, duracaoBloqueioMin);
+        return jsonResponse({ ok: false, error: "A senha atual não confere." }, 403);
+      }
     }
     const sql = getSql(env);
     const senhaHash = await hashSenha(novaSenha);

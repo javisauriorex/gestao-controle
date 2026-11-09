@@ -6,6 +6,15 @@
 // ============================================================
 
 const enc = new TextEncoder();
+
+// Bloco D (SSRF): só aceitamos endereços dos serviços de push dos navegadores.
+// Sem isso, alguém poderia cadastrar qualquer URL e fazer o nosso servidor "bater" nela.
+const HOSTS_PUSH = ["fcm.googleapis.com", "android.googleapis.com", "updates.push.services.mozilla.com"];
+const SUFIXOS_PUSH = [".push.services.mozilla.com", ".notify.windows.com", ".push.apple.com"];
+export function hostDePushValido(host) {
+  const h = String(host || "").toLowerCase();
+  return HOSTS_PUSH.includes(h) || SUFIXOS_PUSH.some((s) => h.endsWith(s));
+}
 const CONTATO = "mailto:suporte@gestaoecontrole.app.br";
 
 export function b64url(bytes) {
@@ -84,6 +93,7 @@ export async function cifrar(texto, p256dhB64, authB64) {
 // Manda UMA notificação. Devolve o status HTTP (404/410 = inscrição morta → apagar).
 export async function enviarPush(vapid, inscricao, mensagem, jwtCache = new Map()) {
   const url = new URL(inscricao.endpoint);
+  if (url.protocol !== "https:" || !hostDePushValido(url.hostname)) return 410; // inscrição suspeita: tratada como morta
   const aud = url.origin;
   if (!jwtCache.has(aud)) jwtCache.set(aud, await jwtVapid(vapid, aud));
   const corpo = await cifrar(JSON.stringify(mensagem), inscricao.p256dh, inscricao.auth);

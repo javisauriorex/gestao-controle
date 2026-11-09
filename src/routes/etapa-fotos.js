@@ -2,7 +2,7 @@ import { getSql } from "../lib/db.js";
 import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
-import { apagarDoKV } from "../lib/arquivos.js";
+import { apagarDoKV, vinculoDoArquivo } from "../lib/arquivos.js";
 
 // Galeria de fotos de avanço por etapa — livre, várias fotos, independente do check "concluída".
 // Usa o nível do módulo "etapas".
@@ -14,8 +14,8 @@ export default async function etapaFotosHandler(req, env, ctx) {
 
   if (req.method === "GET") {
     const etapaId = url.searchParams.get("etapa_id");
-    let obraId = url.searchParams.get("obra_id");
-    if (!obraId && etapaId) obraId = await obraDoRegistro(sql, "etapa", etapaId);
+    // Bloco D (IDOR): com etapa_id, a obra sai SEMPRE da própria etapa (nunca do que o navegador manda).
+    let obraId = etapaId ? await obraDoRegistro(sql, "etapa", etapaId) : url.searchParams.get("obra_id");
     if (!obraId) return jsonResponse({ ok: false, error: "etapa_id ou obra_id é obrigatório" }, 400);
     const { nivel, obra } = await nivelNaObra(sql, usuario, obraId, "etapas", env);
     if (!obra) return semAcesso();
@@ -45,6 +45,8 @@ export default async function etapaFotosHandler(req, env, ctx) {
     // Só dá para vincular um arquivo que VOCÊ acabou de enviar (impede anexar arquivo alheio para lê-lo).
     const meta = (await env.ARQUIVOS.getWithMetadata(arquivoId, "text")).metadata;
     if (!meta || meta.por !== usuario.id) return jsonResponse({ ok: false, error: "arquivo inválido" }, 400);
+    // Bloco D: um arquivo só pode ser vinculado UMA vez (senão apagar um registro quebrava o outro).
+    if (await vinculoDoArquivo(sql, arquivoId)) return jsonResponse({ ok: false, error: "arquivo já usado" }, 400);
     const rows = await sql`
       INSERT INTO etapa_fotos (etapa_id, arquivo_id, criado_por, rank_autor) VALUES (${etapaId}, ${arquivoId}, ${usuario.id}, ${usuario.rank}) RETURNING *
     `;

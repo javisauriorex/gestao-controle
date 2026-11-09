@@ -1,6 +1,7 @@
 import { getSql } from "../lib/db.js";
 import { registrarEvento } from "../lib/eventos.js";
-import { getUsuario, jsonResponse, podeAsignarRank, ehSuperior, podeMudarRanks } from "../lib/auth.js";
+import { getUsuario, jsonResponse, podeAsignarRank, ehSuperior, podeMudarRanks, MODULOS_PERMISSAO, NIVEIS } from "../lib/auth.js";
+import { emailValido, textoLimpo } from "./convite-link.js";
 import { nivelNaObra, podeVer, veTodasAsObras } from "../lib/acesso.js";
 
 // Data de hoje no Brasil (AAAA-MM-DD), para a presença marcada pela própria pessoa.
@@ -102,13 +103,14 @@ export default async function equipeHandler(req, env, ctx) {
 
     if (!obraId || !email) return jsonResponse({ ok: false, error: "faltam dados" }, 400);
 
-    const emailNorm = email.toLowerCase();
+    const emailNorm = String(email).trim().toLowerCase();
+    if (!emailValido(emailNorm)) return jsonResponse({ ok: false, error: "E-mail inválido." }, 400);
     const existentes = await sql`SELECT * FROM usuarios WHERE email = ${emailNorm}`;
 
     if (existentes.length > 0) {
       const membro = existentes[0];
       if (membro.empresa_id !== usuario.empresa_id || membro.removido_em) {
-        return jsonResponse({ ok: false, error: "este email já pertence a outra empresa" }, 409);
+        return jsonResponse({ ok: false, error: "Não foi possível adicionar este e-mail. Use \"Novo por link\"." }, 409);
       }
       if (usuario.rank > 2 && membro.rank <= usuario.rank) {
         return jsonResponse({ ok: false, error: "só pode adicionar pessoas de rank abaixo do seu" }, 403);
@@ -150,6 +152,13 @@ export default async function equipeHandler(req, env, ctx) {
 
     // Editar integrante
     if (data === undefined) {
+      // Bloco D: mudar rank/função/bloqueios exige "editar" na Equipe desta obra.
+      const { nivel: nivelEquipe } = await nivelNaObra(sql, usuario, atual.obra_id, "equipe", env);
+      if (nivelEquipe !== "editar") return jsonResponse({ ok: false, error: "seu acesso à Equipe desta obra não permite editar" }, 403);
+      if (body.excecaoModulos && (typeof body.excecaoModulos !== "object" || Array.isArray(body.excecaoModulos)
+        || Object.entries(body.excecaoModulos).some(([m, n]) => !MODULOS_PERMISSAO.includes(m) || !NIVEIS.includes(n)))) {
+        return jsonResponse({ ok: false, error: "bloqueio inválido" }, 400);
+      }
       const pessoas = await sql`SELECT * FROM usuarios WHERE id = ${atual.usuario_id} AND empresa_id = ${usuario.empresa_id}`;
       if (pessoas.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
       const alvo = pessoas[0];
@@ -176,7 +185,7 @@ export default async function equipeHandler(req, env, ctx) {
       if (body.excecaoModulos !== undefined) {
         await sql`UPDATE equipe SET excecao_modulos = ${body.excecaoModulos ? JSON.stringify(body.excecaoModulos) : null} WHERE id = ${id}`;
       }
-      if (body.funcao !== undefined) await sql`UPDATE equipe SET funcao = ${String(body.funcao || "").trim()} WHERE id = ${id}`;
+      if (body.funcao !== undefined) await sql`UPDATE equipe SET funcao = ${textoLimpo(body.funcao, 60)} WHERE id = ${id}`;
 
       const membros = await sql`
         SELECT e.*, u.email, u.nome, u.rank, u.removido_em FROM equipe e

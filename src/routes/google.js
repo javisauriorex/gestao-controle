@@ -1,4 +1,4 @@
-import { loginOuCriarComGoogle, CABECALHOS_SEGURANCA } from "../lib/auth.js";
+import { loginOuCriarComGoogle, CABECALHOS_SEGURANCA, CSP_PAGINA_WORKER } from "../lib/auth.js";
 
 function b64urlDecode(str) {
   str = str.replace(/-/g, "+").replace(/_/g, "/");
@@ -93,8 +93,15 @@ function paginaHtml(body) {
       "cache-control": "no-store",
       ...CABECALHOS_SEGURANCA,
       "referrer-policy": "no-referrer",
+      "content-security-policy": CSP_PAGINA_WORKER,
     },
   });
+}
+
+// Bloco D (A1): texto que vai DENTRO de <script>. JSON.stringify não escapa "<", então um nome como
+// "</script><script>..." fecharia o script e rodaria código. Escapamos <, > e & como \uXXXX.
+function paraScript(v) {
+  return JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 }
 
 function paginaSucesso(token, usuario) {
@@ -103,7 +110,7 @@ function paginaSucesso(token, usuario) {
     <p>Entrando...</p>
     <script>
       try {
-        localStorage.setItem("gc-session", ${JSON.stringify(sessao)});
+        localStorage.setItem("gc-session", ${paraScript(sessao)});
       } catch (e) {}
       location.href = "/";
     </script>

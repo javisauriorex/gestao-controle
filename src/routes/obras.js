@@ -61,6 +61,9 @@ export default async function obrasHandler(req, env, ctx) {
       endereco = null,
       tipo = null,
     } = await req.json();
+    if (estado !== null && estado !== undefined && !["ativa", "pausada", "concluida"].includes(estado)) {
+      return jsonResponse({ ok: false, error: "estado inválido" }, 400);
+    }
     if (novoResponsavelId && !(await ativoNaEmpresa(sql, novoResponsavelId, usuario.empresa_id))) {
       return jsonResponse({ ok: false, error: "responsável inválido" }, 400);
     }

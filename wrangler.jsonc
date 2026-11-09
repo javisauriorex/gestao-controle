@@ -7,7 +7,7 @@
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } },
   "assets": {
     "directory": "./",
-    "not_found_handling": "single-page-application",
+    "not_found_handling": "none",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/manual", "/.well-known/assetlinks.json", "/confirmar-email", "/redefinir-senha"]
   },

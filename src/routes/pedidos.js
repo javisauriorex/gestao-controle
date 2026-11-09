@@ -107,7 +107,7 @@ export default async function pedidosHandler(req, env, ctx) {
     const oQue = `"${String(p.descricao).slice(0, 60)}${p.quantidade ? ` (${p.quantidade})` : ""}"`;
     const avisar = (acao, texto, afetadoId) => registrarEvento(sql, usuario, { env, ctx }, { obraId: p.obra_id, categoria: "pedidos", acao, alvoId: p.id, texto, afetadoId });
 
-    if (p.remetente_id === usuario.id && p.status === "pendente") {
+    if (p.remetente_id === usuario.id && p.status === "pendente" && podeReceber(acesso.nivel)) {
       if (status === "atendido") status = "entregue"; // compatibilidade com a tela antiga
       if (status === "entregue") {
         const rows = await sql`UPDATE pedidos SET status = 'aguardando', entregue_em = ${agora} WHERE id = ${id} RETURNING *`;
@@ -143,7 +143,10 @@ export default async function pedidosHandler(req, env, ctx) {
       SELECT p.*, COALESCE(p.rank_autor, u.rank) AS rank_criador FROM pedidos p JOIN usuarios u ON u.id = p.criado_por WHERE p.id = ${id}
     `;
     if (alvos.length === 0) return jsonResponse({ ok: false, error: "não encontrado" }, 404);
-    if (!(await nivelNaObra(sql, usuario, alvos[0].obra_id, MODULO_DO_TIPO[alvos[0].tipo], env)).obra) return semAcesso();
+    const acessoDel = await nivelNaObra(sql, usuario, alvos[0].obra_id, MODULO_DO_TIPO[alvos[0].tipo], env);
+    if (!acessoDel.obra) return semAcesso();
+    // Bloco D: quem só visualiza (ex.: Estagiário) não cancela pedidos.
+    if (!podeReceber(acessoDel.nivel)) return jsonResponse({ ok: false, error: "seu acesso a este módulo não permite cancelar pedidos" }, 403);
     if (!podeModificar(usuario, alvos[0].rank_criador, alvos[0].criado_por)) {
       return jsonResponse({ ok: false, error: "só quem criou o pedido ou um superior dele pode cancelar" }, 403);
     }

@@ -3,7 +3,7 @@ import { getUsuario, jsonResponse, emitirToken, reservarIds, podeAsignarRank } f
 import { nivelNaObra } from "../lib/acesso.js";
 import { cpfHash, camposCpf, temCpf, cpfConfere, hashPin, conferirPin } from "../lib/cpf.js";
 import { TERMOS_VERSAO, registrarAcesso, duracaoBloqueioMin, textoEspera } from "../lib/legal.js";
-import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, MSG_IP_BLOQUEADO } from "../lib/limites.js";
+import { falhasDoIp, LIMITE_FALHAS_IP_HORA, registrarFalha, MSG_IP_BLOQUEADO, reservarTentativa, bloquearTentativas } from "../lib/limites.js";
 import { turnstileOk, MSG_TURNSTILE, FALHAS_PARA_PEDIR_TURNSTILE } from "../lib/turnstile.js";
 
 // ============================================================
@@ -35,15 +35,20 @@ export function cpfValido(cpf) {
 
 // Devolve mensagem de erro, ou null se o PIN serve.
 export function problemaPin(pin, cpf) {
+  // Bloco D (09/11/2026): PIN de 6 números para todos (antes 4).
   const p = String(pin || "");
-  if (!/^\d{4}$/.test(p)) return "O PIN precisa ter exatamente 4 números.";
-  if (/^(\d)\1{3}$/.test(p)) return "PIN muito fácil (números repetidos). Escolha outro.";
-  const seq = "0123456789012", inv = "9876543210987";
+  if (!/^\d{6}$/.test(p)) return "O PIN precisa ter exatamente 6 números.";
+  if (/^(\d)\1{5}$/.test(p)) return "PIN muito fácil (números repetidos). Escolha outro.";
+  if (/^(\d\d)\1\1$/.test(p) || /^(\d{3})\1$/.test(p)) return "PIN muito fácil (padrão repetido, como 121212 ou 123123). Escolha outro.";
+  const seq = "01234567890123456", inv = "98765432109876543";
   if (seq.includes(p) || inv.includes(p)) return "PIN muito fácil (sequência). Escolha outro.";
   const c = limparCpf(cpf);
-  if (c && (c.endsWith(p) || c.startsWith(p))) return "O PIN não pode ser parte do seu CPF — qualquer um que tenha seu CPF saberia.";
+  if (c && (c.includes(p))) return "O PIN não pode ser parte do seu CPF — qualquer um que tenha seu CPF saberia.";
   return null;
 }
+
+export { textoLimpo, emailValido } from "../lib/validar.js";
+import { textoLimpo, emailValido } from "../lib/validar.js";
 
 function gerarToken() {
   const b = crypto.getRandomValues(new Uint8Array(24));
@@ -105,11 +110,12 @@ export async function criarConviteLink(req, env) {
   const acesso = await nivelNaObra(sql, usuario, obraId, "equipe", env);
   if (!acesso.obra) return jsonResponse({ ok: false, error: "obra não encontrada ou você não está na equipe" }, 404);
   if (acesso.nivel !== "editar") return jsonResponse({ ok: false, error: "seu acesso à Equipe desta obra não permite convidar" }, 403);
-  const tel = String(telefone || "").replace(/\D/g, "") || null;
+  const tel = String(telefone || "").replace(/\D/g, "").slice(0, 20) || null;
   const emailNorm = email ? String(email).trim().toLowerCase() : null;
+  if (emailNorm && !emailValido(emailNorm)) return jsonResponse({ ok: false, error: "E-mail inválido." }, 400);
   const rows = await sql`
     INSERT INTO convites (empresa_id, email, nome, telefone, rank, funcao, obra_id, criado_por, token, expira_em)
-    VALUES (${usuario.empresa_id}, ${emailNorm}, ${String(nome).trim()}, ${tel}, ${Number(rank)}, ${funcao || ""}, ${obraId}, ${usuario.id}, ${token}, ${expira})
+    VALUES (${usuario.empresa_id}, ${emailNorm}, ${textoLimpo(nome, 120)}, ${tel}, ${Number(rank)}, ${textoLimpo(funcao, 60)}, ${obraId}, ${usuario.id}, ${token}, ${expira})
     RETURNING *
   `;
   return jsonResponse({ ok: true, convite: rows[0], token });
@@ -167,26 +173,39 @@ export async function aceitarConvite(req, env) {
   if (probPin) return jsonResponse({ ok: false, error: probPin }, 400);
   const pinHash = await hashPin(env, pin);
   const campos = await camposCpf(env, cpf);
+  // Bloco D: "pega" o convite de forma atômica — dois toques simultâneos no mesmo link não criam duas contas.
+  const pegou = await sql`UPDATE convites SET aceito = true WHERE id = ${convite.id} AND aceito = false RETURNING id`;
+  if (pegou.length === 0) return jsonResponse({ ok: false, error: "Este link já foi usado. Peça um novo a quem te convidou." }, 409);
+  const devolver = () => sql`UPDATE convites SET aceito = false WHERE id = ${convite.id}`;
+  try {
+    return await usarConvite(req, env, sql, convite, cpf, pinHash, campos);
+  } catch (e) {
+    await devolver().catch(() => {});
+    throw e;
+  }
+}
 
+async function usarConvite(req, env, sql, convite, cpf, pinHash, campos) {
+  const devolver = () => sql`UPDATE convites SET aceito = false WHERE id = ${convite.id}`;
   // --- Novo PIN para quem já tem conta ---
   if (convite.usuario_id) {
     const us = await sql`SELECT * FROM usuarios WHERE id = ${convite.usuario_id}`;
-    if (us.length === 0) return jsonResponse({ ok: false, error: "Conta não encontrada." }, 404);
+    if (us.length === 0) { await devolver(); return jsonResponse({ ok: false, error: "Conta não encontrada." }, 404); }
     const u = us[0];
-    if (u.removido_em) return jsonResponse({ ok: false, error: "Conta não encontrada." }, 404);
+    if (u.removido_em) { await devolver(); return jsonResponse({ ok: false, error: "Conta não encontrada." }, 404); }
     // O CPF tem que ser o da conta, ou o que o chefe fixou ao gerar o link. Link sem nenhum dos dois não serve (S2).
     const fixoNoLink = { cpf: convite.cpf, cpf_hash: convite.cpf_hash };
     const referencia = temCpf(u) ? u : temCpf(fixoNoLink) ? fixoNoLink : null;
-    if (!referencia) return jsonResponse({ ok: false, error: "Este link é antigo. Peça um Novo PIN ao seu chefe." }, 400);
-    if (!(await cpfConfere(env, referencia, cpf))) return jsonResponse({ ok: false, error: "Este CPF não é o cadastrado nesta conta." }, 400);
+    if (!referencia) { await devolver(); return jsonResponse({ ok: false, error: "Este link é antigo. Peça um Novo PIN ao seu chefe." }, 400); }
+    if (!(await cpfConfere(env, referencia, cpf))) { await devolver(); return jsonResponse({ ok: false, error: "Este CPF não é o cadastrado nesta conta." }, 400); }
     if (!temCpf(u)) {
       const dono = await sql`SELECT id FROM usuarios WHERE (cpf_hash = ${campos.cpf_hash} OR cpf = ${cpf}) AND id <> ${u.id}`;
-      if (dono.length > 0) return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409);
+      if (dono.length > 0) { await devolver(); return jsonResponse({ ok: false, error: "Este CPF já está em outra conta." }, 409); }
     }
     // Novo PIN = recuperação de acesso: as sessões antigas (ex.: celular perdido) caem (S8).
     const [rows] = await sql.transaction([
       sql`
-        UPDATE usuarios SET cpf = ${campos.cpf}, cpf_hash = ${campos.cpf_hash}, cpf_mascarado = ${campos.cpf_mascarado}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL,
+        UPDATE usuarios SET cpf = ${campos.cpf}, cpf_hash = ${campos.cpf_hash}, cpf_mascarado = ${campos.cpf_mascarado}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL, pin_fraco = false,
           termos_versao = ${TERMOS_VERSAO}, termos_aceito_em = now(), sessao_versao = sessao_versao + 1
         WHERE id = ${u.id} RETURNING *
       `,
@@ -199,11 +218,11 @@ export async function aceitarConvite(req, env) {
   // --- Convite novo ---
   const jaExiste = await sql`SELECT id FROM usuarios WHERE cpf_hash = ${campos.cpf_hash} OR cpf = ${cpf}`;
   if (jaExiste.length > 0) {
-    return jsonResponse({ ok: false, error: "Este CPF já tem conta. Entre com CPF e PIN, ou peça um 'Novo PIN' ao seu chefe." }, 409);
+    { await devolver(); return jsonResponse({ ok: false, error: "Este CPF já tem conta. Entre com CPF e PIN, ou peça um 'Novo PIN' ao seu chefe." }, 409); }
   }
   if (convite.email) {
     const porEmail = await sql`SELECT id FROM usuarios WHERE email = ${convite.email}`;
-    if (porEmail.length > 0) return jsonResponse({ ok: false, error: "Este email já tem conta. Entre normalmente." }, 409);
+    if (porEmail.length > 0) { await devolver(); return jsonResponse({ ok: false, error: "Este email já tem conta. Entre normalmente." }, 409); }
   }
   // Tudo ou nada (C1): conta nova + entrada na equipe + convite apagado (guardava nome/telefone/email).
   const [uid] = await reservarIds(sql, "usuarios");
@@ -228,7 +247,7 @@ export async function aceitarConvite(req, env) {
   } catch (e) {
     // Dois toques ao mesmo tempo no mesmo link: o segundo esbarra no CPF/e-mail único e não cria conta duplicada.
     if (String(e.code || e.message).includes("23505") || /duplicate key/i.test(String(e.message))) {
-      return jsonResponse({ ok: false, error: "Esta conta já foi criada. Entre com CPF e PIN." }, 409);
+      { await devolver(); return jsonResponse({ ok: false, error: "Esta conta já foi criada. Entre com CPF e PIN." }, 409); }
     }
     throw e;
   }
@@ -243,7 +262,7 @@ export async function loginCpf(req, env) {
   const { cpf: cpfBruto, pin, turnstile } = await req.json();
   const cpf = limparCpf(cpfBruto);
   const erroGenerico = jsonResponse({ ok: false, error: "CPF ou PIN incorretos." }, 401);
-  if (cpf.length !== 11 || !pin) return erroGenerico;
+  if (cpf.length !== 11 || !/^(\d{4}|\d{6})$/.test(String(pin || ""))) return erroGenerico; // 4 = PIN antigo (o app pede trocar)
   const falhas = await falhasDoIp(sql, req);
   if (falhas >= LIMITE_FALHAS_IP_HORA) return jsonResponse({ ok: false, error: MSG_IP_BLOQUEADO }, 429);
   if (falhas >= FALHAS_PARA_PEDIR_TURNSTILE && !(await turnstileOk(env, req, turnstile))) {
@@ -255,30 +274,32 @@ export async function loginCpf(req, env) {
   if (rows.length === 0 || !rows[0].pin_hash) { await registrarFalha(sql, req); return erroGenerico; }
   const u = rows[0];
 
-  if (u.pin_bloqueado_ate && new Date(u.pin_bloqueado_ate) > new Date()) {
-    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(u.pin_bloqueado_ate)}, ou peça um Novo PIN ao seu chefe.` }, 429);
+  // A2 (Bloco D): reserva a tentativa ANTES de conferir — sem "corrida" entre pedidos simultâneos.
+  const r = await reservarTentativa(sql, u.id, "pin");
+  if (r.bloqueado) {
+    const [b] = await sql`SELECT pin_bloqueado_ate FROM usuarios WHERE id = ${u.id}`;
+    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Tente de novo em ${textoEspera(b.pin_bloqueado_ate)}, ou peça um Novo PIN ao seu chefe.` }, 429);
+  }
+  if (r.n > MAX_TENTATIVAS) {
+    const min = await bloquearTentativas(sql, u.id, "pin", r.rodadas, duracaoBloqueioMin);
+    return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${min >= 60 ? min / 60 + " h" : min + " min"}.` }, 429);
   }
 
   const { ok, atualizar } = await conferirPin(env, pin, u.pin_hash);
   if (!ok) {
     await registrarFalha(sql, req);
-    const tent = (u.pin_tentativas || 0) + 1;
-    if (tent >= MAX_TENTATIVAS) {
+    if (r.n >= MAX_TENTATIVAS) {
       // Bloqueio progressivo: 15 min → 1 h → 24 h (zera ao acertar ou com Novo PIN).
-      const rodadas = u.pin_rodadas || 0;
-      const min = duracaoBloqueioMin(rodadas);
-      await sql`UPDATE usuarios SET pin_tentativas = 0, pin_rodadas = ${rodadas + 1},
-        pin_bloqueado_ate = now() + (${min} * interval '1 minute') WHERE id = ${u.id}`;
+      const min = await bloquearTentativas(sql, u.id, "pin", r.rodadas, duracaoBloqueioMin);
       return jsonResponse({ ok: false, error: `Muitas tentativas erradas. Bloqueado por ${min >= 60 ? min / 60 + " h" : min + " min"}.` }, 429);
     }
-    await sql`UPDATE usuarios SET pin_tentativas = ${tent} WHERE id = ${u.id}`;
     return erroGenerico;
   }
 
   // Login certo: aproveita para converter PIN antigo e CPF em claro para o formato novo (C4).
   const novoPin = atualizar ? await hashPin(env, pin) : u.pin_hash;
   const c = u.cpf && env.PIN_PEPPER ? await camposCpf(env, u.cpf) : { cpf: u.cpf, cpf_hash: u.cpf_hash, cpf_mascarado: u.cpf_mascarado };
-  await sql`UPDATE usuarios SET pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL, pin_hash = ${novoPin},
+  await sql`UPDATE usuarios SET pin_tentativas = 0, pin_rodadas = 0, pin_bloqueado_ate = NULL, pin_hash = ${novoPin}, pin_fraco = ${String(pin).length < 6},
     cpf = ${c.cpf}, cpf_hash = ${c.cpf_hash}, cpf_mascarado = ${c.cpf_mascarado} WHERE id = ${u.id}`;
   await registrarAcesso(sql, req, u.id, "cpf");
   return jsonResponse(await emitirSessao(u, env));

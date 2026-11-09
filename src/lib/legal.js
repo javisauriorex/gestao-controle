@@ -26,6 +26,7 @@ async function faxina(sql) {
   await sql`DELETE FROM tokens_email WHERE criado_em < now() - interval '7 days'`;
   await sql`DELETE FROM falhas_login WHERE criado_em < now() - interval '1 day'`;
   await sql`DELETE FROM uploads WHERE criado_em < now() - interval '3 days'`;
+  await sql`DELETE FROM contadores WHERE janela < now() - interval '3 days'`;
 }
 
 // Bloqueio progressivo: 5 erros → 15 min; a próxima rodada → 1 h; depois → 24 h.

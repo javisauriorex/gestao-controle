@@ -30,6 +30,7 @@ import avisos from "./routes/avisos.js";
 import push from "./routes/push.js";
 import { enviarBackup } from "./lib/backup.js";
 import { getSql } from "./lib/db.js";
+import { jsonResponse, CABECALHOS_SEGURANCA } from "./lib/auth.js";
 
 const ROTAS = {
   "/api/auth/login": login,
@@ -88,21 +89,26 @@ export default {
 
     if (url.pathname.startsWith("/api/")) {
       const handler = ROTAS[url.pathname];
-      if (!handler) {
-        return new Response(JSON.stringify({ ok: false, error: "not found" }), {
-          status: 404,
-          headers: { "content-type": "application/json" },
-        });
+      if (!handler) return jsonResponse({ ok: false, error: "not found" }, 404);
+      // Bloco D (A3): tamanho máximo do pedido. Só o envio de arquivo (foto/documento) pode ser grande.
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+        const max = url.pathname === "/api/arquivo-set" ? 9 * 1024 * 1024 : 64 * 1024;
+        const declarado = Number(request.headers.get("content-length") || 0);
+        if (declarado > max) return jsonResponse({ ok: false, error: "Conteúdo grande demais." }, 413);
+        const corpo = await request.arrayBuffer();
+        if (corpo.byteLength > max) return jsonResponse({ ok: false, error: "Conteúdo grande demais." }, 413);
+        request = new Request(request, { body: corpo });
       }
       try {
         return await handler(request, env, ctx);
       } catch (err) {
         // O detalhe fica só no log do Cloudflare; o navegador recebe uma mensagem genérica.
         console.error("Erro em", url.pathname, err);
-        return new Response(JSON.stringify({ ok: false, error: "erro interno do servidor" }), {
-          status: 500,
-          headers: { "content-type": "application/json" },
-        });
+        // Texto acima do tamanho permitido (CHECK do banco, Bloco D): resposta clara em vez de "erro interno".
+        if (String(err && (err.code || err.message)).includes("23514") || /check constraint/i.test(String(err && err.message))) {
+          return jsonResponse({ ok: false, error: "Texto grande demais ou valor inválido." }, 400);
+        }
+        return jsonResponse({ ok: false, error: "erro interno do servidor" }, 500);
       }
     }
 
@@ -113,9 +119,15 @@ export default {
       if (url.pathname === "/redefinir-senha") return await paginaRedefinirSenha(request, env);
     } catch (err) {
       console.error("Erro em", url.pathname, err);
-      return new Response("Erro interno. Tente de novo em instantes.", { status: 500 });
+      return new Response("Erro interno. Tente de novo em instantes.", { status: 500, headers: { "content-type": "text/plain; charset=utf-8", ...CABECALHOS_SEGURANCA } });
     }
 
-    return env.ASSETS.fetch(request);
+    // Bloco D: endereço que não é arquivo nem rota do app → 404 de verdade (antes devolvia o app inteiro).
+    // Robôs que testam /wp-login.php, /.env etc. deixam de contar como "visita" e não recebem nada.
+    const r = await env.ASSETS.fetch(request);
+    if (r.status === 404) {
+      return new Response("Não encontrado.", { status: 404, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600", ...CABECALHOS_SEGURANCA } });
+    }
+    return r;
   },
 };

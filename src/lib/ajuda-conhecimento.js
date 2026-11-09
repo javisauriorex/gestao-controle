@@ -66,13 +66,13 @@ Permissões padrão (a empresa pode mudar):
     titulo: "Como entrar no aplicativo",
     para: "todos",
     texto: `Há três formas de entrar:
-1. CPF + PIN: para quem recebeu convite pelo WhatsApp. Digite seu CPF e o PIN de 4 números que você criou.
+1. CPF + PIN: para quem recebeu convite pelo WhatsApp. Digite seu CPF e o PIN de 6 números que você criou (quem ainda tem PIN de 4 entra com ele e o app pede para criar um de 6).
 2. E-mail e senha. Ao criar a conta assim, enviamos um link de confirmação ao seu e-mail: abra o e-mail e toque no link antes de entrar pela primeira vez (olhe também o spam). Não chegou? Tente entrar com e-mail e senha e toque em "Reenviar e-mail".
 3. Entrar com Google (botão branco com o "G" colorido).
 
-Convite pelo WhatsApp: toque no link recebido, digite seu CPF, crie um PIN de 4 números (duas vezes), aceite os Termos e toque em Entrar. O link vale 7 dias e só pode ser usado uma vez. Se venceu, peça um novo a quem te convidou.
+Convite pelo WhatsApp: toque no link recebido, digite seu CPF, crie um PIN de 6 números (duas vezes), aceite os Termos e toque em Entrar. O link vale 7 dias e só pode ser usado uma vez. Se venceu, peça um novo a quem te convidou.
 
-Regras do PIN: 4 números; não pode ser repetido (1111), sequência (1234) nem parte do seu CPF. Não conte seu PIN a ninguém.
+Regras do PIN: 6 números; não pode ser repetido (111111), padrão (121212, 123123), sequência (123456) nem parte do seu CPF. Depois de 2 erros, o app pede para confirmar que você não é um robô. Não conte seu PIN a ninguém.
 
 Tranca rápida: depois de entrar, o app pode oferecer usar a digital ou o rosto do celular para abrir mais rápido. A biometria fica só no seu celular.
 
@@ -90,7 +90,7 @@ Esqueceu o PIN (entra com CPF)? A recuperação é feita por um link no WhatsApp
 
 1. Peça ao Dono ou ao Engenheiro Chefe um "Novo PIN".
 2. Ele abre a gaveta Equipe, toca na chave 🔑 ao lado do seu nome e te manda o link pelo WhatsApp. Se você ainda não tinha CPF cadastrado, ele vai precisar informar o seu CPF: o link só funciona com esse CPF.
-3. Toque no link, digite seu CPF e crie um PIN novo de 4 números.
+3. Toque no link, digite seu CPF e crie um PIN novo de 6 números.
 4. Pronto: entre com CPF + PIN.
 
 Quem entra com Google não tem senha do G&C: se perder o acesso ao Google, peça um Novo PIN ao seu chefe.

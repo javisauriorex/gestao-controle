@@ -2,7 +2,7 @@ import { getSql } from "../lib/db.js";
 import { registrarEvento } from "../lib/eventos.js";
 import { getUsuario, jsonResponse, podeModificar } from "../lib/auth.js";
 import { nivelNaObra, podeVer, podeEditar, semAcesso, soVisualizar, obraDoRegistro } from "../lib/acesso.js";
-import { apagarDoKV } from "../lib/arquivos.js";
+import { apagarDoKV, vinculoDoArquivo } from "../lib/arquivos.js";
 
 export default async function documentosHandler(req, env, ctx) {
   const usuario = await getUsuario(req, env);
@@ -29,6 +29,8 @@ export default async function documentosHandler(req, env, ctx) {
     // Só dá para vincular um arquivo que VOCÊ acabou de enviar (impede anexar arquivo alheio para lê-lo).
     const meta = (await env.ARQUIVOS.getWithMetadata(arquivoId, "text")).metadata;
     if (!meta || meta.por !== usuario.id) return jsonResponse({ ok: false, error: "arquivo inválido" }, 400);
+    // Bloco D: um arquivo só pode ser vinculado UMA vez (senão apagar um registro quebrava o outro).
+    if (await vinculoDoArquivo(sql, arquivoId)) return jsonResponse({ ok: false, error: "arquivo já usado" }, 400);
     const rows = await sql`
       INSERT INTO documentos (obra_id, nome, tipo, arquivo_id, criado_por, rank_autor)
       VALUES (${obraId}, ${nome}, ${tipo || ""}, ${arquivoId}, ${usuario.id}, ${usuario.rank})

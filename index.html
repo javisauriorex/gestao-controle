@@ -1106,7 +1106,10 @@ function PdfViewer({ src, nome, onClose }) {
         <span style={{ color: C.ink }} className="text-sm font-bold truncate flex-1 pr-2">{nome}</span>
         <button onClick={onClose} style={{ color: C.ink }} className="text-2xl leading-none px-1">×</button>
       </div>
-      <iframe src={src} title={nome} className="flex-1 w-full border-0" style={{ background: "#fff" }} />
+      {/* Bloco D: só abre PDF de verdade dentro do quadro (nunca HTML ou outro tipo). */}
+      {typeof src === "string" && src.startsWith("data:application/pdf;base64,")
+        ? <iframe src={src} title={nome} className="flex-1 w-full border-0" style={{ background: "#fff" }} />
+        : <p style={{ color: "#fff" }} className="p-6 text-center">Arquivo inválido.</p>}
     </div>
   );
 }
@@ -2188,8 +2191,10 @@ function ConfigDrawer({ usuario, temaEscuro, onAlternarTema, onSair, onClose, on
   );
 }
 
-function MeuPinModal({ usuario, onClose }) {
+function MeuPinModal({ usuario, onClose, forcado }) {
+  // forcado = PIN antigo de 4 números: desde 09/11/2026 o PIN tem 6 (Bloco D). A tela não fecha sem trocar.
   const [cpf, setCpf] = useState("");
+  const [pinAtual, setPinAtual] = useState("");
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
   const [erro, setErro] = useState("");
@@ -2198,39 +2203,49 @@ function MeuPinModal({ usuario, onClose }) {
   const jaTemCpf = !!usuario.cpf_mascarado;
   const salvar = async () => {
     setErro("");
+    if (usuario.tem_pin && !/^\d{4,6}$/.test(pinAtual)) { setErro("Digite seu PIN atual."); return; }
     if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
-    if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
+    if (!/^\d{6}$/.test(pin)) { setErro("O PIN novo precisa ter 6 números."); return; }
     if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
     setSalvando(true);
     try {
-      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ cpf: limparCpf(cpf), pin }) });
+      await apiFetch("/api/usuarios-me", { method: "PATCH", body: JSON.stringify({ cpf: limparCpf(cpf), pin, pinAtual: usuario.tem_pin ? pinAtual : undefined }) });
       setOk(true);
     } catch (err) { setErro(err.message); }
     setSalvando(false);
   };
+  const campoPin = (valor, setValor, extra = {}) => (
+    <input value={valor} onChange={(e) => setValor(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none text-xl tracking-[0.4em] text-center" {...extra} />
+  );
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div style={{ background: C.surface }} className="rounded-lg p-6 w-full max-w-sm shadow-xl">
-        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">📱 {usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</h2>
+        <h2 style={{ color: C.ink }} className="text-lg font-extrabold uppercase tracking-wide mb-1">📱 {forcado ? "PIN novo de 6 números" : usuario.tem_pin ? "Trocar meu PIN" : "Criar meu PIN"}</h2>
         {ok ? (
           <>
-            <p style={{ color: C.green }} className="text-sm my-4">Pronto! Agora você também pode entrar com CPF + PIN.</p>
+            <p style={{ color: C.green }} className="text-sm my-4">Pronto! Na próxima vez, entre com seu CPF e o PIN novo de 6 números.</p>
             <button onClick={onClose} style={{ background: C.teal }} className="w-full text-white font-bold uppercase tracking-wide text-sm rounded py-2.5">Fechar</button>
           </>
         ) : (
           <>
-            <p style={{ color: C.inkMuted }} className="text-xs mb-3">Para entrar com CPF + PIN, sem precisar de email nem Google.</p>
+            <p style={{ color: C.inkMuted }} className="text-xs mb-3">{forcado
+              ? "Para deixar sua conta mais segura, o PIN agora tem 6 números. Crie o seu novo PIN para continuar."
+              : "Para entrar com CPF + PIN, sem precisar de email nem Google."}</p>
+            {usuario.tem_pin && <>
+              <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Seu PIN atual</label>
+              {campoPin(pinAtual, setPinAtual)}
+            </>}
             {/* Quem já tem CPF confirma digitando de novo (o G&C não guarda mais o CPF completo). */}
             <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">{jaTemCpf ? `Confirme seu CPF (${usuario.cpf_mascarado})` : "Seu CPF"}</label>
             <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none tracking-wider" />
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
-            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 mb-3 outline-none text-xl tracking-[0.5em] text-center" />
-            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
-            <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && salvar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-2 mt-1 outline-none text-xl tracking-[0.5em] text-center" />
-            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF.</p>
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN novo (6 números)</label>
+            {campoPin(pin, setPin)}
+            <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN novo</label>
+            {campoPin(pin2, setPin2, { onKeyDown: (e) => e.key === "Enter" && salvar() })}
+            <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 123456, números repetidos (111111, 121212) nem parte do CPF.</p>
             {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
             <div className="flex gap-2 mt-4">
-              <button onClick={onClose} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Cancelar</button>
+              {!forcado && <button onClick={onClose} style={{ borderColor: C.border, color: C.ink }} className="flex-1 border font-bold uppercase tracking-wide text-sm rounded py-2.5">Cancelar</button>}
               <button onClick={salvar} disabled={salvando} style={{ background: C.teal }} className="flex-1 text-white font-bold uppercase tracking-wide text-sm rounded py-2.5 disabled:opacity-50">{salvando ? "..." : "Salvar"}</button>
             </div>
           </>
@@ -3102,7 +3117,7 @@ function LoginScreen({ onLogado, onIrCadastro }) {
   const entrarCpf = async () => {
     setErro("");
     if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
-    if (!/^\d{4}$/.test(pin)) { setErro("O PIN tem 4 números."); return; }
+    if (!/^(\d{4}|\d{6})$/.test(pin)) { setErro("Digite seu PIN (6 números)."); return; }
     setEntrando(true);
     try {
       if (pedeTs && !tsToken) { setErro("Aguarde a verificação \"não sou um robô\" e toque em Entrar de novo."); setEntrando(false); return; }
@@ -3133,8 +3148,8 @@ function LoginScreen({ onLogado, onIrCadastro }) {
           <input value={cpf} onChange={(e) => setCpf(formatarCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-lg tracking-wider" autoFocus />
         </div>
         <div className="mt-3">
-          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN (4 números)</label>
-          <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && entrarCpf()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+          <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">PIN</label>
+          <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => e.key === "Enter" && entrarCpf()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
         </div>
         {pedeTs && <Turnstile onToken={setTsToken} chave={tsChave} />}
         {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
@@ -3219,7 +3234,7 @@ function ConviteScreen({ token, onEntrou, onCancelar }) {
   const confirmar = async () => {
     setErro("");
     if (!cpfValido(cpf)) { setErro("CPF inválido. Confira os números."); return; }
-    if (!/^\d{4}$/.test(pin)) { setErro("O PIN precisa ter 4 números."); return; }
+    if (!/^\d{6}$/.test(pin)) { setErro("O PIN precisa ter 6 números."); return; }
     if (pin !== pin2) { setErro("Os dois PIN não são iguais."); return; }
     if (!aceito) { setErro("Para entrar, aceite os Termos de Uso e a Política de Privacidade."); return; }
     setSalvando(true);
@@ -3251,7 +3266,7 @@ function ConviteScreen({ token, onEntrou, onCancelar }) {
       <LogoTitulo />
       <h2 style={{ color: C.ink }} className="text-lg font-extrabold text-center mt-3">Olá, {info.nome}!</h2>
       {novoPin ? (
-        <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">Crie seu novo PIN de 4 números.</p>
+        <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">Crie seu novo PIN de 6 números.</p>
       ) : (
         <p style={{ color: C.inkMuted }} className="text-sm text-center mb-4">
           Você foi convidado{info.obra ? <> para a obra <b style={{ color: C.ink }}>{info.obra.cliente}</b></> : null} como <b style={{ color: C.ink }}>{RANK_LABELS[info.rank]}</b>{info.funcao ? ` (${info.funcao})` : ""}.
@@ -3263,13 +3278,13 @@ function ConviteScreen({ token, onEntrou, onCancelar }) {
         <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">É o que você vai usar para entrar.</p>
       </div>
       <div className="mt-3">
-        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Crie um PIN (4 números)</label>
-        <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+        <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Crie um PIN (6 números)</label>
+        <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" autoComplete="off" placeholder="••••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
       </div>
       <div className="mt-3">
         <label style={{ color: C.inkMuted }} className="text-xs font-mono uppercase">Repita o PIN</label>
-        <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => e.key === "Enter" && confirmar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
-        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 1234, números repetidos nem parte do CPF. Não conte o PIN para ninguém.</p>
+        <input value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => e.key === "Enter" && confirmar()} type="password" inputMode="numeric" autoComplete="off" placeholder="••••••" style={{ borderColor: C.border, color: C.ink }} className="w-full border rounded px-3 py-3 mt-1 outline-none text-2xl tracking-[0.5em] text-center" />
+        <p style={{ color: C.inkMuted }} className="text-[11px] font-mono mt-1">Não use 123456, números repetidos nem parte do CPF. Não conte o PIN para ninguém.</p>
       </div>
       {erro && <p style={{ color: C.rust }} className="text-xs font-mono mt-2">{erro}</p>}
       <label className="flex items-start gap-2 text-xs mt-3" style={{ color: C.inkMuted }}>
@@ -4170,6 +4185,7 @@ function GestorObras() {
         {showDefinirSenha && <DefinirSenhaModal usuario={usuarioAPI} onClose={() => { setShowDefinirSenha(false); carregarUsuarioAPI(); }} />}
         {showMeusDados && <MeusDadosModal onClose={() => setShowMeusDados(false)} />}
         {showMeuPin && <MeuPinModal usuario={usuarioAPI} onClose={() => { setShowMeuPin(false); carregarUsuarioAPI(); }} />}
+        {!showMeuPin && usuarioAPI.pin_fraco && usuarioAPI.tem_pin && <MeuPinModal usuario={usuarioAPI} forcado onClose={() => { setUsuarioAPI((u) => ({ ...u, pin_fraco: false })); carregarUsuarioAPI(); }} />}
         <div className="fixed top-3 left-1/2 z-[100] flex flex-col gap-2 items-stretch px-4 w-full max-w-sm" style={{ transform: "translateX(-50%)" }}>
           {notificacoes.map((n) => (
             <div key={n.id} style={{ background: C.ink, color: "#fff" }} className="rounded-lg px-4 py-2.5 text-xs font-mono shadow-lg">🔔 {n.texto}</div>
@@ -4207,7 +4223,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
   // Carga do app SEM travar a abertura:
   //  1) a página (splash) termina de carregar sozinha → o Android já tira o ícone dele e mostra o NOSSO splash;
   //  2) só depois baixamos React/Babel e montamos o app por cima.
-  //  3) o código já compilado fica guardado neste aparelho: nas próximas aberturas nem precisa do Babel.
+  //  3) (09/11/2026, Bloco D) NÃO guardamos mais o código compilado no aparelho: se alguém conseguisse
+  //     escrever no armazenamento do navegador, o código dele ficaria "grudado" no app. Compila sempre;
+  //     o Babel fica no cache normal do navegador e o tempo de compilar fica escondido atrás do splash.
   // Compilamos com runtime clássico (React.createElement): o "automático" do Babel gera imports
   // de módulo ES que um <script> normal não executa (tela em branco).
   (function () {
@@ -4218,22 +4236,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(<GestorObras />);
         document.body.appendChild(s);
       });
     }
-    function hash(t) { var h = 2166136261; for (var i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + "-" + t.length; }
     function rodar(code) { var s = document.createElement("script"); s.textContent = code; document.body.appendChild(s); }
     function iniciar() {
+      try { localStorage.removeItem("gc-app-js"); localStorage.removeItem("gc-app-hash"); } catch (e) {} // limpa o cache antigo
       var src = document.getElementById("app-source").textContent;
-      var chave = hash(src), guardado = null;
-      try { if (localStorage.getItem("gc-app-hash") === chave) guardado = localStorage.getItem("gc-app-js"); } catch (e) {}
-      var libs = [carregar("vendor/react.production.min.js"), carregar("vendor/react-dom.production.min.js")];
-      if (!guardado) libs.push(carregar("vendor/babel.min.js"));
-      Promise.all(libs).then(function () {
-        var code = guardado;
-        if (!code) {
-          code = Babel.transform(src, { presets: [["react", { runtime: "classic" }]] }).code;
-          try { localStorage.setItem("gc-app-js", code); localStorage.setItem("gc-app-hash", chave); }
-          catch (e) { try { localStorage.removeItem("gc-app-js"); localStorage.removeItem("gc-app-hash"); } catch (e2) {} }
-        }
-        rodar(code);
+      Promise.all([carregar("vendor/react.production.min.js"), carregar("vendor/react-dom.production.min.js"), carregar("vendor/babel.min.js")]).then(function () {
+        rodar(Babel.transform(src, { presets: [["react", { runtime: "classic" }]] }).code);
         carregar("vendor/jszip.min.js").catch(function () {}); // só para o backup: vem depois, sem pressa
       }).catch(function (e) { console.error(e); if (window.gcFecharSplash) window.gcFecharSplash(); });
     }
